@@ -2,13 +2,40 @@
 
 ## Project Purpose
 
-EdgeSdk will become a daily assistant for Monash Malaysia students. It tracks test dates, assignments, important emails, and school information, reducing time spent on small administrative details so users can focus on significant work.
+Monash Agent will become a daily assistant for Monash Malaysia students. It tracks test dates, assignments, important emails, and school information, reducing time spent on small administrative details so users can focus on significant work. The current productization and resume-evidence direction is documented in `docs/productization-and-resume-plan-draft.md`; treat that file as an editable draft rather than a frozen specification.
 
 ## Product & Engineering Principles
 
 - **Reuse first.** Find mature tools, APIs, and open-source repositories before implementing new capabilities.
 - **Be deliberately lazy.** Design the system, workflows, and agent behavior, but combine proven components rather than rebuilding them.
 - **Keep boundaries clear.** Isolate external services behind replaceable adapters; record licenses and limitations.
+
+## Product Skill Workflow
+
+Use the smallest set of skills required for the current stage. Read each selected skill's complete `SKILL.md` before applying it. Skills support product judgment; they do not turn assumptions, planned metrics, third-party work, or unverified user claims into facts.
+
+### Installed skills for the current stage
+
+- **`create-prd`** — use when creating or revising the MVP PRD. Keep the PRD lean, distinguish evidence from assumptions, define target segments and alternatives, and state non-goals.
+- **`prioritize-features`** — use when selecting MVP scope or changing the backlog. Rank problems and features by user impact, effort, uncertainty, and alignment; record what was deferred and why.
+- **`ai-product-strategy`** — use when deciding where AI belongs, where deterministic rules are preferable, how much autonomy is safe, and where human confirmation or source evidence is required.
+- **`ai-evals`** — use when defining the gold set, failure taxonomy, quality metrics, human/code/LLM evaluation split, or regression process for extraction, classification, deduplication, and risk judgment.
+
+For substantial product decisions, preserve the output or decision record under `docs/`. Do not invoke all four skills automatically for every task.
+
+### Skills to install at later stages
+
+- **UI direction or first interactive prototype:** install and use `anthropics/skills@frontend-design` to establish an intentional visual and interaction direction.
+- **UI implementation review:** install and use `vercel-labs/agent-skills@web-design-guidelines` after usable screens exist; use it to audit accessibility, interaction, forms, loading, empty, and error states. It complements rather than replaces `frontend-design`.
+- **End-to-end product testing:** install and use `currents-dev/playwright-best-practices-skill@playwright-best-practices` once the core flow can run. Cover onboarding/authentication, synchronization, confirmation and correction, reminders, failure states, accessibility, and Electron behavior when applicable.
+- **Real-user research:** only when interviews, surveys, or usability studies are actually approved, install `phuryn/pm-skills@interview-script`. Add `alirezarezvani/claude-skills@ux-researcher-designer` only if deeper journey mapping, persona synthesis, or formal usability research is needed.
+- **Desktop framework:** do not install an Electron-specific skill until Electron is confirmed as the product shell. Re-evaluate the available Electron skills at that point rather than locking an implementation prematurely.
+
+### Skills deliberately deferred
+
+- Do not install growth, marketing, social-media, monetization, or community-operation skills while the project is focused on the product itself.
+- Do not add Dify or Coze skills merely to match job-description keywords; use them only if a confirmed product requirement makes them the right implementation choice.
+- Avoid all-in-one PM frameworks when the focused skills above cover the task; keep the workflow lightweight and artifact-driven.
 
 ## Project Structure & Module Organization
 
