@@ -8,6 +8,8 @@
 >
 > 性质：产品方向与项目证据建设计划，不是最终 PRD、开发排期或已验证结论
 
+> 当前执行入口：产品定义以 [PRD-Monash-Agent.md](PRD-Monash-Agent.md) 为准，阶段顺序与简历证据以 [project-resume-roadmap.md](project-resume-roadmap.md) 为准。本文保留完整分析和备选项。
+
 ## 0. 文档声明
 
 本文档用于指导 Monash Agent 从个人工具和技术验证，逐步发展为一个可运行、可演示、可评测，并有机会接受真实用户验证的正式产品项目。

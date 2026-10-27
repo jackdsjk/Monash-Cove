@@ -2,7 +2,7 @@
 
 ## Project Purpose
 
-Monash Agent will become a daily assistant for Monash Malaysia students. It tracks test dates, assignments, important emails, and school information, reducing time spent on small administrative details so users can focus on significant work. The current productization and resume-evidence direction is documented in `docs/productization-and-resume-plan-draft.md`; treat that file as an editable draft rather than a frozen specification.
+Monash Agent will become a daily assistant for Monash Malaysia students. It tracks test dates, assignments, important emails, and school information, reducing time spent on small administrative details so users can focus on significant work. Start with `docs/README.md`: the current product definition is `docs/PRD-Monash-Agent.md`, the staged execution plan is `docs/project-resume-roadmap.md`, and longer exploration remains in `docs/productization-and-resume-plan-draft.md`.
 
 ## Product & Engineering Principles
 
@@ -39,7 +39,7 @@ For substantial product decisions, preserve the output or decision record under 
 
 ## Project Structure & Module Organization
 
-This repository currently contains only contributor guidance. Use this layout as implementation is added:
+Use this layout as implementation is added:
 
 - `src/` — production modules grouped by feature or API surface.
 - `tests/` — automated tests mirroring `src/`.
