@@ -10,6 +10,7 @@
 | [project-resume-roadmap.md](project-resume-roadmap.md) | 从产品定义到 MVP、评测、Demo 和简历证据的阶段路线 | **当前执行路线** |
 | [information-triage-labeling-guide.md](information-triage-labeling-guide.md) | 真实样本的匿名化、人工标注口径与第一版评测指标 | **当前评测规范** |
 | [value-replay-2026-10-28.md](value-replay-2026-10-28.md) | 第一轮真实数据统计、价值判断及继续/停止标准 | **当前验证记录** |
+| [gold-set-samples-2026-10-28.json](gold-set-samples-2026-10-28.json) / [gold-set-adjudication-2026-10-28.json](gold-set-adjudication-2026-10-28.json) | 55 条匿名改写样本、两轮独立标注与裁决 manifest | **临时评测资产；真人复核待完成** |
 | [productization-and-resume-plan-draft.md](productization-and-resume-plan-draft.md) | 产品化与求职项目建设的完整分析和备选项 | 背景分析，可继续修改 |
 | [ecosystem.md](ecosystem.md) | GitHub 竞品、开源生态与许可证调查 | 调研依据 |
 | [stack.md](stack.md) | 已安装工具、真实接入状态和技术约束 | 技术事实记录 |
