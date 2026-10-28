@@ -1,0 +1,13 @@
+# 第三方代码与本地运行产物：不入库
+refs/
+stack/
+
+# 通用
+node_modules/
+.DS_Store
+*.log
+
+# 环境与密钥：绝不提交
+.env
+.env.*
+!.env.example
