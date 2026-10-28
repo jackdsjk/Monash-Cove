@@ -13,7 +13,7 @@ Everything in this space is one of these. Learn them and the landscape becomes l
 | **Model** | the brain. A function from tokens to tokens. | Claude, GPT, DeepSeek, Gemini |
 | **Harness** | the code around the brain: the loop, the tools, context management, permissions, UI | Claude Code, Codex CLI, Gemini CLI, Aider, OpenHands, Cline |
 | **Framework** | a library for *building* a harness | LangGraph, AutoGen, OpenAI Agents SDK, Pydantic AI, smolagents |
-| **Agent** | a harness + a purpose + (usually) state | your Lumen |
+| **Agent** | a harness + a purpose + (usually) state | your Cove |
 
 **The sentence that matters:** the gap between a model and a great agent is the harness, not the model. Same model, different harness, wildly different product. This is also the answer to "why is your project not just a Claude wrapper" — because you built the harness.
 

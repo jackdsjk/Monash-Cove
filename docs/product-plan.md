@@ -1,4 +1,4 @@
-# Lumen — Product Plan
+# Cove — Product Plan
 
 *Working draft · 24 October 2026 · thinking only, no implementation decisions*
 
@@ -175,7 +175,7 @@ Two things this project teaches that are worth more than the product: how to mod
 
 ## Open questions
 
-1. What is this actually called? The repo says *EdgeSdk*, the conversation says *Lumen*, and the plan needs one name.
+1. What is this actually called? The repo says *EdgeSdk*, the conversation says *Cove*, and the plan needs one name.
 2. Which seven decisions have you or your friends actually faced in the last six months? That answer outranks this entire document.
 3. Which source can we realistically read first, and what happens if we cannot?
 4. Is the first quest visa renewal or housing — whichever you face next?

@@ -1,4 +1,4 @@
-# Lumen 工具包：商业计划
+# Cove 工具包：商业计划
 
 *2026-10-26 · 这是当前生效的计划，取代 [product-plan.md](product-plan.md) 里的"secretary"路线*
 
