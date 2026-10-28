@@ -144,7 +144,21 @@ ontrack commands --json   # 14 KB
 
 ---
 
-## 五、unicorn 的扩展契约
+## 五、Cove 的仓库与发布边界
+
+当前工作区把产品文档和可部署实现分成两个 Git 边界：
+
+| 层 | 位置 / 远端 | 责任 | 发布方式 |
+|---|---|---|---|
+| 产品文档与路线 | `/Users/Admin/Desktop/Monash Agent` | PRD、价值回放、路线、工具接入事实 | 不承载 Cove Worker 代码；`stack/` 被整体忽略 |
+| Cove 实现 | `/Users/Admin/Desktop/Monash Agent/stack/unicorn`，独立仓库 `https://github.com/TuuHub/unicorn.git` | Worker、D1 migrations、MCP door、连接器、安装器和测试 | 以该仓库的已验证 commit 为候选，部署到操作者自己的 Cloudflare 账户 |
+
+产品名是 **Cove**；`unicorn` 仍是当前 Git 仓库、npm package、Worker、D1
+数据库和部分 URL 的兼容性标识。它们不能在没有迁移计划的情况下单独改名。
+因此，修改实现时应在内层仓库提交和发布；修改产品定义或路线时应在父文档仓库记录。
+`npm run setup` 是用户自部署流程，不等于发布一个由维护方统一托管的服务。
+
+## 六、Cove 的扩展契约
 
 ### 加一个新数据源 = 实现两个方法
 
@@ -233,7 +247,7 @@ state.changed  grade.changed  content.changed  notice.posted
 
 ---
 
-## 六、`refs/` 里读什么
+## 七、`refs/` 里读什么
 
 三个都**不装、不进产品**，只读。
 
@@ -247,7 +261,7 @@ state.changed  grade.changed  content.changed  notice.posted
 
 ---
 
-## 七、已知问题
+## 八、已知问题
 
 | 问题 | 状态 |
 |---|---|
@@ -261,7 +275,7 @@ state.changed  grade.changed  content.changed  notice.posted
 
 ---
 
-## 八、下一步
+## 九、下一步
 
 1. **重启 DeepSeek Harness**，确认 `mcp__edstem__*` 工具出现；失败则回滚
    `~/.dsh/profiles/web/cordis.patch.yml`（备份 `cordis.patch.yml.bak-20261026-135653`）。
