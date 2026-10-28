@@ -1,7 +1,12 @@
 {
   "schema_version": "0.1",
   "status": "provisional-agent-assisted",
-  "human_signoff": "pending",
+  "human_signoff": {
+    "status": "approved_for_prototype",
+    "reviewed_at": "2026-10-28",
+    "reviewer_role": "project_owner",
+    "scope": "55 synthetic rewrites"
+  },
   "sample_file": "gold-set-samples-2026-10-28.json",
   "round_files": [
     "gold-set-round1-2026-10-28.json",
