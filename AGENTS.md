@@ -2,7 +2,7 @@
 
 ## Project Purpose
 
-Monash Agent will become a daily assistant for Monash Malaysia students. It tracks test dates, assignments, important emails, and school information, reducing time spent on small administrative details so users can focus on significant work. Start with `docs/README.md`: the current product definition is `docs/PRD-Monash-Agent.md`, the staged execution plan is `docs/project-resume-roadmap.md`, and longer exploration remains in `docs/productization-and-resume-plan-draft.md`.
+The active product is `stack/unicorn`: a self-hosted campus memory layer that ingests Ed, Moodle, Canvas, Gmail, and feeds, then serves the resulting state through MCP to the model client the student already uses. Start with `stack/unicorn/README.md`; current behavior is authoritative in `stack/unicorn/docs/ARCHITECTURE.md`, decisions in `stack/unicorn/docs/ADR.md`, and deployment/onboarding in `stack/unicorn/docs/setup/README.md`.
 
 ## Product & Engineering Principles
 
@@ -39,25 +39,27 @@ For substantial product decisions, preserve the output or decision record under 
 
 ## Project Structure & Module Organization
 
-Use this layout as implementation is added:
+The implemented application lives in `stack/unicorn`:
 
 - `src/` — production modules grouped by feature or API surface.
 - `tests/` — automated tests mirroring `src/`.
-- `assets/` — versioned fixtures or documentation assets.
 - `docs/` — public usage, API, and architecture notes.
+- `migrations/` — ordered Cloudflare D1 migrations.
+- `scripts/` — setup, upgrade, generated-artifact, and credential-push helpers.
 
 Keep generated output in `build/` or `dist/` and out of commits unless a release workflow requires it.
 
 ## Build, Test, and Development Commands
 
-No project scripts exist yet. When tooling lands, document exact commands here and in the README. Before changes, run:
+Run project commands from `stack/unicorn`. Before changes, inspect the worktree; before delivery, run the full check and whitespace validation:
 
 ```text
-git status --short    # inspect the working tree
-git diff --check      # catch whitespace errors
+git status --short
+npm run check
+git diff --check
 ```
 
-Do not assume a package manager or framework until its configuration is committed.
+`npm run upgrade` applies remote D1 migrations and deploys the Worker. Treat it as a production operation; do not run it during local verification.
 
 ## Coding Style & Naming Conventions
 
@@ -65,11 +67,11 @@ Follow the configured formatter and linter. Otherwise use UTF-8 with LF endings,
 
 ## Testing Guidelines
 
-No framework or coverage threshold is configured yet. Add behavior and regression tests under `tests/` once a framework is selected. Name tests for behavior and expected result, such as `refreshes_expired_token` or `handles_invalid_endpoint`.
+Tests use Vitest and mirror production behavior under `tests/`; `npm run check` runs TypeScript validation followed by the full suite. Name tests for behavior and expected result, such as `refreshes_expired_token` or `handles_invalid_endpoint`.
 
 ## Commit & Pull Request Guidelines
 
-This is a newly initialized repository, so no prior convention exists. Use short, imperative subjects such as `Add token reminder workflow` and keep commits focused. Pull requests should explain the change, list validation results, link the relevant issue, and call out API, configuration, or documentation changes. Include screenshots only for rendered interfaces.
+Use short, imperative subjects and keep commits focused. Pull requests should explain the change, list validation results, link the relevant issue, and call out API, configuration, migration, or documentation changes. Include screenshots only for rendered interfaces.
 
 ## Security & Configuration Tips
 
