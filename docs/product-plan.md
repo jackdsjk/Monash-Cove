@@ -140,6 +140,20 @@ And what we concede, permanently: writing, coding, reasoning, summarising, plann
 
 ---
 
+## Implementation base and migration
+
+The first implementation can use `unicorn` as the technical base while Cove validates the product loop. Cove is the product identity; `unicorn` remains an implementation dependency until the replacement work is ready.
+
+The migration is deliberately staged:
+
+1. Keep the current base stable while we validate sources, memory, evidence and cadence.
+2. Add Cove-specific workflows, rules, evaluation cases and user-facing behavior instead of only changing labels.
+3. Move the repository, package metadata, plugin identity and documentation ownership to Cove, while retaining the required upstream license and attribution.
+4. Replace runtime identifiers such as database names, resource namespaces and connector names only with an explicit compatibility and migration path.
+5. Retire the remaining `unicorn` dependency after Cove-owned tests cover the data model, sync behavior, MCP surface and deployment flow.
+
+This keeps the early implementation reversible and makes “Cove is our own product” a verifiable engineering milestone rather than a branding-only change.
+
 ## Risks we should be honest about
 
 1. **Access.** If Monash's systems cannot be read programmatically, the architecture changes and possibly the product does. This is the single riskiest assumption and it is worth one week to test before anything else.
