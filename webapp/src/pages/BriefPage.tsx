@@ -40,7 +40,7 @@ export default function BriefPage() {
       setItems(data.items);
       hydrate(data.items);
     } catch {
-      setError("无法读取本地演示数据。请重试。");
+      setError("无法读取本地数据。请确认本地服务正在运行。");
     } finally {
       setLoading(false);
     }
@@ -68,7 +68,7 @@ export default function BriefPage() {
 
   const subtitle =
     view === "all"
-      ? `共 ${filtered.length} 条匿名样本，按注意力层级分组。`
+      ? `共 ${filtered.length} 条，按注意力层级分组。`
       : state.windowHours === 0
         ? "上次查看后没有新内容。你可以模拟一次同步，或切换到全部内容。"
         : `过去 ${formatWindow(state.windowHours)}，整理了 ${filtered.length} 条更新，其中 ${summary.action} 条需要你处理。`;
@@ -274,7 +274,7 @@ export default function BriefPage() {
 
       <div className="page-footnote">
         <Typography.Text type="secondary">
-          演示数据：55 条匿名改写样本 + 2026-10-29 的 gpt-5.6-luna 预录判断。没有真实账号、真实链接或实时推理。
+          本地数据：已连接来源显示真实同步结果，未连接来源显示匿名样本；判断来自规则或模型，证据高亮可在详情中核对。
         </Typography.Text>
       </div>
 

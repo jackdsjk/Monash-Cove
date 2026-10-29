@@ -1,5 +1,15 @@
 # 真实账号凭据准备
 
+## 0. 当前状态
+
+- Google Cloud 项目：`cove-local`（Cove Local）
+- OAuth client：`Cove Desktop`（Desktop app）
+- Consent screen：External / Testing；测试用户已加入
+- 本地 client id/secret：`local-service/.env.local`（chmod 600，已在 `.gitignore`）
+- Gmail token：macOS Keychain `cove-local` / `gmail-oauth-tokens`
+- 已完成真实 Gmail OAuth、20 封 backfill、history 增量 0
+- Ed token、Moodle session 尚未提供
+
 > 只记录获取步骤，不记录任何真实 token、cookie、client secret 或账号密码。所有值只进 macOS Keychain 或本地环境变量。
 
 ## 1. Gmail

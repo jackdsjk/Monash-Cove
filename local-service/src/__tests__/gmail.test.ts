@@ -41,6 +41,28 @@ describe("Gmail client", () => {
 });
 
 describe("Gmail sync", () => {
+  it("removes fixture Gmail rows after the first real sync", async () => {
+    const db = createDatabase({ dbPath: ":memory:", seed: true });
+    const client: GmailSyncClient = {
+      listMessageIds: async () => ["m-1"],
+      getMessage: async () => ({
+        id: "m-1",
+        threadId: "t-1",
+        subject: "Real message",
+        from: "staff@example.edu",
+        publishedAt: "2026-10-29T10:00:00.000Z",
+        text: "A real message body.",
+        url: "https://mail.google.com/mail/u/0/#inbox/m-1",
+      }),
+      getHistoryId: async () => "history-1",
+    };
+    await syncGmail(db, client);
+    const gmail = db.listItems({ source: "gmail" });
+    expect(gmail).toHaveLength(1);
+    expect(gmail[0].id).toBe("gmail:m-1");
+    db.close();
+  });
+
   it("backfills once, then uses the history cursor", async () => {
     const db = createDatabase({ dbPath: ":memory:", seed: false });
     const message: GmailMessage = {

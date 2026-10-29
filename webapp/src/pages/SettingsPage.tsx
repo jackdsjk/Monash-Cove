@@ -37,7 +37,7 @@ export default function SettingsPage() {
             设置
           </Typography.Title>
           <Typography.Paragraph className="page-subtitle" type="secondary">
-            控制本地演示状态和查看数据边界。第一版没有账号、云端同步或第三方分析。
+            控制本地数据和查看数据边界。真实凭据、SQLite 和同步都只在本机；没有云端账号或第三方分析。
           </Typography.Paragraph>
         </div>
       </header>
@@ -69,7 +69,7 @@ export default function SettingsPage() {
           type="warning"
           showIcon
           message="敏感数据不在这个演示里"
-          description="当前只有匿名改写样本和预录模型判断。真实接入后，凭据、会话和同步数据必须留在本机，并由本地服务管理。"
+          description="未连接的来源仍使用匿名样本；已连接的来源使用真实同步数据。凭据、会话和同步数据只留在本机，由本地服务管理。"
         />
         <Typography.Paragraph type="secondary" className="settings-note">
           产品不会自动提交作业、回复教师或代表用户发消息。高风险结论必须能回到原文。

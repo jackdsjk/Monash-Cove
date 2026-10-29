@@ -108,7 +108,7 @@
 
 ## S8 真实账号验证
 
-- [ ] Gmail 真实同步 + 原文
+- [x] Gmail 真实同步 + 原文
 - [ ] Ed 真实同步
 - [ ] Moodle courses/assessments 真实同步
 - [ ] Moodle 论坛真实同步

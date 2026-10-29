@@ -1,7 +1,14 @@
 import { mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.js";
+
+try {
+  process.loadEnvFile(fileURLToPath(new URL("../.env.local", import.meta.url)));
+} catch {
+  // .env.local is optional; credentials may come from the process environment.
+}
 
 const port = Number(process.env.COVE_PORT ?? 4317);
 const dataDir = process.env.COVE_DATA_DIR ?? path.join(os.homedir(), "Library", "Application Support", "Cove");

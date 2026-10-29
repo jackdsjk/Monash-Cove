@@ -13,3 +13,4 @@
 | 2026-10-30 | S6 | `cd local-service && npm test`; `npm run eval` | 20 tests pass；模型适配/证据子串/规则回退；55 条回放通过；真实 holdout blocked | 进入 S7 |
 | 2026-10-30 | S7 | `cd local-service && npm test`; `cd webapp && npm run check`; `cd webapp && npm run e2e` | 21 service tests；webapp build；production E2E pass | S8 blocked：无真实凭据 |
 | 2026-10-30 | S8 | — | blocked | 代码路径完成；等待用户提供 Google OAuth client、Ed token、Moodle session 和真实 holdout |
+| 2026-10-30 | S8 (Gmail) | browser OAuth; `POST /api/sync`; `GET /api/sources` | Gmail 真实授权成功；backfill 20；history 0；fixture Gmail 移除；Gmail=20 | Ed/Moodle 仍 blocked |

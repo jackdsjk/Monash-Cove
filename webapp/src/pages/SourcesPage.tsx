@@ -99,8 +99,8 @@ export default function SourcesPage() {
         className="page-alert"
         type="info"
         showIcon
-        message="当前是本地演示数据"
-        description="真实 OAuth、会话和同步会在本地 Node 服务接入后启用。现在展示的是 55 条匿名样本的预录结果。"
+        message="本地数据源"
+        description="真实凭据只写入本机 Keychain；未连接的来源仍显示 55 条匿名样本，已连接的来源显示真实同步结果。"
       />
 
       <Row gutter={[16, 16]}>

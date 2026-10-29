@@ -89,12 +89,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 <span className="sider-source-count">{counts[source]}</span>
               </div>
             ))}
-            <Badge className="sider-sync" status="success" text="本地演示数据" />
+            <Badge className="sider-sync" status="success" text="本地数据" />
           </div>
 
           <div className="sider-footer">
             <Typography.Text type="secondary">Cove v0.1</Typography.Text>
-            <Typography.Text type="secondary">匿名样本 · 预录模型</Typography.Text>
+            <Typography.Text type="secondary">本地 API · 来源可连接</Typography.Text>
           </div>
         </div>
       </Sider>

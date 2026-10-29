@@ -61,6 +61,7 @@ export async function syncGmail(
   }
 
   const historyId = await client.getHistoryId();
+  db.removeFixtures("gmail");
   db.setCursor("gmail", "history_id", historyId);
   const at = new Date().toISOString();
   db.setSourceStatus("gmail", "connected", at, null);

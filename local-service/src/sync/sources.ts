@@ -46,6 +46,7 @@ async function persist(db: CoveDatabase, source: Source, raw: RawSourceItem[], m
     };
     db.upsertItem(record);
   }
+  db.removeFixtures(source);
   const at = new Date().toISOString();
   db.setSourceStatus(source, "connected", at, null);
   db.setSetting("last_synced_at", at);

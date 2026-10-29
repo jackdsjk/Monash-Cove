@@ -143,6 +143,11 @@ export class CoveDatabase {
     this.setSourceStatus("moodle", "fixture", new Date().toISOString(), null);
   }
 
+  removeFixtures(source: Source) {
+    this.db.exec(`DELETE FROM item_content WHERE item_id IN (SELECT id FROM items WHERE source = '${source}' AND triage_version = 'fixture-1')`);
+    this.db.prepare("DELETE FROM items WHERE source = ? AND triage_version = 'fixture-1'").run(source);
+  }
+
   setSourceStatus(source: Source, status: SourceStatus["status"], lastSyncAt: string | null, lastError: string | null) {
     this.db
       .prepare("UPDATE sources SET status = ?, last_sync_at = ?, last_error = ? WHERE id = ?")
