@@ -2,10 +2,11 @@
 
 ## Project Purpose
 
-Two artefacts live in this repo, at different stages:
+Three artefacts live in this repo, at different stages:
 
 - **`stack/unicorn` — shipped system.** A self-hosted campus memory layer (product name Cove) that ingests Ed, Moodle, Canvas, Gmail, and feeds, then serves the resulting state through MCP to the model client the student already uses. It is a separate git repository ignored by this one. Start with `stack/unicorn/README.md`; current behavior is authoritative in `stack/unicorn/docs/ARCHITECTURE.md`, decisions in `stack/unicorn/docs/ADR.md`, and deployment/onboarding in `stack/unicorn/docs/setup/README.md`.
 - **Root `docs/` — current product direction, not yet built.** The information-triage product defined in `docs/PRD-Monash-Agent.md`, with its roadmap, gold set, and offline evaluation harness; `docs/README.md` is the authoritative document map.
+- **Root `demo/` — anonymous browser prototype.** A zero-dependency static prototype of the triage experience backed by the 55 anonymized samples and a recorded model snapshot. It is not a desktop shell and has no real login, sync, or source links.
 
 Do not describe the triage direction as shipped, and do not treat the memory layer as the current MVP scope.
 

@@ -24,7 +24,8 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 确定性分诊规则 baseline、测试和 Markdown/JSON 报告输出；
 - 全部分歧输出、失效模式归类和高/中/低优先级 Bad Case 清单；
 - 规则修复：否定作用域、行政优先级、行动要求线索和 Moodle 关闭时间档位；
-- 当前规则版本的 baseline 指标记录。
+- 当前规则版本的 baseline 指标记录；
+- 匿名可操作浏览器 Demo：简报分组、来源/搜索筛选、详情与证据高亮、纠错反馈、本地状态和模拟同步。
 
 当前未完成：
 
@@ -33,11 +34,11 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 摘要忠实度的严格评测；
 - 未参与调参的 holdout 模型回放与完整模型/提示词矩阵；
 - CI 评测门禁；
-- MVP 功能取舍及可操作产品界面。
+- MVP 功能取舍、桌面壳、真实登录同步和端到端测试。
 
 ### 当前实现边界
 
-本阶段的代码只位于根仓库的 `scripts/evaluation/`，输入和规范位于 `docs/`。确定性回放器本身：
+本阶段代码分为两块：评测代码位于 `scripts/evaluation/`，匿名演示位于 `demo/`；输入和规范位于 `docs/`。确定性回放器本身：
 
 1. 读取匿名样本与最终裁决标签；
 2. 用确定性规则预测 `authority`、`content_type`、`importance`、`action_required` 和 `open_original`；
@@ -45,7 +46,7 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 4. 输出字段准确率、重要信息召回率、重要信息精确率、关键误报率、低价值压缩率和按来源结果；
 5. 输出全部分歧样本，按严重度和失效模式归类，并生成 Bad Case 清单。
 
-它不访问 Gmail、Ed、Moodle，不读取真实账号，不调用模型或外部 API，也不向 Cove Worker、数据库或外部服务写入数据。
+评测回放器不访问 Gmail、Ed、Moodle，不读取真实账号，不调用模型或外部 API，也不向 Cove Worker、数据库或外部服务写入数据。`demo/` 是零依赖静态原型，只读取提交进仓库的匿名样本和预录模型快照，使用浏览器 `localStorage` 保存演示状态；它不包含真实登录、同步或来源链接。
 
 ### 当前 baseline
 
@@ -70,7 +71,7 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 
 - 工作分支：`codex/triage-evaluation-harness`；
 - 基线：`master` 的 `159006f`；
-- 本阶段提交（均未 push）：`1099491` harness、`7dec247` 状态文档、`Expand triage replay output with failure taxonomy and bad cases`、`Sync evaluation docs and clarify repo boundaries`、`Fix false critical triage rules and missed action cues`、`Update triage baseline after rule fixes`、`Record gpt-5.6-luna model replay`；
+- 本阶段提交（均未 push）：`1099491` harness、`7dec247` 状态文档、`Expand triage replay output with failure taxonomy and bad cases`、`Sync evaluation docs and clarify repo boundaries`、`Fix false critical triage rules and missed action cues`、`Update triage baseline after rule fixes`、`Record gpt-5.6-luna model replay`、`Add anonymous interactive demo`；
 - 提交已创建于本地，尚未 push；
 - `docs/.miaoyan-conflicts/` 是既有未跟踪目录，已加入 `.gitignore`，未提交；
 - `stack/unicorn/wrangler.jsonc` 的既有本地修改不属于本阶段范围，未触碰。
@@ -136,13 +137,21 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 逐条比较四个主要判断字段：模型与规则都全对 16 条，只有模型全对 10 条，只有规则全对 10 条，两者都不是全对 19 条；
 - 这是同一 prototype 集上的一次模型运行，没有 holdout、第二个模型或真人复核，不能当作泛化或生产质量证据。
 
+### 2026-10-29：完成匿名可操作浏览器 Demo
+
+- 新增 `demo/`：零依赖静态页面，覆盖自上次查看 / 全部内容、来源筛选、搜索、只看需要行动；
+- 卡片支持查看原文、证据高亮、标为重要 / 不重要和分类反馈，状态保存在本机 `localStorage`；
+- 空状态支持「模拟同步」，用于演示一次巡检结束后新内容如何出现；
+- 数据来自 55 条匿名样本和 2026-10-29 的 `gpt-5.6-luna` 预录快照，没有真实账号、链接或实时模型调用；
+- `node demo/test/core.test.mjs` 通过；浏览器桌面和 390px 移动视口检查通过，axe 自动检查 0 violations，控制台无报错。
+
 ## 三、下一步开发顺序
 
-1. 基于当前 baseline 和 Bad Case 清单完成 MVP 功能取舍，明确 P0、延后项和非目标；
-2. 用未参与调参的样本验证本轮规则，再处理剩余 4 条高优先级分歧（1 条漏判 critical、2 条漏判高价值、1 条条件式行动要求）；
-3. 设计匿名 Demo 的 Today / Since Last Check 核心流程；
-4. 只有在 MVP 边界稳定后，再扩展 holdout/真实脱敏样本、模型矩阵和语义去重评测；
-5. 产品界面可以运行后，再安装并使用对应的 UI 和端到端测试技能。
+1. 用 Demo 做一轮内部走查，记录并修正交互、文案和可访问性问题；
+2. 回到 MVP 功能取舍，用 Demo 验证 P0 假设，明确延后项和非目标；
+3. 用未参与调参的样本验证规则和模型，再处理剩余 4 条高优先级分歧；
+4. 进入桌面壳、真实登录同步和端到端测试前，先确认 MVP 边界；
+5. 只有在 MVP 边界稳定后，再扩展 holdout/真实脱敏样本、模型矩阵和语义去重评测。
 
 ## 四、相关文档
 
@@ -150,4 +159,5 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - [最小评测 harness 方案](evaluation-harness.md)
 - [信息分诊标注规范](information-triage-labeling-guide.md)
 - [价值回放记录](value-replay-2026-10-28.md)
+- [匿名可操作 Demo](../demo/README.md)
 - [文档导航](README.md)
