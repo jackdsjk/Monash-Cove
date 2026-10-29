@@ -9,6 +9,7 @@
 - Gmail token：macOS Keychain `cove-local` / `gmail-oauth-tokens`
 - 已完成真实 Gmail OAuth、20 封 backfill、history 增量 0
 - Ed token、Moodle session 尚未提供
+- 注意：External/Testing 的 refresh token 可能 7 天后过期；过期后重新连接 Gmail。
 
 > 只记录获取步骤，不记录任何真实 token、cookie、client secret 或账号密码。所有值只进 macOS Keychain 或本地环境变量。
 
