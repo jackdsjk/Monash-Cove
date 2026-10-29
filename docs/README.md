@@ -13,6 +13,7 @@
 | [gold-set-human-review-2026-10-28.md](gold-set-human-review-2026-10-28.md) | 给项目所有者直接勾选和填写的 55 条人工复核表 | **人工操作入口** |
 | [gold-set-samples-2026-10-28.json](gold-set-samples-2026-10-28.json) / [gold-set-adjudication-2026-10-28.json](gold-set-adjudication-2026-10-28.json) | 55 条匿名改写样本、两轮独立标注与裁决 manifest | **prototype 机器审计资产；真实脱敏样本待完成** |
 | [evaluation-harness.md](evaluation-harness.md) | 最小离线分诊回放器的方案、边界、命令和后续升级路径 | **最小版本已完成** |
+| [development-log.md](development-log.md) | 当前开发记录、分支提交状态、验证结果和按日期排列的开发日志 | **当前开发记录** |
 | [productization-and-resume-plan-draft.md](productization-and-resume-plan-draft.md) | 产品化与求职项目建设的完整分析和备选项 | 背景分析，可继续修改 |
 | [ecosystem.md](ecosystem.md) | GitHub 竞品、开源生态与许可证调查 | 调研依据 |
 | [stack.md](stack.md) | 已安装工具、真实接入状态和技术约束 | 技术事实记录 |
