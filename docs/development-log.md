@@ -27,7 +27,8 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 当前规则版本的 baseline 指标记录；
 - 匿名可操作浏览器 Demo：简报分组、来源/搜索筛选、详情与证据高亮、纠错反馈、本地状态和模拟同步；
 - MVP P0 范围初版：五个能力域、ICE 评分、验收标准和明确砍掉项；
-- 本地 Web App 设计规范：Ant Design v6 参考、布局、token、组件映射和状态设计。
+- 本地 Web App 设计规范：Ant Design v6 参考、布局、token、组件映射和状态设计；
+- 本地 Web App v0.1 骨架：Vite + React + Ant Design，简报、Drawer、纠错、数据源和设置页面。
 
 当前未完成：
 
@@ -36,11 +37,11 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 摘要忠实度的严格评测；
 - 未参与调参的 holdout 模型回放与完整模型/提示词矩阵；
 - CI 评测门禁；
-- P0 实现：本地 Web App、真实登录同步和端到端测试。
+- P0 实现：真实登录同步、数据持久化和端到端测试。
 
 ### 当前实现边界
 
-本阶段代码分为两块：评测代码位于 `scripts/evaluation/`，匿名演示位于 `demo/`；输入和规范位于 `docs/`。确定性回放器本身：
+本阶段代码分为三块：评测代码位于 `scripts/evaluation/`，静态原型位于 `demo/`，本地 Web App 位于 `webapp/`；输入和规范位于 `docs/`。确定性回放器本身：
 
 1. 读取匿名样本与最终裁决标签；
 2. 用确定性规则预测 `authority`、`content_type`、`importance`、`action_required` 和 `open_original`；
@@ -48,7 +49,7 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 4. 输出字段准确率、重要信息召回率、重要信息精确率、关键误报率、低价值压缩率和按来源结果；
 5. 输出全部分歧样本，按严重度和失效模式归类，并生成 Bad Case 清单。
 
-评测回放器不访问 Gmail、Ed、Moodle，不读取真实账号，不调用模型或外部 API，也不向 Cove Worker、数据库或外部服务写入数据。`demo/` 是零依赖静态原型，只读取提交进仓库的匿名样本和预录模型快照，使用浏览器 `localStorage` 保存演示状态；它不包含真实登录、同步或来源链接。
+评测回放器不访问 Gmail、Ed、Moodle，不读取真实账号，不调用模型或外部 API，也不向 Cove Worker、数据库或外部服务写入数据。`demo/` 是零依赖静态原型；`webapp/` 是 Vite + React + Ant Design 的本地 Web App，读取同一份匿名 fixture，并用 `localStorage` 保存纠错、已读和查看窗口。两者都不包含真实登录、同步或来源链接。
 
 ### 当前 baseline
 
@@ -73,7 +74,7 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 
 - 工作分支：`codex/triage-evaluation-harness`；
 - 基线：`master` 的 `159006f`；
-- 本阶段提交（均未 push）：`1099491` harness、`7dec247` 状态文档、`Expand triage replay output with failure taxonomy and bad cases`、`Sync evaluation docs and clarify repo boundaries`、`Fix false critical triage rules and missed action cues`、`Update triage baseline after rule fixes`、`Record gpt-5.6-luna model replay`、`Add anonymous interactive demo`、`Lock MVP scope and P0 acceptance criteria`、`Add webapp design spec`；
+- 本阶段提交（均未 push）：`1099491` harness、`7dec247` 状态文档、`Expand triage replay output with failure taxonomy and bad cases`、`Sync evaluation docs and clarify repo boundaries`、`Fix false critical triage rules and missed action cues`、`Update triage baseline after rule fixes`、`Record gpt-5.6-luna model replay`、`Add anonymous interactive demo`、`Lock MVP scope and P0 acceptance criteria`、`Add webapp design spec`、`Add local webapp skeleton`；
 - 提交已创建于本地，尚未 push；
 - `docs/.miaoyan-conflicts/` 是既有未跟踪目录，已加入 `.gitignore`，未提交；
 - `stack/unicorn/wrangler.jsonc` 的既有本地修改不属于本阶段范围，未触碰。
@@ -164,11 +165,21 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 不照搬 Ant 默认蓝和后台表格：主色改为深绿 `#1F5A46`，critical 用状态徽标而不是小号彩色 tag；
 - 明确先做本地 Vite + React + Ant Design Web App，桌面壳和安装包后置。
 
+### 2026-10-29：完成本地 Web App v0.1 骨架
+
+- 新建 `webapp/`：Vite 8 + React 19 + TypeScript 7 + Ant Design 6；
+- 实现简报页、注意力分组、来源筛选、搜索、只看行动、详情 Drawer、反馈 Modal；
+- 实现数据源页、设置页和 localStorage 纠错/已读/查看窗口；
+- 使用 Ant Design token 和自定义深绿主色，桌面 1280 与移动 390 检查通过；
+- axe 自动检查 0 violations；控制台无应用错误；
+- `npm run check` 通过：fixture 完整性 + TypeScript 构建；
+- 真实 OAuth、同步和本地 Node 服务仍未接入。
+
 ## 三、下一步开发顺序
 
-1. 按 [Web App 设计规范](webapp-design.md) 搭建 Vite + React + Ant Design 骨架；
-2. 先做简报、详情 Drawer、空/错/加载状态，再接本地数据；
-3. 接本地 Node 服务和一条真实来源的纵向切片；
+1. 接本地 Node 服务，定义 `fetchBrief()` 对应的 API 和错误结构；
+2. 先打通一条真实来源的纵向切片，再接第二个和第三个；
+3. 补同步失败、授权过期、首次连接和空数据状态；
 4. 用真实自用账号和匿名样本分别验证同步、分诊、证据和纠错；
 5. P0 闭环稳定后，再评估桌面壳、课程归属、教师结论提炼和完整评测矩阵。
 
@@ -181,4 +192,5 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - [匿名可操作 Demo](../demo/README.md)
 - [MVP 范围与优先级决策](mvp-scope-2026-10-29.md)
 - [本地 Web App 设计规范](webapp-design.md)
+- [本地 Web App 代码](../webapp/README.md)
 - [文档导航](README.md)

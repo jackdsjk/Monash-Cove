@@ -1,0 +1,79 @@
+export type Source = "gmail" | "ed" | "moodle";
+
+export type ContentType =
+  | "required_action"
+  | "requirement_change"
+  | "staff_announcement"
+  | "staff_answer"
+  | "peer_question"
+  | "learning_material"
+  | "assessment_fact"
+  | "administrative"
+  | "promotion"
+  | "noise";
+
+export type Importance = "critical" | "important" | "reference" | "skip";
+export type ActionRequired = "yes" | "no" | "uncertain";
+export type OpenOriginal = "required" | "optional" | "no";
+
+export interface DemoItem {
+  id: string;
+  source: Source;
+  course: string;
+  title: string;
+  authorRole: string;
+  text: string;
+  ageHours: number;
+  contentType: ContentType;
+  importance: Importance;
+  actionRequired: ActionRequired;
+  openOriginal: OpenOriginal;
+  evidenceQuote: string;
+}
+
+export interface DemoMeta {
+  title: string;
+  generatedAt: string;
+  dataset: string;
+  model: string;
+  modelRun: string;
+  privacy: string;
+}
+
+export interface DemoData {
+  meta: DemoMeta;
+  items: DemoItem[];
+}
+
+export type FeedbackReason = "content_type" | "importance" | "action" | "other";
+
+export interface Feedback {
+  reason: FeedbackReason;
+  note: string;
+  at: string;
+}
+
+export interface Correction {
+  pinned?: boolean;
+  dismissed?: boolean;
+  feedback?: Feedback;
+}
+
+export interface DemoState {
+  version: 1;
+  corrections: Record<string, Correction>;
+  read: Record<string, true>;
+  windowHours: number;
+}
+
+export type SectionId = "action" | "staff" | "important" | "material" | "folded";
+
+export interface SectionMeta {
+  id: SectionId;
+  title: string;
+  note: string;
+}
+
+export interface SectionGroup extends SectionMeta {
+  items: DemoItem[];
+}

@@ -2,6 +2,7 @@
 refs/
 stack/
 build/
+dist/
 
 # 文档工具生成的冲突副本
 docs/.miaoyan-conflicts/

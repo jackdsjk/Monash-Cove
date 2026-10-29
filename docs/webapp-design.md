@@ -2,7 +2,7 @@
 
 > 日期：2026-10-29
 >
-> 状态：设计初稿，待评审后进入实现
+> 状态：v0.1 已落地为本地 Web App 骨架；实现边界见 [webapp/README](../webapp/README.md)
 >
 > 参考：[Ant Design 仓库](https://github.com/ant-design/ant-design)（本地克隆于 `refs/ant-design`）· [DESIGN.md](https://github.com/ant-design/ant-design/blob/master/DESIGN.md) · [设计价值观](https://github.com/ant-design/ant-design/blob/master/docs/spec/values.zh-CN.md) · [布局](https://github.com/ant-design/ant-design/blob/master/docs/spec/layout.zh-CN.md)
 
@@ -155,7 +155,7 @@ Ant Design 的基础是 14px，而不是 16px。Cove 的阅读密度介于“个
 |---|---|
 | ≥1200 | 232px 侧栏 + 960px 内容 |
 | 768–1199 | 侧栏折叠为 72px 图标栏，内容自适应 |
-| <768 | 侧栏收进顶部导航抽屉；内容单列；Drawer 全宽 |
+| <768 | 收为 72px 图标栏；内容单列；Drawer 全宽（顶部导航抽屉留到后续版本） |
 
 第一版优先桌面浏览器；移动端只保证可用，不追求完整编辑体验。
 
@@ -355,9 +355,17 @@ webapp/
 - [ ] 所有小字 ≥ 12px，正文 14px；
 - [ ] 没有直接复制 Ant Design 的蓝色后台外观。
 
-## 13. 待确认
+## 13. 已采用与待确认
 
-- 主色是否采用 `#1F5A46`，还是保留现有 Demo 的暖色纸张感；
-- 简报是否默认只显示 24 小时，还是“自上次查看”首次无上限；
-- 详情 Drawer 是否允许在列表内并排打开，还是只保留一个；
-- 是否需要在第一版支持暗色模式（建议 P1）。
+已采用：
+
+- 主色 `#1F5A46`，白字对比度满足 AA；
+- 首次进入显示最近 24 小时；
+- 详情只保留一个 Drawer，宽度 640px，移动端全宽；
+- `<768px` 使用 72px 图标栏，而不是顶部导航抽屉。
+
+仍待确认：
+
+- 是否需要在第一版支持暗色模式（建议 P1）；
+- 移动端是否改为顶部导航抽屉；
+- 详情 Drawer 是否允许在桌面并排打开。

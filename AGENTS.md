@@ -2,11 +2,12 @@
 
 ## Project Purpose
 
-Three artefacts live in this repo, at different stages:
+Four artefacts live in this repo, at different stages:
 
 - **`stack/unicorn` — shipped system.** A self-hosted campus memory layer (product name Cove) that ingests Ed, Moodle, Canvas, Gmail, and feeds, then serves the resulting state through MCP to the model client the student already uses. It is a separate git repository ignored by this one. Start with `stack/unicorn/README.md`; current behavior is authoritative in `stack/unicorn/docs/ARCHITECTURE.md`, decisions in `stack/unicorn/docs/ADR.md`, and deployment/onboarding in `stack/unicorn/docs/setup/README.md`.
 - **Root `docs/` — current product direction, not yet built.** The information-triage product defined in `docs/PRD-Monash-Agent.md`, with its roadmap, gold set, and offline evaluation harness; `docs/README.md` is the authoritative document map.
 - **Root `demo/` — anonymous browser prototype.** A zero-dependency static prototype of the triage experience backed by the 55 anonymized samples and a recorded model snapshot. It is not a desktop shell and has no real login, sync, or source links.
+- **Root `webapp/` — active local Web App.** Vite + React + Ant Design implementation of the brief, detail, correction, sources, and settings screens. It currently reads the anonymized fixture; real login and sync are not connected.
 
 Do not describe the triage direction as shipped, and do not treat the memory layer as the current MVP scope.
 
@@ -54,6 +55,10 @@ The implemented Worker application lives in `stack/unicorn`:
 - `scripts/` — setup, upgrade, generated-artifact, and credential-push helpers.
 
 Keep generated output in `build/` or `dist/` and out of commits unless a release workflow requires it.
+
+## Root Web App
+
+`webapp/` is the active local Web App: Vite, React, TypeScript, and Ant Design. Run `npm run dev` from that directory. `npm run check` validates the anonymized fixture and runs the TypeScript production build. It reads `src/data/demo-data.json` and has no backend, OAuth, real links, or live model calls; the repository boundary for a future local API is `src/data/repository.ts`.
 
 ## Build, Test, and Development Commands
 
