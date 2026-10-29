@@ -19,3 +19,4 @@
 | 2026-10-30 | S9 (countdown) | `npm test`; browser | Moodle `dueAt` 6 条；顶部倒计时分组；桌面/移动无横向溢出 | 作业/资料下载未实现，仅能打开原文 |
 | 2026-10-30 | S9 (deadline page) | browser | 侧栏新增“倒计时”独立页面；6 个 Moodle deadline；点击卡片回到简报并打开详情 | 作业/资料下载仍未实现 |
 | 2026-10-30 | S9 (materials) | browser; `POST /api/moodle/content-sync` | FIT1047 17 个板块、173 条；资料/作业/公告/说明分组；独立侧栏页 | 公告为链接，未抓正文；文件下载未实现 |
+| 2026-10-30 | S9 (materials v2) | `POST /api/moodle/content-sync`; real download; API probe | 公告正文 `mod_forum_get_discussion_posts`；resource 下载返回 ZIP；每周资料页显示下载按钮 | assignment submissions 不下载 |

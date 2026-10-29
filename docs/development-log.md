@@ -200,7 +200,8 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 2026-10-30 真实数据校准：critical 20 → 7，action yes 67 → 9；旧 deadline 降级、学生提问不再 critical、低价值内容不再要求行动。
 - 新增 Moodle `dueAt` / `deadlineKind` 结构化字段和独立的“倒计时”侧栏页面；按已截止、24 小时内、7 天内、更晚自动分组。
 - Moodle 作业/资料下载检查：当前没有实现；只支持打开原始 Moodle 页面。
-- 新增独立“每周资料”页面：按课程板块列出资料、作业/考核、公告/讨论和 label 说明；课程页抓取缓存到 SQLite；公告目前是链接列表，尚未抽取正文。
+- 新增独立“每周资料”页面：按课程板块列出资料、作业/考核、公告/讨论和 label 说明；课程页抓取缓存到 SQLite；
+- 公告正文通过 `mod_forum_get_discussion_posts` 抽取；Moodle resource 文件可通过本地服务代理下载（限 50 MB，仅 `mod/resource`）。
 
 ## 三、下一步开发顺序
 

@@ -204,9 +204,18 @@ export default function MaterialsPage() {
               <div className="material-links">
                 {announcements.map((item) => (
                   <a key={item.id} href={item.url} target="_blank" rel="noreferrer" className="material-link-row">
-                    <Tag color="gold">Moodle</Tag>
-                    <span>{item.title}</span>
-                    <LinkOutlined />
+                    <div className="material-link-main">
+                      <div>
+                        <Tag color="gold">Moodle</Tag>
+                        <span>{item.title}</span>
+                        <LinkOutlined />
+                      </div>
+                      {item.text ? (
+                        <Typography.Paragraph type="secondary" className="material-excerpt">
+                          {item.text}
+                        </Typography.Paragraph>
+                      ) : null}
+                    </div>
                   </a>
                 ))}
               </div>
@@ -236,14 +245,25 @@ export default function MaterialsPage() {
                       </Typography.Text>
                       <div className="material-links">
                         {group.map((item) => (
-                          <a key={item.id} href={item.url} target="_blank" rel="noreferrer" className="material-item">
+                          <div key={item.id} className="material-item">
                             <div className="material-item-title">
                               <Tag>{MODULE_LABELS[item.module] ?? item.module}</Tag>
-                              <span>{item.title}</span>
-                              <LinkOutlined />
+                              <a href={item.url} target="_blank" rel="noreferrer">
+                                {item.title} <LinkOutlined />
+                              </a>
+                              {item.module === "resource" ? (
+                                <a
+                                  className="material-download"
+                                  href={`/api/moodle/download?url=${encodeURIComponent(item.url)}`}
+                                  download
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  下载
+                                </a>
+                              ) : null}
                             </div>
                             {item.text ? <Typography.Paragraph type="secondary" className="material-excerpt">{item.text}</Typography.Paragraph> : null}
-                          </a>
+                          </div>
                         ))}
                       </div>
                     </div>

@@ -50,6 +50,7 @@ npm run retriage
 - `GET /api/brief?since=&source=&q=`（Moodle 条目包含 `dueAt` / `deadlineKind`）
 - `GET /api/items/:id`
 - `GET /api/moodle/courses` / `POST /api/moodle/content-sync` / `GET /api/moodle/content?courseId=`
+- `GET /api/moodle/download?url=`（仅 `mod/resource`，服务端用本机 session 代理文件）
 - `GET /api/sources`
 - `POST /api/check`
 - `PATCH /api/items/:id/correction`

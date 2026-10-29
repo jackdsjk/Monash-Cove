@@ -7,7 +7,7 @@
 - **stage_name:** 真实账号验证
 - **next_action:** none；三个来源已真实同步并重启验证
 - **stage_file:** [plan.md](plan.md) §12
-- **last_verified:** 2026-10-30 S8：Gmail 20；Ed 91；Moodle 6；重启后三源仍 connected；简报页 3 个 `POST /api/sync` 均 200；service 28 tests；E2E pass；critical 20→7，action 67→9；Moodle dueAt 6 条；倒计时 6 个截止项；每周资料 173 条（17 个板块）
+- **last_verified:** 2026-10-30 S8：Gmail 20；Ed 91；Moodle 6；重启后三源仍 connected；简报页 3 个 `POST /api/sync` 均 200；service 28 tests；E2E pass；critical 20→7，action 67→9；Moodle dueAt 6 条；倒计时 6 个截止项；每周资料 173 条（17 个板块）；resource 下载代理；公告正文抽取
 - **blocked:** none（Moodle 当前单元无论坛链接，论坛返回 0；真实 holdout 可选）
 - **next_stage:** none
 

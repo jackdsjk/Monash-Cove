@@ -1,3 +1,4 @@
+import { parse } from "node-html-parser";
 import Fastify, { type FastifyInstance } from "fastify";
 import staticPlugin from "@fastify/static";
 import { z } from "zod";
@@ -222,6 +223,50 @@ export function buildApp(options: AppOptions): FastifyInstance {
       db.setSourceStatus("moodle", "error", null, message);
       return reply.code(502).send({ error: { code: "moodle_content_failed", message, retryable: true } } satisfies ApiError);
     }
+  });
+
+  app.get<{ Querystring: { url?: string } }>("/api/moodle/download", async (request, reply) => {
+    const targetValue = request.query.url;
+    if (!targetValue) return reply.code(400).send({ error: { code: "invalid_url", message: "url is required.", retryable: false } } satisfies ApiError);
+    const raw = await secrets.get("moodle-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
+    const credentials = moodleCredentials.parse(JSON.parse(raw));
+    const base = new URL(credentials.baseUrl);
+    let target: URL;
+    try {
+      target = new URL(targetValue);
+    } catch {
+      return reply.code(400).send({ error: { code: "invalid_url", message: "Invalid Moodle URL.", retryable: false } } satisfies ApiError);
+    }
+    if (target.origin !== base.origin || !target.pathname.startsWith("/mod/resource/view.php")) {
+      return reply.code(400).send({ error: { code: "invalid_url", message: "Only Moodle resource pages can be downloaded.", retryable: false } } satisfies ApiError);
+    }
+    const headers = { cookie: `MoodleSession=${credentials.session}` };
+    const resource = await fetch(target, { headers, redirect: "manual" });
+    let fileUrl: string | null = null;
+    if ([301, 302, 303, 307, 308].includes(resource.status)) {
+      const location = resource.headers.get("location");
+      if (location) fileUrl = new URL(location, target).toString();
+    } else if (resource.ok) {
+      const html = await resource.text();
+      const link = parse(html).querySelector("a[href*='pluginfile.php']");
+      const href = link?.getAttribute("href");
+      if (href) fileUrl = new URL(href, target).toString();
+    }
+    if (!fileUrl) return reply.code(404).send({ error: { code: "file_not_found", message: "No downloadable file found for this resource.", retryable: false } } satisfies ApiError);
+    const fileTarget = new URL(fileUrl);
+    if (fileTarget.origin !== base.origin || !fileTarget.pathname.startsWith("/pluginfile.php")) {
+      return reply.code(400).send({ error: { code: "invalid_file", message: "Moodle returned an untrusted file URL.", retryable: false } } satisfies ApiError);
+    }
+    const file = await fetch(fileTarget, { headers });
+    if (!file.ok) return reply.code(502).send({ error: { code: "download_failed", message: `Moodle file returned HTTP ${file.status}.`, retryable: true } } satisfies ApiError);
+    const size = Number(file.headers.get("content-length") ?? 0);
+    if (size > 50 * 1024 * 1024) return reply.code(413).send({ error: { code: "file_too_large", message: "File exceeds the 50 MB local limit.", retryable: false } } satisfies ApiError);
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const fileName = decodeURIComponent(fileTarget.pathname.split("/").pop() ?? "moodle-file");
+    reply.header("content-type", file.headers.get("content-type") ?? "application/octet-stream");
+    reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    return reply.send(buffer);
   });
 
   app.get<{ Querystring: { courseId?: string } }>("/api/moodle/content", async (request, reply) => {
