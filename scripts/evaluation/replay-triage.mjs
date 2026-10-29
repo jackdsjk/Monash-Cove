@@ -50,6 +50,36 @@ function hasAny(text, patterns) {
   return patterns.some((pattern) => pattern.test(text));
 }
 
+const NEGATED_BEFORE = /\b(no|not|never|without)\b[^.;]{0,60}$/i;
+const CLAUSE_BOUNDARY = /[.;]|,?\s(?:and|but|yet)\s/gi;
+
+function isNegatedAt(text, index) {
+  CLAUSE_BOUNDARY.lastIndex = 0;
+  let start = 0;
+  let boundary = CLAUSE_BOUNDARY.exec(text);
+  while (boundary && boundary.index < index) {
+    start = boundary.index + boundary[0].length;
+    boundary = CLAUSE_BOUNDARY.exec(text);
+  }
+  return NEGATED_BEFORE.test(text.slice(start, index));
+}
+
+function hasUnnegatedMatch(text, pattern) {
+  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  const regex = new RegExp(pattern.source, flags);
+  let match = regex.exec(text);
+  while (match) {
+    if (!isNegatedAt(text, match.index)) return true;
+    if (regex.lastIndex === match.index) regex.lastIndex += 1;
+    match = regex.exec(text);
+  }
+  return false;
+}
+
+function hasAnyUnnegated(text, patterns) {
+  return patterns.some((pattern) => hasUnnegatedMatch(text, pattern));
+}
+
 function sentences(text) {
   return text
     .split(/(?<=[.!?])\s+/)
@@ -83,12 +113,12 @@ function classifyContent(sample) {
   if (sample.author_role === "student" && /asks|question|no (staff|official|teaching-team) answer|unresolved/i.test(text)) {
     return "peer_question";
   }
-  if (hasAny(text, [/deadline|due date|override|requirements? (?:has )?(?:changed|updated|clarified)|updated specification/i, /different room|replacement link/i, /extension.*approved/i, /maximum duration/i])) {
+  if (hasAny(text, [/tuition|payment|finance|library|sign-in|account security|appointment|exam timetable/i, /extension (?:request|application)/i])) return "administrative";
+  if (hasAnyUnnegated(text, [/deadline|due date|override|requirements? (?:has )?(?:changed|updated|clarified)|updated specification/i, /different room|replacement link/i, /extension.*approved/i, /maximum duration/i])) {
     return "requirement_change";
   }
-  if (hasAny(text, [/tuition|library|sign-in|account security|appointment|exam timetable/i])) return "administrative";
   if (hasAny(text, [/survey|recruit|day trip|election|gift-card/i])) return "promotion";
-  if (hasAny(text, [/recording|slides|practice questions|supplementary material/i])) return "learning_material";
+  if (hasAny(text, [/recording|slides|practice questions|supplementary material|learning task|weekly task/i])) return "learning_material";
   if (sample.author_role === "staff") return "staff_announcement";
   return "noise";
 }
@@ -97,7 +127,9 @@ function classifyImportance(sample, contentType) {
   const text = sample.text;
   if (contentType === "promotion") return "skip";
   if (hasAny(text, [/unfamiliar.*sign-in|security steps|pass the unit|last sitting/i])) return "critical";
-  if (contentType === "assessment_fact" && /deadline|closing time/i.test(text)) return "critical";
+  if (contentType === "administrative" && /\bduplicate\b/i.test(text)) return "skip";
+  if (contentType === "assessment_fact" && /submission deadline|due (?:date|time)/i.test(text)) return "critical";
+  if (contentType === "assessment_fact") return "important";
   if (contentType === "requirement_change" && /deadline|due|override|must|different room|extension|maximum/i.test(text)) {
     return "critical";
   }
@@ -114,7 +146,7 @@ function classifyAction(sample, contentType) {
   if (contentType === "peer_question" && /no (staff|official|teaching-team) answer|unresolved|uncertain/i.test(text)) {
     return "uncertain";
   }
-  if (hasAny(text, [/must|should|need to|before|deadline|submit|register|reply|verify|use the new|pay/i])) return "yes";
+  if (hasAnyUnnegated(text, [/must|should|need to|before|deadline|submit|register|reply|verify|use the new|pay/i, /required|reminds students|check-in|security review|replacement link/i])) return "yes";
   return "no";
 }
 

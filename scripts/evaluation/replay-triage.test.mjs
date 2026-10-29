@@ -48,4 +48,24 @@ assert.equal(predict(sampleById.get("gmail-001")).content_type, "requirement_cha
 assert.equal(predict(sampleById.get("moodle-003")).content_type, "requirement_change");
 assert.equal(predict(sampleById.get("ed-007")).action_required, "uncertain");
 
+// 否定句里的 deadline / requirement 不应触发要求变更或行动要求
+assert.equal(predict(sampleById.get("ed-003")).content_type, "learning_material");
+assert.equal(predict(sampleById.get("ed-003")).action_required, "no");
+assert.equal(predict(sampleById.get("ed-012")).importance, "reference");
+assert.equal(predict(sampleById.get("gmail-014")).importance, "skip");
+assert.equal(predict(sampleById.get("gmail-014")).action_required, "no");
+
+// 财政/行政变更按 administrative 处理，重复通知降级
+assert.equal(predict(sampleById.get("gmail-020")).content_type, "administrative");
+assert.equal(predict(sampleById.get("gmail-020")).importance, "important");
+
+// Moodle 的 closing time 按 important 处理，提交截止仍是 critical
+assert.equal(predict(sampleById.get("moodle-005")).importance, "important");
+assert.equal(predict(sampleById.get("moodle-001")).importance, "critical");
+
+// 教师答复和考试通知中的行动要求要能识别
+assert.equal(predict(sampleById.get("ed-008")).action_required, "yes");
+assert.equal(predict(sampleById.get("gmail-012")).action_required, "yes");
+assert.equal(predict(sampleById.get("gmail-022")).action_required, "yes");
+
 console.log("replay-triage tests passed");
