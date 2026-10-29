@@ -63,14 +63,15 @@
 
 规则集中在 `scripts/evaluation/replay-triage.mjs`，并保持可解释：
 
-1. Moodle assessment 先识别为 `assessment_fact`；明确 override 或要求变化时识别为 `requirement_change`；
+1. Moodle assessment 先识别为 `assessment_fact`；明确 override 或要求变化时识别为 `requirement_change`；提交截止为 `critical`，quiz 关闭时间等其他事实为 `important`；
 2. 学生提问且没有权威答复时识别为 `peer_question`，行动标记为 `uncertain`；
 3. 教师回复学生问题时识别为 `staff_answer`；
-4. 录播、幻灯片、练习题等识别为 `learning_material`；
-5. 缴费、图书馆、账户和考试行政内容识别为 `administrative`；
+4. 录播、幻灯片、练习题、learning task 等识别为 `learning_material`；
+5. 缴费、财务、延期申请、图书馆、账户和考试行政内容优先识别为 `administrative`；行政类重复通知降级为 `skip`；
 6. 调查、招募、活动和抽奖识别为 `promotion`；
 7. 截止时间、提交要求、考试地点、资格或账户安全变化提高重要性；
-8. 摘要证据采用样本文本中的抽取句，不凭空生成事实。
+8. 被否定的截止或要求表述不触发 `requirement_change`，也不触发行动要求；否定作用域按分句判断，避免把 "not ... and reminds students to ..." 误判成否定；
+9. 摘要证据采用样本文本中的抽取句，不凭空生成事实。
 
 规则 baseline 的目的不是证明最终产品已经可靠，而是先提供一个透明、可重复的最低基线。
 
@@ -89,24 +90,24 @@ node scripts/evaluation/replay-triage.test.mjs        # 自检
 
 ## 6. 当前结果
 
-## 6.1 当前 baseline 结果
+### 6.1 当前 baseline 结果
 
 在当前规则版本和 55 条匿名改写 prototype 集上运行：
 
 | 指标 | 结果 |
 |---|---:|
-| 重要信息召回率 | 86.2% |
-| 重要信息精确率 | 80.6% |
-| 关键误报率 | 29.4% |
-| 低价值压缩率 | 76.9% |
+| 重要信息召回率 | 89.7% |
+| 重要信息精确率 | 89.7% |
+| 关键误报率 | 0.0% |
+| 低价值压缩率 | 88.5% |
 | 证据支持率 | 100.0% |
 | `authority` 准确率 | 100.0% |
-| `content_type` 准确率 | 78.2% |
-| `importance` 准确率 | 72.7% |
-| `action_required` 准确率 | 74.5% |
-| `open_original` 准确率 | 58.2% |
+| `content_type` 准确率 | 90.9% |
+| `importance` 准确率 | 83.6% |
+| `action_required` 准确率 | 92.7% |
+| `open_original` 准确率 | 60.0% |
 
-这些结果只用于验证规则 baseline 和回放流程，不代表真实用户效果，也不代表生产质量。
+这些结果只用于验证规则 baseline 和回放流程，不代表真实用户效果，也不代表生产质量。本轮规则修复是在同一批样本上完成的，指标提升属于样本内结果；泛化能力需要用未参与调参的样本验证。
 
 ### 6.2 指标口径
 
@@ -117,22 +118,21 @@ node scripts/evaluation/replay-triage.test.mjs        # 自检
 
 ### 6.3 失效模式（当前规则版本）
 
-55 条样本中有 36 条存在至少一个字段分歧，其中高 15、中 7、低 14。按首要失效模式统计：
+55 条样本中有 29 条存在至少一个字段分歧，其中高 4、中 7、低 18。按首要失效模式统计：
 
 | 失效模式 | 严重度 | 条数 |
 |---|---|---:|
-| 漏判行动要求 | 高 | 6 |
-| 误报 critical | 高 | 5 |
-| 漏判高价值 | 高 | 3 |
+| 漏判高价值 | 高 | 2 |
 | 漏判 critical | 高 | 1 |
+| 漏判行动要求 | 高 | 1 |
 | 误报高价值 | 中 | 3 |
 | 重要性相邻档混淆 | 中 | 3 |
 | 误报行动要求 | 中 | 1 |
-| 原文跳转不符 | 低 | 11 |
+| 原文跳转不符 | 低 | 15 |
 | 行动确定性不符 | 低 | 2 |
 | 内容类型不符 | 低 | 1 |
 
-高优先级分歧集中在三类问题：Ed 学习材料和 Gmail 行政通知被误判为 `critical` 或 `requirement_change`；教师答复与 Gmail 通知中的行动要求被漏判；少数高价值内容被压到 `reference`。下一步修复应优先处理这三类，而不是先动低风险的 `open_original` 映射。
+高优先级只剩 4 条：3 条是高价值内容被压到 `reference`，1 条是条件式行动要求没有被识别。上一版的 5 条 `critical` 误报已全部消除；`open_original` 类的 15 条低优先级分歧来自推导公式，暂不优先处理。
 
 ## 7. 后续升级方案
 

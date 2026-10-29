@@ -23,6 +23,7 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 无模型、无网络、无新增依赖的最小离线 replay/evaluation harness；
 - 确定性分诊规则 baseline、测试和 Markdown/JSON 报告输出；
 - 全部分歧输出、失效模式归类和高/中/低优先级 Bad Case 清单；
+- 规则修复：否定作用域、行政优先级、行动要求线索和 Moodle 关闭时间档位；
 - 当前规则版本的 baseline 指标记录。
 
 当前未完成：
@@ -52,24 +53,24 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 
 | 指标 | 结果 |
 |---|---:|
-| 重要信息召回率 | 86.2% |
-| 重要信息精确率 | 80.6% |
-| 关键误报率 | 29.4% |
-| 低价值压缩率 | 76.9% |
+| 重要信息召回率 | 89.7% |
+| 重要信息精确率 | 89.7% |
+| 关键误报率 | 0.0% |
+| 低价值压缩率 | 88.5% |
 | 证据支持率 | 100.0% |
 | `authority` 准确率 | 100.0% |
-| `content_type` 准确率 | 78.2% |
-| `importance` 准确率 | 72.7% |
-| `action_required` 准确率 | 74.5% |
-| `open_original` 准确率 | 58.2% |
+| `content_type` 准确率 | 90.9% |
+| `importance` 准确率 | 83.6% |
+| `action_required` 准确率 | 92.7% |
+| `open_original` 准确率 | 60.0% |
 
-同一版本下有 36 条样本存在至少一个字段分歧：高 15、中 7、低 14。其中 `authority` 直接沿用样本的 `author_role`，证据句由原文切句得到，`open_original` 由 `importance` 与 `action_required` 推导，因此 100% 与 58.2% 不是独立能力指标；只有 `content_type`、`importance` 和 `action_required` 是从文本判断的字段，后两者依赖 `content_type`。
+同一版本下有 29 条样本存在至少一个字段分歧：高 4、中 7、低 18。其中 `authority` 直接沿用样本的 `author_role`，证据句由原文切句得到，`open_original` 由 `importance` 与 `action_required` 推导，因此 100% 与 60.0% 不是独立能力指标；只有 `content_type`、`importance` 和 `action_required` 是从文本判断的字段，后两者依赖 `content_type`。这些数字是在同一批样本上调整规则得到的样本内结果，不能当作泛化能力。
 
 ### 分支与提交状态
 
 - 工作分支：`codex/triage-evaluation-harness`；
 - 基线：`master` 的 `159006f`；
-- 本阶段提交（均未 push）：`1099491` harness、`7dec247` 状态文档、`Expand triage replay output with failure taxonomy and bad cases`、`Sync evaluation docs and clarify repo boundaries`；
+- 本阶段提交（均未 push）：`1099491` harness、`7dec247` 状态文档、`Expand triage replay output with failure taxonomy and bad cases`、`Sync evaluation docs and clarify repo boundaries`、`Fix false critical triage rules and missed action cues`、`Update triage baseline after rule fixes`；
 - 提交已创建于本地，尚未 push；
 - `docs/.miaoyan-conflicts/` 是既有未跟踪目录，已加入 `.gitignore`，未提交；
 - `stack/unicorn/wrangler.jsonc` 的既有本地修改不属于本阶段范围，未触碰。
@@ -116,10 +117,20 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 修正 `.gitignore`，把 `docs/.miaoyan-conflicts/` 与 `build/` 排除在版本控制外；
 - 澄清根 `AGENTS.md` 中 `stack/unicorn` 与根仓库分诊方向的关系。
 
+### 2026-10-29：修复 critical 误报与行动漏判
+
+- 否定作用域：`deadline`、`requirement` 只出现在否定分句时，不再触发 `requirement_change`、`critical` 或行动要求；
+- 行政优先级：`payment`、`finance`、`extension request` 优先识别为 `administrative`；行政类重复通知降级为 `skip`；
+- 行动线索：补充 `required`、`reminds students`、`check-in`、`security review`、`replacement link`；
+- Moodle 档位：quiz `closing time` 归 `important`，提交截止仍为 `critical`；
+- 逐条对比上一版本：15 条样本改善、0 条退化；分歧 36→29，`critical` 误报 5→0，行动要求漏判 6→1；
+- 未修复：`gmail-002` 的条件式登记要求与 `gmail-005` 的 gold 口径冲突；漏判 critical 与漏判高价值不在本轮范围；
+- 这些调整基于同一批样本，指标提升属于样本内结果。
+
 ## 三、下一步开发顺序
 
 1. 基于当前 baseline 和 Bad Case 清单完成 MVP 功能取舍，明确 P0、延后项和非目标；
-2. 按 Bad Case 优先级修复规则：先处理误报 `critical` 和漏判行动要求，再看漏判高价值；
+2. 用未参与调参的样本验证本轮规则，再处理剩余 4 条高优先级分歧（1 条漏判 critical、2 条漏判高价值、1 条条件式行动要求）；
 3. 设计匿名 Demo 的 Today / Since Last Check 核心流程；
 4. 只有在 MVP 边界稳定后，再评估真实脱敏样本、模型评测和语义去重是否值得引入；
 5. 产品界面可以运行后，再安装并使用对应的 UI 和端到端测试技能。
