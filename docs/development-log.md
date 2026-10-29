@@ -192,11 +192,12 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - Web App 改走本地 API，来源页可连接 Gmail/Ed/Moodle，纠错/已读写 API；
 - 生产模式由本地服务同源提供 `webapp/dist`；`start-cove.sh` 可启动；
 - 验证：service 22 tests；webapp check；Playwright 生产 E2E 通过；
-- S8 真实账号完成：Gmail 20、Ed 90、Moodle 6，共 116 条；重启后三源仍 connected；
+- S8 真实账号完成：Gmail 20、Ed 91、Moodle 6，共 117 条；重启后三源仍 connected；
 - Gmail 使用 OAuth + history；Ed 使用 token；Moodle 使用 `MoodleSession`；凭据只在 Keychain；
 - Moodle 当前课程无 forum 链接，论坛同步返回 0；不是把 mock 当真实；
 - 简报页“模拟一次同步”已改为真实 `POST /api/sync` ×3，浏览器网络面板均 200；
 - 新增“过去的内容”折叠区：默认不打扰当前简报，展开后每次加载 20 条历史条目。
+- 2026-10-30 真实数据校准：critical 20 → 7，action yes 67 → 9；旧 deadline 降级、学生提问不再 critical、低价值内容不再要求行动。
 
 ## 三、下一步开发顺序
 

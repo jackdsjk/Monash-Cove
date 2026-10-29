@@ -10,7 +10,7 @@
 - 已完成真实 Gmail OAuth、20 封 backfill、history 增量 0
 - Ed token：已通过本地数据源页连接并同步；值只在 Keychain
 - Moodle session：已通过本地数据源页连接并同步；值只在 Keychain
-- 当前真实数据：Gmail 20、Ed 90、Moodle 6（Moodle 课程暂无 forum 链接）
+- 当前真实数据：Gmail 20、Ed 91、Moodle 6（Moodle 课程暂无 forum 链接）
 - 注意：External/Testing 的 refresh token 可能 7 天后过期；过期后重新连接 Gmail。
 
 > 只记录获取步骤，不记录任何真实 token、cookie、client secret 或账号密码。所有值只进 macOS Keychain 或本地环境变量。

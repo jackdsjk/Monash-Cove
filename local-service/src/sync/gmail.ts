@@ -36,6 +36,7 @@ export async function syncGmail(
       authorRole: "unknown",
       title: message.subject,
       text: message.text,
+      publishedAt: message.publishedAt,
     });
     const hash = createHash("sha256").update(message.text).digest("hex");
     db.upsertItem({

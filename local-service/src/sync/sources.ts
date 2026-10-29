@@ -22,7 +22,7 @@ interface RawSourceItem {
 
 async function persist(db: CoveDatabase, source: Source, raw: RawSourceItem[], model = "deterministic-rules") {
   for (const item of raw) {
-    const result = await classify({ source, authorRole: item.authorRole, title: item.title, text: item.text, kind: item.kind });
+    const result = await classify({ source, authorRole: item.authorRole, title: item.title, text: item.text, kind: item.kind, publishedAt: item.publishedAt });
     const hash = createHash("sha256").update(item.text).digest("hex");
     const record: NewItem = {
       id: item.id,

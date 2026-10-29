@@ -4,7 +4,7 @@
 >
 > 执行入口：[next.md](next.md)。每完成一个阶段，先更新 `next.md`，再继续，不向用户请求阶段间确认。
 >
-> 当前状态：S1–S8 完成；Gmail 20、Ed 90、Moodle 6，重启后三源仍 connected。
+> 当前状态：S1–S8 完成；Gmail 20、Ed 91、Moodle 6，重启后三源仍 connected。
 
 ## 1. 执行模式
 

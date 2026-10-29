@@ -6,6 +6,7 @@ export interface TriageInput {
   title: string;
   text: string;
   kind?: "assessment" | "forum";
+  publishedAt?: string;
 }
 
 export interface TriageResult {
@@ -80,7 +81,7 @@ function classifyContent(item: TriageInput): ContentType {
   }
   const noAuthoritativeAnswer = /no (staff|official|teaching-team) (answer|reply|response)/i.test(text);
   if (!noAuthoritativeAnswer && /staff (reply|response)|a staff reply|a staff response/i.test(text)) return "staff_answer";
-  if (item.authorRole === "student" && /asks|question|no (staff|official|teaching-team) answer|unresolved/i.test(text)) return "peer_question";
+  if (item.authorRole === "student" && (/asks|question|no (staff|official|teaching-team) answer|unresolved/i.test(text) || /\?/.test(text))) return "peer_question";
   if (hasAny(text, [/tuition|payment|finance|library|sign-in|account security|appointment|exam timetable/i, /extension (?:request|application)/i])) return "administrative";
   if (hasAnyUnnegated(text, [/deadline|due date|override|requirements? (?:has )?(?:changed|updated|clarified)|updated specification/i, /different room|replacement link/i, /extension.*approved/i, /maximum duration/i])) return "requirement_change";
   if (hasAny(text, [/survey|recruit|day trip|election|gift-card/i])) return "promotion";
@@ -89,9 +90,11 @@ function classifyContent(item: TriageInput): ContentType {
   return "noise";
 }
 
-function classifyImportance(contentType: ContentType, text: string): Importance {
+function classifyImportance(item: TriageInput, contentType: ContentType): Importance {
+  const text = item.text;
+  const authoritative = item.authorRole === "staff" || item.authorRole === "system";
   if (contentType === "promotion") return "skip";
-  if (hasAny(text, [/unfamiliar.*sign-in|security steps|pass the unit|last sitting/i])) return "critical";
+  if (authoritative && hasAny(text, [/unfamiliar.*sign-in|security steps|pass the unit|last sitting/i])) return "critical";
   if (contentType === "administrative" && /\bduplicate\b/i.test(text)) return "skip";
   if (contentType === "assessment_fact" && /submission deadline|due (?:date|time)/i.test(text)) return "critical";
   if (contentType === "assessment_fact") return "important";
@@ -103,27 +106,62 @@ function classifyImportance(contentType: ContentType, text: string): Importance 
 
 function classifyAction(contentType: ContentType, text: string): ActionRequired {
   if (/optional|voluntary|not (a|the) course requirement|not.*graded|no completion action/i.test(text)) return "no";
-  if (contentType === "peer_question" && /no (staff|official|teaching-team) answer|unresolved|uncertain/i.test(text)) return "uncertain";
+  if (contentType === "peer_question") {
+    return /no (staff|official|teaching-team) answer|unresolved|uncertain/i.test(text) ? "uncertain" : "no";
+  }
   if (hasAnyUnnegated(text, [/must|should|need to|before|deadline|submit|register|reply|verify|use the new|pay/i, /required|reminds students|check-in|security review|replacement link/i])) return "yes";
   return "no";
 }
 
+const STALE_AFTER_HOURS = 7 * 24;
+
+function isStale(item: TriageInput) {
+  if (!item.publishedAt) return false;
+  const published = Date.parse(item.publishedAt);
+  if (!Number.isFinite(published)) return false;
+  const ageHours = (Date.now() - published) / 3_600_000;
+  if (ageHours <= STALE_AFTER_HOURS) return false;
+  // A future ISO date (Moodle deadlines) keeps an older item actionable.
+  const hasFutureDate = [...item.text.matchAll(/\b20\d{2}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?Z?)?/g)]
+    .map((match) => Date.parse(match[0]))
+    .some((date) => Number.isFinite(date) && date >= Date.now() - 86_400_000);
+  return !hasFutureDate;
+}
+
+export function normalizeAction(importance: Importance, action: ActionRequired): ActionRequired {
+  if ((importance === "reference" || importance === "skip") && action === "yes") return "no";
+  return action;
+}
+
+export function applyFreshness(item: TriageInput, result: TriageResult): TriageResult {
+  if (!isStale(item)) return result;
+  const importance: Importance = result.importance === "critical" || result.importance === "important" ? "reference" : result.importance;
+  const actionRequired: ActionRequired = result.actionRequired === "yes" ? "no" : result.actionRequired;
+  return {
+    ...result,
+    importance,
+    actionRequired,
+    openOriginal: importance === "skip" ? "no" : "optional",
+    triageVersion: `${result.triageVersion}-stale`,
+  };
+}
+
 export function triage(item: TriageInput): TriageResult {
   const contentType = classifyContent(item);
-  const importance = classifyImportance(contentType, item.text);
-  const actionRequired = classifyAction(contentType, item.text);
+  const importance = classifyImportance(item, contentType);
+  const actionRequired = normalizeAction(importance, classifyAction(contentType, item.text));
   const evidenceQuote = evidenceFor(item.text, contentType);
   const openOriginal: OpenOriginal =
     importance === "critical" || actionRequired === "uncertain" ? "required" : importance === "skip" ? "no" : "optional";
-  return {
+  return applyFreshness(item, {
     contentType,
     importance,
     actionRequired,
     openOriginal,
     evidenceQuote: item.text.includes(evidenceQuote) ? evidenceQuote : item.text,
-    triageVersion: "rules-v1",
+    triageVersion: "rules-v2",
     model: "deterministic-rules",
-  };
+  });
 }
 
 export function assertEvidence(text: string, quote: string) {

@@ -36,6 +36,14 @@ COVE_STATIC_DIR=../webapp/dist npm start
 | `GOOGLE_REDIRECT_URI` | 默认 `http://127.0.0.1:4317/oauth/google/callback` |
 | `COVE_MODEL_*` | 可选模型 endpoint/model/key |
 
+## 校准
+
+```bash
+npm run retriage
+```
+
+按当前 `rules-v2` 重跑 SQLite 里已有条目的分诊，不重新抓取来源。2026-10-30 的真实数据校准结果见 `docs/plan/real-path/calibration-2026-10-30.md`。
+
 ## API
 
 - `GET /api/health`
@@ -60,4 +68,4 @@ COVE_STATIC_DIR=../webapp/dist npm start
 
 ## 当前状态
 
-S1–S8 完成；Gmail 20、Ed 90、Moodle 6 均已真实同步，重启后仍 connected。Moodle 当前课程无 forum 链接，论坛同步返回 0。
+S1–S8 完成；Gmail 20、Ed 91、Moodle 6 均已真实同步，重启后仍 connected。Moodle 当前课程无 forum 链接，论坛同步返回 0。

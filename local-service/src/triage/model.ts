@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { TriageInput, TriageResult } from "./rules.js";
-import { assertEvidence, triage } from "./rules.js";
+import { applyFreshness, assertEvidence, normalizeAction, triage } from "./rules.js";
 
 const modelSchema = z.object({
   content_type: z.enum([
@@ -99,7 +99,7 @@ export async function classify(input: TriageInput): Promise<TriageResult> {
     // Critical decisions require a valid evidence quote. Invalid model output
     // falls back to the deterministic baseline instead of entering the store.
     if (result.importance === "critical" && !assertEvidence(input.text, result.evidenceQuote)) return rules;
-    return result;
+    return applyFreshness(input, { ...result, actionRequired: normalizeAction(result.importance, result.actionRequired) });
   } catch {
     return rules;
   }

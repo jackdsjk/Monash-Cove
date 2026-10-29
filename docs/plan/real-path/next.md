@@ -3,11 +3,11 @@
 > 执行 Agent 每次开始工作先读这个文件。不要跳过阶段，不要等待阶段间确认。
 
 - **current_stage:** done
-- **status:** complete（Gmail/Ed/Moodle live）
+- **status:** complete（Gmail/Ed/Moodle live；真实数据校准完成）
 - **stage_name:** 真实账号验证
 - **next_action:** none；三个来源已真实同步并重启验证
 - **stage_file:** [plan.md](plan.md) §12
-- **last_verified:** 2026-10-30 S8：Gmail 20；Ed 90；Moodle 6；重启后三源仍 connected；简报页 3 个 `POST /api/sync` 均 200；service 22 tests；E2E pass
+- **last_verified:** 2026-10-30 S8：Gmail 20；Ed 91；Moodle 6；重启后三源仍 connected；简报页 3 个 `POST /api/sync` 均 200；service 27 tests；E2E pass；critical 20→7，action 67→9
 - **blocked:** none（Moodle 当前单元无论坛链接，论坛返回 0；真实 holdout 可选）
 - **next_stage:** none
 
