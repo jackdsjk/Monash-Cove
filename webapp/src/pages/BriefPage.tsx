@@ -21,7 +21,7 @@ const sourceOptions = [
 
 export default function BriefPage() {
   const { message } = AntApp.useApp();
-  const { state, hydrate, toggleCorrection, saveFeedback, markRead, markChecked, simulateSync } = useDemoStore();
+  const { state, hydrate, toggleCorrection, saveFeedback, markRead, markChecked } = useDemoStore();
   const [items, setItems] = useState<BriefItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +31,7 @@ export default function BriefPage() {
   const [onlyAction, setOnlyAction] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [feedbackItem, setFeedbackItem] = useState<BriefItem | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,7 +71,7 @@ export default function BriefPage() {
     view === "all"
       ? `共 ${filtered.length} 条，按注意力层级分组。`
       : state.windowHours === 0
-        ? "上次查看后没有新内容。你可以模拟一次同步，或切换到全部内容。"
+        ? "上次查看后没有新内容。你可以同步来源，或切换到全部内容。"
         : `过去 ${formatWindow(state.windowHours)}，整理了 ${filtered.length} 条更新，其中 ${summary.action} 条需要你处理。`;
 
   const openItem = (id: string) => {
@@ -83,10 +84,32 @@ export default function BriefPage() {
     message.success("已记录本次查看，下一次同步会显示新内容");
   };
 
-  const handleSync = () => {
-    simulateSync();
+  const handleSync = async () => {
+    setSyncing(true);
+    const failures: string[] = [];
+    for (const itemSource of ["gmail", "ed", "moodle"] as const) {
+      try {
+        const response = await fetch("/api/sync", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ source: itemSource }),
+        });
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+          failures.push(`${itemSource}: ${body?.error?.message ?? response.statusText}`);
+        }
+      } catch (cause) {
+        failures.push(`${itemSource}: ${cause instanceof Error ? cause.message : "network error"}`);
+      }
+    }
+    await load();
     setView("since");
-    message.success("已模拟一次同步");
+    if (failures.length > 0) {
+      message.warning(`部分来源未同步：${failures.join("；")}`);
+    } else {
+      message.success("Gmail / Ed / Moodle 同步完成");
+    }
+    setSyncing(false);
   };
 
   const handleFeedback = (feedback: Feedback) => {
@@ -123,8 +146,8 @@ export default function BriefPage() {
             ]}
             onChange={(value) => setView(value as ViewMode)}
           />
-          <Button icon={<ReloadOutlined />} onClick={handleSync}>
-            立即同步
+          <Button icon={<ReloadOutlined />} loading={syncing} onClick={() => void handleSync()}>
+            同步全部来源
           </Button>
           <Button type="primary" onClick={handleMarkChecked} disabled={view === "all"}>
             标记本次已查看
@@ -201,8 +224,8 @@ export default function BriefPage() {
         >
           <Space>
             {view === "since" ? (
-              <Button type="primary" onClick={handleSync}>
-                模拟一次同步
+              <Button type="primary" loading={syncing} onClick={() => void handleSync()}>
+                同步全部来源
               </Button>
             ) : null}
             <Button onClick={() => setView("all")}>查看全部内容</Button>

@@ -29,7 +29,6 @@ export interface DemoStore {
   saveFeedback: (id: string, feedback: Feedback) => void;
   markRead: (id: string) => void;
   markChecked: (ids: string[]) => void;
-  simulateSync: () => void;
   reset: () => void;
 }
 
@@ -110,18 +109,14 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     }).catch(() => undefined);
   }, []);
 
-  const simulateSync = useCallback(() => {
-    setState((previous) => ({ ...previous, windowHours: 1.5 }));
-  }, []);
-
   const reset = useCallback(() => {
     void fetch("/api/data", { method: "DELETE" }).catch(() => undefined);
     setState(freshState());
   }, []);
 
   const value = useMemo<DemoStore>(
-    () => ({ state, hydrate, toggleCorrection, saveFeedback, markRead, markChecked, simulateSync, reset }),
-    [state, hydrate, toggleCorrection, saveFeedback, markRead, markChecked, simulateSync, reset],
+    () => ({ state, hydrate, toggleCorrection, saveFeedback, markRead, markChecked, reset }),
+    [state, hydrate, toggleCorrection, saveFeedback, markRead, markChecked, reset],
   );
 
   return <DemoStateContext.Provider value={value}>{children}</DemoStateContext.Provider>;

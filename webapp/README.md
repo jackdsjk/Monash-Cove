@@ -63,7 +63,7 @@ cd ../webapp && npm run check
 cd ../webapp && npm run e2e
 ```
 
-`check` 校验 local-service fixture 完整性和 TypeScript 构建；`e2e` 启动独立的生产服务（端口 4318）+ 临时 SQLite，跑简报、详情、反馈、标记已查看、模拟同步和导航。
+`check` 校验 local-service fixture 完整性和 TypeScript 构建；`e2e` 启动独立的生产服务（端口 4318）+ 临时 SQLite，跑简报、详情、反馈、标记已查看和导航。简报页“同步全部来源”会真实调用 `/api/sync` 三次。
 
 ## 已知边界
 

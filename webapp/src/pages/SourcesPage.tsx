@@ -100,7 +100,7 @@ export default function SourcesPage() {
         type="info"
         showIcon
         message="本地数据源"
-        description="真实凭据只写入本机 Keychain；未连接的来源仍显示 55 条匿名样本，已连接的来源显示真实同步结果。"
+        description="真实凭据只写入本机 Keychain；当前三个来源均已连接并显示真实同步结果。未连接时才使用匿名样本。"
       />
 
       <Row gutter={[16, 16]}>

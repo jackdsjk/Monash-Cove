@@ -183,7 +183,7 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 只在用户凭据、不可逆操作或反复硬阻塞时停；mock 通过不能写成真实账号已接通；
 - 初始状态为 S1 ready，尚未开始实现。
 
-### 2026-10-30：完成 S1–S7 代码路径
+### 2026-10-30：完成 S1–S8 真实链路
 
 - 新增 `local-service/`：Node 26 + Fastify + `node:sqlite`，API、SQLite、fixture seed、迁移和状态持久化；
 - 新增 `SecretStore`（macOS Keychain）、Gmail OAuth loopback、Gmail client/history 同步；
@@ -191,16 +191,18 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 新增规则分诊、可选 OpenAI-compatible 模型适配、证据子串校验和 critical 回退；
 - Web App 改走本地 API，来源页可连接 Gmail/Ed/Moodle，纠错/已读写 API；
 - 生产模式由本地服务同源提供 `webapp/dist`；`start-cove.sh` 可启动；
-- 验证：service 21 tests；webapp check；Playwright 生产 E2E 通过；
-- S8 真实账号验证被凭据阻塞，不能把 mock 写成已接通。
+- 验证：service 22 tests；webapp check；Playwright 生产 E2E 通过；
+- S8 真实账号完成：Gmail 20、Ed 90、Moodle 6，共 116 条；重启后三源仍 connected；
+- Gmail 使用 OAuth + history；Ed 使用 token；Moodle 使用 `MoodleSession`；凭据只在 Keychain；
+- Moodle 当前课程无 forum 链接，论坛同步返回 0；不是把 mock 当真实；
+- 简报页“模拟一次同步”已改为真实 `POST /api/sync` ×3，浏览器网络面板均 200。
 
 ## 三、下一步开发顺序
 
-1. 按 [next.md](plan/real-path/next.md) 的 S8 准备真实凭据；
-2. 完成 Gmail/Ed/Moodle 三源真实同步和原文验证；
-3. 重启、清除数据、失败场景各验证一次；
-4. 修复真实环境问题并更新 `execution-log.md` / `next.md`；
-5. 真实账号通过后再评估桌面壳、云同步和完整评测矩阵。
+1. 真实三源已接通；后续按需补 Moodle 论坛有内容的课程；
+2. 观察 Gmail Testing token 7 天过期并重新连接；
+3. 评估桌面壳、云同步和完整评测矩阵；
+4. 不再把 fixture/mock 结果写成真实账号结果。
 
 ## 四、相关文档
 
