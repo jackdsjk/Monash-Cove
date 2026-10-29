@@ -34,6 +34,7 @@ cd ../local-service && npm run build
 ## 当前范围
 
 - `/`：Since Last Check 简报、注意力分组、来源筛选、搜索、只看需要行动、详情 Drawer、反馈 Modal；
+- 过去内容默认折叠在“过去的内容”里，可展开并按 20 条继续加载，不打断当前简报；
 - `/sources`：Gmail OAuth、Ed token、Moodle session、来源状态和同步；
 - `/settings`：本地状态、清除数据和隐私说明；
 - 数据由本地 API 返回；SQLite 和凭据在 `local-service`，浏览器只保留查看窗口偏好；

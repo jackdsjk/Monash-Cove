@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ReloadOutlined, SearchOutlined } from "@ant-design/icons";
+import { HistoryOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { Alert, App as AntApp, Button, Card, Col, Collapse, Empty, Input, Row, Segmented, Skeleton, Space, Statistic, Switch, Tag, Typography } from "antd";
 import { fetchBrief } from "../data/repository";
 import ItemCard from "../components/ItemCard";
@@ -32,6 +32,8 @@ export default function BriefPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [feedbackItem, setFeedbackItem] = useState<BriefItem | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [pastOpen, setPastOpen] = useState(false);
+  const [pastLimit, setPastLimit] = useState(20);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,6 +63,12 @@ export default function BriefPage() {
       }),
     [items, onlyAction, query, source, state.windowHours, view],
   );
+  const pastItems = useMemo(() => {
+    if (view !== "since") return [];
+    return filterItems(items, { source, query, onlyAction, sinceHours: null }).filter(
+      (item) => item.ageHours > state.windowHours,
+    );
+  }, [items, onlyAction, query, source, state.windowHours, view]);
   const groups = useMemo(() => groupBySection(filtered, state.corrections), [filtered, state.corrections]);
   const summary = useMemo(() => summarize(filtered, state.corrections), [filtered, state.corrections]);
   const selectedItem = selectedId ? items.find((item) => item.id === selectedId) ?? null : null;
@@ -71,8 +79,8 @@ export default function BriefPage() {
     view === "all"
       ? `共 ${filtered.length} 条，按注意力层级分组。`
       : state.windowHours === 0
-        ? "上次查看后没有新内容。你可以同步来源，或切换到全部内容。"
-        : `过去 ${formatWindow(state.windowHours)}，整理了 ${filtered.length} 条更新，其中 ${summary.action} 条需要你处理。`;
+        ? "上次查看后没有新内容。过去的内容仍可在下方展开。"
+        : `过去 ${formatWindow(state.windowHours)}，整理了 ${filtered.length} 条更新，其中 ${summary.action} 条需要你处理。${pastItems.length > 0 ? ` 另有 ${pastItems.length} 条更早内容可展开。` : ""}`;
 
   const openItem = (id: string) => {
     markRead(id);
@@ -217,7 +225,11 @@ export default function BriefPage() {
             <div>
               <Typography.Title level={2}>{view === "since" ? "这次巡检没有新内容" : "没有匹配的内容"}</Typography.Title>
               <Typography.Paragraph type="secondary">
-                {view === "since" ? "下一次同步后，新内容会出现在这里。" : "调整来源筛选或搜索词后再试。"}
+                {view === "since"
+                  ? pastItems.length > 0
+                    ? "过去的内容仍可展开查看，不会打断当前简报。"
+                    : "下一次同步后，新内容会出现在这里。"
+                  : "调整来源筛选或搜索词后再试。"}
               </Typography.Paragraph>
             </div>
           }
@@ -294,6 +306,50 @@ export default function BriefPage() {
           )}
         </div>
       )}
+
+      {view === "since" && pastItems.length > 0 ? (
+        <Collapse
+          ghost
+          className="folded-collapse past-collapse"
+          activeKey={pastOpen ? ["past"] : []}
+          onChange={(keys) => setPastOpen(keys.includes("past"))}
+          items={[
+            {
+              key: "past",
+              label: (
+                <span>
+                  <HistoryOutlined /> 过去的内容 <Tag>{pastItems.length}</Tag>
+                </span>
+              ),
+              children: (
+                <div className="past-content">
+                  <Typography.Paragraph type="secondary" className="past-note">
+                    这些内容早于当前查看窗口，默认折叠。只在需要回看时展开。
+                  </Typography.Paragraph>
+                  <div className="item-list">
+                    {pastItems.slice(0, pastLimit).map((item) => (
+                      <ItemCard
+                        key={item.id}
+                        item={item}
+                        correction={state.corrections[item.id] ?? {}}
+                        read={Boolean(state.read[item.id])}
+                        onOpen={openItem}
+                        onTogglePin={(id) => toggleCorrection(id, "pinned")}
+                        onDismiss={(id) => toggleCorrection(id, "dismissed")}
+                      />
+                    ))}
+                  </div>
+                  {pastItems.length > pastLimit ? (
+                    <Button className="past-more" onClick={() => setPastLimit((current) => current + 20)}>
+                      再展开 {Math.min(20, pastItems.length - pastLimit)} 条
+                    </Button>
+                  ) : null}
+                </div>
+              ),
+            },
+          ]}
+        />
+      ) : null}
 
       <div className="page-footnote">
         <Typography.Text type="secondary">

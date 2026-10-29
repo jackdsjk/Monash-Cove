@@ -58,7 +58,7 @@ try {
 
   await page.getByRole("button", { name: "标记本次已查看" }).click();
   await page.locator(".brief-empty").waitFor();
-  await page.getByRole("button", { name: "查看全部内容" }).click();
+  await page.getByRole("button", { name: /过去的内容/ }).click();
   await page.locator(".item-card").first().waitFor();
 
   await page.getByRole("menuitem", { name: "数据源" }).click();

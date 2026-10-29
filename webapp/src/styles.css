@@ -431,6 +431,23 @@ a {
   padding: 0 20px 20px !important;
 }
 
+.past-collapse {
+  margin-top: 16px;
+}
+
+.past-content .item-list {
+  margin-top: 12px;
+}
+
+.past-note {
+  font-size: 12px;
+  margin-bottom: 8px !important;
+}
+
+.past-more {
+  margin-top: 12px;
+}
+
 .brief-empty {
   background: #fff;
   border: 1px solid #f0f0f0;
