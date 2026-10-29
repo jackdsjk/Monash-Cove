@@ -61,6 +61,8 @@ try {
   await page.getByRole("button", { name: /过去的内容/ }).click();
   await page.locator(".item-card").first().waitFor();
 
+  await page.getByRole("menuitem", { name: "倒计时" }).click();
+  await page.getByRole("heading", { name: "截止倒计时" }).waitFor();
   await page.getByRole("menuitem", { name: "数据源" }).click();
   await page.getByRole("heading", { name: "数据源" }).waitFor();
   await page.getByRole("menuitem", { name: "设置" }).click();

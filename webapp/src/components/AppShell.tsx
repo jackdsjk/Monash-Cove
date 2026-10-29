@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ApiOutlined, InboxOutlined, SettingOutlined } from "@ant-design/icons";
+import { ApiOutlined, ClockCircleOutlined, InboxOutlined, SettingOutlined } from "@ant-design/icons";
 import { Badge, Layout, Menu, Typography } from "antd";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { fetchSources } from "../data/repository";
@@ -10,6 +10,7 @@ const { Sider, Content } = Layout;
 
 const menuItems = [
   { key: "/", icon: <InboxOutlined />, label: "简报" },
+  { key: "/deadlines", icon: <ClockCircleOutlined />, label: "倒计时" },
   { key: "/sources", icon: <ApiOutlined />, label: "数据源" },
   { key: "/settings", icon: <SettingOutlined />, label: "设置" },
 ];
@@ -36,7 +37,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   const selectedKey = location.pathname === "/" ? "/" : location.pathname;
-  const title = location.pathname === "/sources" ? "数据源" : location.pathname === "/settings" ? "设置" : "简报";
+  const title = location.pathname === "/sources" ? "数据源" : location.pathname === "/settings" ? "设置" : location.pathname === "/deadlines" ? "倒计时" : "简报";
 
   useEffect(() => {
     document.title = `Cove · ${title}`;

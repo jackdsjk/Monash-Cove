@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { HistoryOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { Alert, App as AntApp, Button, Card, Col, Collapse, Empty, Input, Row, Segmented, Skeleton, Space, Statistic, Switch, Tag, Typography } from "antd";
 import { fetchBrief } from "../data/repository";
 import ItemCard from "../components/ItemCard";
 import ItemDrawer from "../components/ItemDrawer";
 import FeedbackModal from "../components/FeedbackModal";
-import DeadlineCountdown from "../components/DeadlineCountdown";
 import { useDemoStore } from "../state/DemoStateContext";
 import { filterItems, formatWindow, groupBySection, summarize } from "../lib/triage";
 import type { BriefItem, Feedback, Source } from "../types";
@@ -22,6 +22,8 @@ const sourceOptions = [
 
 export default function BriefPage() {
   const { message } = AntApp.useApp();
+  const location = useLocation();
+  const requestedId = (location.state as { openItemId?: string } | null)?.openItemId;
   const { state, hydrate, toggleCorrection, saveFeedback, markRead, markChecked } = useDemoStore();
   const [items, setItems] = useState<BriefItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,6 +55,13 @@ export default function BriefPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!requestedId) return;
+    if (!items.some((item) => item.id === requestedId)) return;
+    markRead(requestedId);
+    setSelectedId(requestedId);
+  }, [items, markRead, requestedId]);
 
   const filtered = useMemo(
     () =>
@@ -174,8 +183,6 @@ export default function BriefPage() {
           action={<Button onClick={() => void load()}>重试</Button>}
         />
       ) : null}
-
-      <DeadlineCountdown items={items} corrections={state.corrections} onOpen={openItem} />
 
       <Row className="stat-row" gutter={[16, 16]}>
         <Col xs={12} lg={6}>

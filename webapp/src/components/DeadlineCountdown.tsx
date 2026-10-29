@@ -7,6 +7,7 @@ interface DeadlineCountdownProps {
   items: BriefItem[];
   corrections: Record<string, Correction>;
   onOpen: (id: string) => void;
+  showHeading?: boolean;
 }
 
 interface DeadlineBlock {
@@ -23,7 +24,7 @@ const BLOCKS: DeadlineBlock[] = [
   { id: "later", title: "更晚", note: "先知道，不用现在处理", tone: "later" },
 ];
 
-export default function DeadlineCountdown({ items, corrections, onOpen }: DeadlineCountdownProps) {
+export default function DeadlineCountdown({ items, corrections, onOpen, showHeading = true }: DeadlineCountdownProps) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -57,20 +58,22 @@ export default function DeadlineCountdown({ items, corrections, onOpen }: Deadli
 
   return (
     <section className="deadline-section" aria-labelledby="deadline-heading">
-      <div className="deadline-heading">
-        <div>
-          <Typography.Text className="eyebrow" type="secondary">
-            MOODLE DEADLINES
-          </Typography.Text>
-          <Typography.Title level={2} id="deadline-heading">
-            截止倒计时
-          </Typography.Title>
-          <Typography.Text type="secondary">按 Moodle 作业截止时间自动生成；不需要你手动计算。</Typography.Text>
+      {showHeading ? (
+        <div className="deadline-heading">
+          <div>
+            <Typography.Text className="eyebrow" type="secondary">
+              MOODLE DEADLINES
+            </Typography.Text>
+            <Typography.Title level={2} id="deadline-heading">
+              截止倒计时
+            </Typography.Title>
+            <Typography.Text type="secondary">按 Moodle 作业截止时间自动生成；不需要你手动计算。</Typography.Text>
+          </div>
+          <Tag icon={<ClockCircleOutlined />} color="default">
+            {deadlines.length} 个截止项
+          </Tag>
         </div>
-        <Tag icon={<ClockCircleOutlined />} color="default">
-          {deadlines.length} 个截止项
-        </Tag>
-      </div>
+      ) : null}
 
       <div className="deadline-groups">
         {groups.map((group) => (
