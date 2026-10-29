@@ -16,3 +16,4 @@
 | 2026-10-30 | S8 (Gmail) | browser OAuth; `POST /api/sync`; `GET /api/sources` | Gmail 真实授权成功；backfill 20；history 0；fixture Gmail 移除；Gmail=20 | Ed/Moodle 仍 blocked |
 | 2026-10-30 | S8 (all) | browser OAuth; Moodle cookie; `POST /api/sync` x3; restart | Gmail 20；Ed 91；Moodle 6；重启后三源 connected；总 117 条 | Moodle 论坛 0（当前课程无 forum 链接） |
 | 2026-10-30 | S8 (UI sync) | browser click; network requests | 简报页点击“同步全部来源”发出 3 个 `POST /api/sync`，全部 200；提示“Gmail / Ed / Moodle 同步完成” | 已移除模拟同步按钮 |
+| 2026-10-30 | S9 (countdown) | `npm test`; browser | Moodle `dueAt` 6 条；顶部倒计时分组；桌面/移动无横向溢出 | 作业/资料下载未实现，仅能打开原文 |

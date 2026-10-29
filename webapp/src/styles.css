@@ -448,6 +448,149 @@ a {
   margin-top: 12px;
 }
 
+.deadline-section {
+  margin: 28px 0 8px;
+}
+
+.deadline-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.deadline-heading h2 {
+  font-size: 24px;
+  margin: 4px 0;
+}
+
+.deadline-groups {
+  display: grid;
+  gap: 14px;
+}
+
+.deadline-group {
+  background: #fff;
+  border: 1px solid #f0f0f0;
+  border-left: 3px solid #d9d9d9;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.deadline-group--overdue {
+  border-left-color: #cf1322;
+}
+
+.deadline-group--today {
+  border-left-color: #d46b08;
+  background: #fffaf0;
+}
+
+.deadline-group--week {
+  border-left-color: #1f5a46;
+}
+
+.deadline-group--later {
+  border-left-color: #8c8c8c;
+}
+
+.deadline-group-heading {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.deadline-group-heading h3 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.deadline-group-heading .ant-tag {
+  margin-inline-start: auto;
+}
+
+.deadline-cards {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.deadline-card {
+  border-color: #f0f0f0;
+  border-radius: 6px;
+}
+
+.deadline-card .ant-card-body {
+  padding: 14px;
+}
+
+.deadline-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.deadline-card-meta .ant-tag {
+  font-size: 11px;
+  line-height: 18px;
+  margin-inline-end: 0;
+}
+
+.deadline-card-title {
+  display: block;
+  font-size: 14px;
+  line-height: 22px;
+  margin: 8px 0 10px;
+  min-height: 44px;
+}
+
+.deadline-remaining {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+}
+
+.deadline-remaining--overdue {
+  color: #cf1322;
+}
+
+.deadline-remaining--today {
+  color: #d46b08;
+}
+
+.deadline-remaining--week {
+  color: #1f5a46;
+}
+
+.deadline-remaining--later {
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.deadline-due {
+  display: block;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+@media (max-width: 1100px) {
+  .deadline-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .deadline-heading {
+    display: block;
+  }
+
+  .deadline-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
 .brief-empty {
   background: #fff;
   border: 1px solid #f0f0f0;

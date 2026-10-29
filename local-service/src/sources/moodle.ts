@@ -8,6 +8,8 @@ export interface MoodleRawItem {
   publishedAt: string;
   updatedAt: string;
   url: string;
+  dueAt?: string | null;
+  deadlineKind?: string | null;
   kind?: "assessment" | "forum";
 }
 
@@ -94,6 +96,8 @@ export class MoodleClient {
       publishedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       url: event.url ?? event.action?.url ?? (event.course?.id ? `${this.baseUrl}/course/view.php?id=${event.course.id}` : this.baseUrl),
+      dueAt,
+      deadlineKind: event.modulename ?? event.modname ?? "assessment",
       kind: "assessment",
     };
   }

@@ -25,6 +25,8 @@ for (const item of items) {
     publishedAt: item.publishedAt,
     updatedAt: item.updatedAt,
     url: item.url,
+    dueAt: item.dueAt,
+    deadlineKind: item.deadlineKind,
     contentHash: item.contentHash,
     contentType: result.contentType,
     importance: result.importance,

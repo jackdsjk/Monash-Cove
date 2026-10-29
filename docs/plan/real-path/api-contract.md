@@ -59,6 +59,8 @@ Base URL in development: `http://127.0.0.1:4317`. The Web App uses `/api` via Vi
       "updatedAt": "2026-10-29T10:00:00.000Z",
       "url": "https://mail.google.com/...",
       "ageHours": 2.4,
+      "dueAt": null,
+      "deadlineKind": null,
       "contentHash": "sha256...",
       "contentType": "requirement_change",
       "importance": "critical",

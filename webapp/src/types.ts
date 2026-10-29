@@ -30,6 +30,8 @@ export interface BriefItem extends DemoItem {
   publishedAt?: string;
   updatedAt?: string;
   url?: string;
+  dueAt?: string | null;
+  deadlineKind?: string | null;
   contentHash?: string;
   triageVersion?: string;
   model?: string;

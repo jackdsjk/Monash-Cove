@@ -40,6 +40,8 @@ export interface StoredItem {
   updatedAt: string;
   url: string;
   ageHours: number;
+  dueAt: string | null;
+  deadlineKind: string | null;
   contentHash: string;
   contentType: ContentType;
   importance: Importance;
@@ -67,6 +69,8 @@ export interface NewItem {
   publishedAt: string;
   updatedAt: string;
   url: string;
+  dueAt?: string | null;
+  deadlineKind?: string | null;
   contentHash: string;
   contentType: ContentType;
   importance: Importance;

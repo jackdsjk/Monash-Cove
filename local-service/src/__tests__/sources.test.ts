@@ -72,6 +72,8 @@ describe("Moodle", () => {
     expect(items).toHaveLength(1);
     expect(items[0].title).toBe("Assignment 1");
     expect(items[0].course).toBe("FIT1045");
+    expect(items[0].dueAt).toBe(new Date(1760000000 * 1000).toISOString());
+    expect(items[0].deadlineKind).toBe("assign");
   });
 
   it("persists Moodle assessments through the sync function", async () => {
@@ -86,6 +88,7 @@ describe("Moodle", () => {
     const result = await syncMoodle(db, "https://moodle.example.edu", "session", fetcher);
     expect(result.synced).toBe(1);
     expect(db.listItems()[0].source).toBe("moodle");
+    expect(db.listItems()[0].dueAt).toBe(new Date(1760000000 * 1000).toISOString());
     db.close();
   });
 });
