@@ -1,259 +1,330 @@
-# Cove 真实数据长线计划
+# Agent 执行计划：Cove 真实数据
 
-> 日期：2026-10-29
+> 这是给执行 Agent 自己看的计划，不是给项目所有者做审批的计划。
 >
-> 状态：计划草案，按每周 8–10 小时有效投入估算
->
-> 关联：[MVP 范围](../../mvp-scope-2026-10-29.md) · [Web App 设计](../../webapp-design.md) · [Web App 代码](../../../webapp/README.md) · [评测方案](../../evaluation-harness.md)
+> 执行入口：[next.md](next.md)。每完成一个阶段，先更新 `next.md`，再继续，不向用户请求阶段间确认。
 
-## 0. 诊断
+## 1. 执行模式
 
-现在不缺产品目标，也不缺界面。缺的是**一条能把个人账号里的真实信息送到界面、并且能反复使用的本地链路**。
+用户说“开始”后，按 S1 → S8 连续执行：
 
-当前已有：
+1. 读 [next.md](next.md)，确认当前阶段和下一动作；
+2. 完成当前阶段的全部任务；
+3. 运行该阶段的验证命令；
+4. 通过后更新 [next.md](next.md) 到下一阶段，并在 [execution-log.md](execution-log.md) 追加一行；
+5. 立即继续，不总结、不等待确认；
+6. 只有遇到 **硬阻塞** 才停下，其余情况用 fixture、mock 或已有数据继续。
 
-- `webapp/`：简报、详情、纠错、数据源、设置的 UI 骨架；
-- 55 条匿名样本和预录模型输出；
-- 确定性分诊规则和 55 条 Gold Set；
-- `stack/unicorn` 里 Gmail / Ed / Moodle 的适配器参考；
-- PRD、MVP 范围、设计规范。
+硬阻塞只有四类：
 
-当前没有：
+- 需要用户本人完成的 OAuth/Ed token/Moodle 登录；
+- 需要用户提供模型 API key 且该阶段必须真实调用；
+- 不可逆或生产环境操作；
+- 连续两次同一原因失败，且无法用 mock 推进。
 
-- 本地 Node 服务和 API；
-- SQLite 数据层；
-- 真实 Gmail / Ed / Moodle 授权；
-- 真实同步、增量游标、错误处理；
-- 真实条目模型（URL、时间、来源 ID、内容哈希）；
-- 持久化纠错和真正的“清除本地数据”；
-- 端到端测试和可交付的启动方式。
+遇到硬阻塞时：记录到 `next.md` 的 `Blocked`，继续做不依赖它的阶段；最后一次性列出用户要做的事。不能伪造“已接通真实账号”。
 
-这决定了计划顺序：**先把本地链路和 Gmail 跑通，再接第二个来源，最后处理 Moodle 帖子和模型。**
+## 2. 固定假设
 
-## 1. 目标与完成定义
+不再向用户确认这些：
 
-### 目标
+- 产品形态：本地 Web App；Node 服务绑定 `127.0.0.1`，生产时同源提供 UI 和 API；
+- 数据：SQLite，本地保存；不上云；
+- 凭据：macOS Keychain（`security` CLI 封装成 `SecretStore`）；浏览器不接触 token/session；
+- Gmail：官方 Gmail API + `gmail.readonly` + desktop OAuth loopback；
+- Ed：API token，按 active course 拉最新 30 个主题；
+- Moodle：已登录 `MoodleSession`，不保存密码；课程/assessment 复用现有逻辑；
+- Moodle 论坛帖子：包含在计划内（S5），不能因为“可能难”跳过；
+- 分诊：规则优先，模型可选；模型不可用时必须回退规则；
+- 前端：保留现有 `webapp/`，替换数据层，不重写 UI；
+- 桌面壳、云同步、多用户、提醒、问答、MCP 不做。
 
-用一个真实的个人账号，把 Gmail、Ed 和 Moodle 的只读信息同步到本地，在 Web App 中生成一份可核对原文的 Since Last Check 简报；重启后数据、已读和纠错仍然存在。
+## 3. 完成定义
 
-### 完成定义
+全部阶段完成后应满足：
 
-- 结果：本地服务 + Web App 能在自己的电脑上启动；
-- 可观察证据：三个来源至少各完成一次成功同步，真实条目出现在简报中；
-- 数据证据：每个重要条目有来源链接、时间、作者角色和原文证据；
-- 持久化证据：重启应用后已读/置顶/反馈仍存在；
-- 失败证据：来源过期、同步失败、无新内容都有可见状态；
-- 测试证据：一条真实的 Gmail 纵向切片通过集成测试；后续来源复用同一契约；
-- 时间：按每周 8–10 小时，约 14–18 周完成全部计划；如果只做 P0（不含 Moodle 帖子），约 10–14 周；
-- 明确不做：云端存储、多用户、Electron/Tauri 桌面壳、语义去重、提醒、问答、MCP。
+- `local-service/` 能在干净目录启动，创建 SQLite，提供 `/api/*`；
+- `webapp/` 不再 import fixture，所有真实条目通过本地 API；
+- 真实 Gmail/Ed/Moodle 至少各完成一次同步（S8 用户凭据验证）；
+- Moodle 论坛帖子可增量进入简报；
+- 每个重要条目有来源 URL、时间、作者和原文证据；
+- 已读、置顶、不重要、反馈在重启后保留；
+- 来源失败、授权过期、空数据都有 UI 状态；
+- 规则/模型版本可追溯，证据句必须是原文子串；
+- Playwright E2E 覆盖连接（或 mock 连接）、同步、简报、详情、纠错、清除；
+- 构建后的本地服务同源提供 UI，一条命令/启动器可运行；
+- 文档、运行手册、隐私说明、已知限制同步。
 
-> 时间是基于任务清单的范围估算，不是交付承诺。每周投入不同，按比例调整。
+不以“代码写完”代替“真实账号验证”。如果 S8 没有凭据，最终状态只能是 **代码完成，真实账号待验证**。
 
-## 2. 关键假设
+## 4. 阶段总览
 
-- 第一版是**本地 Web App**：Node 服务绑定 `127.0.0.1`，同时提供 API 和构建后的前端；开发期用 Vite proxy。
-- 本地数据用 SQLite，凭据用系统钥匙串；真实学生数据不上云。
-- 分诊先用确定性规则，模型作为可选的第二阶段；模型调用必须可关闭、可回退。
-- Gmail 使用官方 Gmail API + `gmail.readonly`；Ed 使用 API token；Moodle 使用已登录会话，不保存密码。
-- Moodle 论坛帖子当前没有适配器；它是否进入 P0，需要在 M2 后做一次决策。
-- `stack/unicorn` 的适配器只作为参考/移植来源，不把 Cloudflare Worker 直接跑在本地。
-- 每周有效投入按 8–10 小时估算，计划留 40% 缓冲；第一周只安排 3 个任务。
+| 阶段 | 交付状态 | 关键证据 | 依赖 |
+|---|---|---|---|
+| S1 本地运行时 + fixture API | Web App 通过本地 HTTP 取到 fixture | `local-service` 启动、API contract、webapp 不再 import fixture | 无 |
+| S2 SQLite + 持久状态 | 数据、已读、纠错在重启后仍存在 | schema、migration、API、重启测试 | S1 |
+| S3 Gmail 纵向切片 | 真实 Gmail 可连接、同步、分诊、打开原文 | OAuth、history cursor、真实条目、Gmail E2E | S2 |
+| S4 Ed + Moodle 最小切片 | 三源进入同一简报，状态可见 | Ed token、Moodle session、编排器、失败状态 | S3 |
+| S5 Moodle 论坛帖子 | 帖子可增量进入简报 | 论坛列表/详情/更新检测/过期恢复 | S4 |
+| S6 规则/模型分诊 | 分诊可解释、可回退、可回归 | 规则、模型适配、证据校验、Gold Set | S3/S4 |
+| S7 可靠性、安全、E2E、交付 | 可启动、可试用、可清除的本地版本 | 安全、失败注入、Playwright、生产服务 | S4/S6 |
+| S8 真实账号验证 | 用户账号真实跑通；否则明确未验证 | 三源真实同步、真实简报、真实链接 | S3/S4/S5 + 用户凭据 |
 
-## 3. 里程碑总览
+## 5. S1：本地运行时 + fixture API
 
-| 里程碑 | 完成后的状态 | 证据 | 估算 | 依赖 |
-|---|---|---|---:|---|
-| M1 本地链路 + Gmail | 本机用真实 Gmail 跑通一次简报，重启后仍在 | 真实 Gmail 条目、来源链接、纠错持久化、Gmail E2E | 34–36h | 无 |
-| M2 Ed + Moodle 最小切片 | Ed 和 Moodle assessment 进入同一简报，三源状态可见 | 三源同步、增量、失败状态、精确去重 | 20–24h | M1 |
-| M3 Moodle 论坛帖子（条件） | Moodle 帖子可被增量读取并显示，或明确不做 | 论坛列表、分页、帖子详情、更新检测 | 14–18h | M2 |
-| M4 规则/模型混合分诊 | 真实数据上的分诊和证据可追溯、可回归 | 规则基线、模型回退、Gold Set 回归 | 14–18h | M1, M2 |
-| M5 可靠性、安全、交付 | 一个普通用户能启动、试用并清除数据 | E2E、失败注入、启动器、发布清单 | 19–22h | M2, M4 |
+**目标：** 让 Web App 通过 HTTP 取数，而不是 import `demo-data.json`。
 
-总计约 101–118 小时；加 40% 缓冲约 141–165 小时。按每周 10 小时约 14–18 周；按每周 8 小时约 18–21 周。
+**任务：**
 
-## 4. M1：本地链路 + Gmail
+- [ ] 建 `local-service/`：Node 26 + TypeScript + Fastify；`GET /health`。
+- [ ] 写 `docs/plan/real-path/api-contract.md`：端点、字段、错误、游标、时间格式。
+- [ ] 把现有 55 条 fixture 复制到 `local-service/fixtures/`，服务启动时加载。
+- [ ] 实现 `GET /api/sources`、`GET /api/brief`、`GET /api/items/:id`。
+- [ ] 统一错误结构：`{error:{code,message,retryable}}`。
+- [ ] Vite dev proxy `/api` → `127.0.0.1:4317`。
+- [ ] 改 `webapp/src/data/repository.ts` 使用 `fetch`；删除对 `demo-data.ts` 的直接依赖。
+- [ ] 增加 API 合约测试：fixture 数量、字段、404、空数组。
 
-**里程碑交付：** 本地服务、SQLite、API contract、Gmail 真实同步、规则分诊、Web App 真实数据、纠错持久化。
+**验证：**
 
-| ID | 任务 | 产出/验收 | 预计 |
-|---|---|---|---:|
-| M1-01 | 建 `local-service/` 骨架（Node + TS + Fastify） | `GET /health` 返回 `{ok:true}`；`npm run dev` 可启动 | 2h |
-| M1-02 | 写本地 API contract v1 | 5 个端点、请求/响应、错误码、分页/游标写清 | 2h |
-| M1-03 | 写 SQLite schema v1 | `sources/items/item_content/sync_cursors/corrections` 字段、唯一键、索引 | 2h |
-| M1-04 | 实现数据库连接和迁移 | 空目录启动自动建表；迁移可重复执行 | 2h |
-| M1-05 | 实现 `/api/sources` + `/api/health` | 返回本地 fixture 的三个来源状态；测试通过 | 2h |
-| M1-06 | 实现 `/api/brief` fixture | 返回统一 items；支持 `since`、来源过滤 | 2h |
-| M1-07 | 实现 `/api/items/:id` 和错误结构 | 404/500 有统一 `{error:{code,message,retryable}}` | 2h |
-| M1-08 | Web App 改接本地 API | `fetchBrief()` 走 HTTP；Vite proxy `/api`；不再 import fixture | 2h |
-| M1-09 | 钥匙串 spike | 能写入/读取/删除一个测试 token；记录平台限制 | 2h |
-| M1-10 | 创建 Google OAuth desktop client | loopback redirect、`gmail.readonly`、测试用户就绪 | 1h |
-| M1-11 | Gmail OAuth loopback + token 交换 | 浏览器完成授权，token 只进钥匙串 | 2h |
-| M1-12 | Gmail 首次 backfill | 拉取最近 20 封邮件并规范化入库 | 2h |
-| M1-13 | Gmail history 增量 | 保存 historyId；第二次同步只处理新增 | 2h |
-| M1-14 | 统一条目映射 | 邮件 ID、线程、时间、作者、url、正文、contentHash | 2h |
-| M1-15 | 移植规则分诊 + 证据校验 | 规则输出标签；证据句必须是原文子串 | 2h |
-| M1-16 | 纠错/已读/查看时间 API | 写入 corrections/read；重启后仍存在 | 2h |
-| M1-17 | Gmail 纵向切片 E2E | 连接 → 同步 → 简报 → 详情 → 纠错 → 重启 | 2h |
-| M1-18 | 更新 Web App 真实来源状态 | 来源页显示 last sync/error；不再用静态文案 | 2h |
-
-**完成门槛：** 重启本地服务后，Gmail 条目仍在；打开详情能看到真实来源链接；标记不重要后刷新仍保留；同步失败有可见错误。
-
-## 5. M2：Ed + Moodle 最小切片
-
-**里程碑交付：** 三个来源共用一个同步编排器和状态模型；Ed 与 Moodle assessment 进入同一份简报。
-
-| ID | 任务 | 产出/验收 | 预计 |
-|---|---|---|---:|
-| M2-01 | Ed token/region 存储 | token 进钥匙串；region 可切换 | 2h |
-| M2-02 | Ed 客户端拉取最新 30 个主题 | 每门 active course 返回条目；分页行为记录 | 2h |
-| M2-03 | Ed 规范化 + 游标 + 去重 | 同一主题不重复；更新时间可检测 | 2h |
-| M2-04 | 课程映射与“未归属”降级 | 课程缺失不丢条目；显示未归属 | 2h |
-| M2-05 | Moodle session 获取/录入 | 通过本地登录或手动 cookie 写入；只存钥匙串 | 2h |
-| M2-06 | Moodle courses/assessments 适配 | 复用现有插件逻辑；拉课程和 assessment | 2h |
-| M2-07 | 同步编排器 | 手动同步、按来源并行、单源失败不阻塞其他源 | 2h |
-| M2-08 | 同步状态/错误 UI | 三源分别显示成功、失败、过期、上次时间 | 2h |
-| M2-09 | 真实时间戳和 URL | 条目有 publishedAt/updatedAt/url；排序按真实时间 | 2h |
-| M2-10 | 精确去重 | 同来源相同 ID/哈希只保留一条；跨来源保留来源 | 2h |
-| M2-11 | 三源纵向 E2E | 三源各同步一次；简报、详情、纠错仍可用 | 2h |
-| M2-12 | 失败注入测试 | 超时、401、空响应、部分失败都有状态 | 2h |
-
-**完成门槛：** 三个来源至少各完成一次成功同步；一个来源失败时，其他来源照常展示；同一个条目不会重复出现。
-
-## 6. M3：Moodle 论坛帖子（条件里程碑）
-
-**先决策：** M2 结束后确认 Moodle 帖子是否属于 P0。如果不属于，跳过本里程碑；如果属于，按以下任务执行。
-
-**里程碑交付：** 论坛列表和帖子正文可增量进入简报。
-
-| ID | 任务 | 产出/验收 | 预计 |
-|---|---|---|---:|
-| M3-01 | 决策：帖子是否 P0 | 记录结论；决定是否调整 MVP 范围 | 0.5h |
-| M3-02 | 探测论坛页面与可复用端点 | 记录列表 URL、分页、帖子 URL、登录态要求 | 2h |
-| M3-03 | 论坛列表适配 | 拉取 active course 的 forum/discussion 列表 | 2h |
-| M3-04 | 分页与限流 | 至少翻 3 页；失败可重试；不重复 | 2h |
-| M3-05 | 帖子正文抓取 | 规范化正文、作者、时间、URL、课程 | 2h |
-| M3-06 | 更新检测和软删除 | post id + hash；编辑更新；消失标 deleted | 2h |
-| M3-07 | 会话过期处理 | 401/登录页识别；提示重新授权；保留旧数据 | 2h |
-| M3-08 | 论坛帖子 UI 验证 | 帖子进入简报/详情，证据句正确 | 2h |
-| M3-09 | 真实账号 smoke | 一个课程的最新帖子完成端到端 | 2h |
-
-**完成门槛：** 一个课程的最新帖子可进入简报；再次同步不重复；编辑过的帖子能更新；会话过期有明确提示。
-
-## 7. M4：规则/模型混合分诊
-
-**里程碑交付：** 真实数据上有一条可重复、可解释、可回退的分诊链路。
-
-| ID | 任务 | 产出/验收 | 预计 |
-|---|---|---|---:|
-| M4-01 | 把规则分诊抽成共享模块 | Web/API 都能用；输入输出类型化 | 2h |
-| M4-02 | 模型适配层 | 可配置 provider/model/key；无 key 时回退规则 | 2h |
-| M4-03 | 结构化输出校验 | JSON schema；非法输出拒绝并回退 | 2h |
-| M4-04 | 证据句校验 | 模型 quote 必须是原文子串；否则重试/回退 | 2h |
-| M4-05 | critical 护栏 | 模型 critical 不足证据时降级或标记待确认 | 2h |
-| M4-06 | triage 版本记录 | item 保存规则/模型版本，可回归 | 1h |
-| M4-07 | Gold Set 回归 | 55 条现有指标不退化；记录差异 | 2h |
-| M4-08 | 真实样本 holdout | 至少 10 条真实脱敏样本；单独报告 | 2h |
-| M4-09 | 不确定状态 | UI 显示待确认/低置信，不写成事实 | 2h |
-
-**完成门槛：** 关闭模型仍可运行；模型失败不阻塞简报；所有 critical 有证据或待确认；评测可重复。
-
-## 8. M5：可靠性、安全、交付
-
-**里程碑交付：** 一个普通用户能启动、试用和清除数据的本地版本。
-
-| ID | 任务 | 产出/验收 | 预计 |
-|---|---|---|---:|
-| M5-01 | loopback 安全 | 只绑 `127.0.0.1`；CSP；CSRF/来源校验 | 2h |
-| M5-02 | 日志脱敏 | token/session/正文不进日志；敏感字段掩码 | 2h |
-| M5-03 | 数据删除与保留 | 断开来来源、清除全部数据、保留期策略 | 2h |
-| M5-04 | 失败注入演练 | 401、超时、限流、磁盘满、空数据 | 2h |
-| M5-05a | Playwright happy path | 连接→同步→简报→详情 | 2h |
-| M5-05b | Playwright 失败/清除路径 | 401、超时、空数据、清除后无残留 | 2h |
-| M5-06 | 生产本地服务 | 构建后由 Node 服务同源提供 UI/API | 2h |
-| M5-07 | 启动器 | 一条命令/双击启动；日志路径可见 | 2h |
-| M5-08 | 运行手册 | 安装、授权、故障、清除、隐私说明 | 2h |
-| M5-09 | 发布检查表 | P0 验收、测试结果、已知边界、回滚 | 2h |
-
-**完成门槛：** 换一台干净机器按文档能启动；完成一次真实闭环；清除数据后 SQLite/钥匙串无残留；E2E 通过。
-
-## 9. 顺序、并行与容量
-
-关键路径：
-
-```text
-M1 → M2 → M4 → M5
-          ↘ M3（条件）
+```bash
+cd local-service && npm test
+cd ../webapp && npm run check
+# 两个服务启动后：curl /api/health, /api/brief
 ```
 
-- M1 不可跳过，先把契约、存储和 Gmail 跑通；
-- M2 的 Ed 和 Moodle 可以并行，但共享同步编排器，先定状态模型；
-- M4 的规则部分可以在 M1 后开始，模型部分等真实数据稳定；
-- M3 依赖 M2，且需要一次范围决策；
-- M5 必须等 M2 + M4，否则 E2E 没有稳定对象。
+**退出条件：** 页面数据全部来自 HTTP；停掉 local-service 时页面显示错误状态，不是静默使用旧 fixture。
 
-容量规则：
+**进入下一阶段：** 更新 `next.md` 到 S2。
 
-- 每周有效投入 8–10 小时；计划只按 60% 容量排；
-- 每周最多同时推进 2 条线；
-- 连续两周完不成，砍范围而不是加班；
-- 先做高风险：M1 的 OAuth/钥匙串、M2 的 Moodle session、M3 的论坛结构。
+## 6. S2：SQLite + 持久状态
 
-## 10. 风险与应对
+**目标：** 把所有领域状态从 localStorage 移到 SQLite。
 
-| 风险 | 概率 | 影响 | 应对 |
-|---|---|---|---|
-| Google OAuth 配置/测试用户失败 | 中 | 阻塞 Gmail | 先用测试用户；保留 fixture 的只读演示模式 |
-| 钥匙串跨平台/原生模块问题 | 中 | 阻塞凭据 | M1-09 先 spike；必要时用系统 `security` CLI 或加密文件 |
-| Moodle session 过期/MFA | 高 | 同步中断 | 明确重新授权流程；保留旧数据；不保存密码 |
-| Moodle 论坛结构变化 | 高 | 帖子适配器失效 | 适配器隔离；解析失败告警；不阻塞其他来源 |
-| 真实数据量超出预期 | 中 | 性能/成本 | 只同步 active courses；分页；索引；限制 backfill |
-| 模型 critical 误报 | 中 | 信任受损 | 规则护栏 + 证据校验 + 待确认 |
-| 范围膨胀到桌面壳/云 | 高 | 延期 | 以本计划 P0 为准；桌面壳/云不进 M1–M5 |
-| 本地 SQLite 泄露 | 低/中 | 隐私 | 本地权限、钥匙串、可清除；后续评估 SQLCipher |
-| 真实样本不足 | 中 | 评测偏差 | 先用真实自用数据；保留 55 条回归集 |
+**任务：**
 
-## 11. 明确不做
+- [ ] 用 `node:sqlite` 建库，数据库路径在用户数据目录，不在仓库。
+- [ ] 建表：`sources`、`items`、`item_content`、`sync_cursors`、`corrections`、`settings`。
+- [ ] 写 migration runner；启动时自动执行，可重复。
+- [ ] fixture 作为 seed 写入 DB；`/api/brief` 从 DB 读。
+- [ ] 实现 `POST /api/check`：记录 `last_checked_at`、已读 IDs。
+- [ ] 实现 `PATCH /api/items/:id/correction`：pinned/dismissed/feedback。
+- [ ] 实现 `DELETE /api/data`：清 DB 和设置，保留服务本体。
+- [ ] Web App 的 `DemoStateContext` 改为 API 调用；localStorage 只保留 UI 偏好。
+- [ ] 重启测试：写纠错 → 停服务 → 启动 → 状态仍在。
+- [ ] DB 不进入 Git；加 `.gitignore`。
 
-- 云端存储、账号体系、多用户隔离；
-- Electron/Tauri 桌面壳（先本地 Web App）；
-- 自动提交作业、回复教师、代表用户发消息；
-- OnTrack、日历提醒、AI 问答、MCP/CLI；
-- 语义去重、教师结论自动提炼、个性化排序；
-- 全量 Moodle 论坛归档；
-- 为匹配 JD 增加无关的多 Agent/Dify/Coze 功能。
+**验证：**
 
-## 12. 决策门与重规划
+```bash
+cd local-service && npm test
+# 手工：写纠错 -> 重启 -> 读回
+cd ../webapp && npm run check
+```
 
-| 决策门 | 时间 | 问题 | 如果答案是否 |
-|---|---|---|---|
-| D1 | M1 后 | API contract 和 SQLite schema 是否能支撑真实条目？ | 先修契约，不接第二个来源 |
-| D2 | M2 后 | Moodle 帖子是否 P0？ | 跳过 M3，直接 M4/M5 |
-| D3 | M4 后 | 规则/模型质量是否足够？ | 只发规则版，模型留 feature flag |
-| D4 | M5 前 | 本地 Web App 是否足够交付？ | 不做桌面壳；先给试用者 |
+**退出条件：** `grep -R "localStorage" webapp/src` 只剩 UI 偏好；DB 重启持久。
 
-重规划触发条件：
+## 7. S3：Gmail 纵向切片
 
-- 连续两周任务完成率低于 50%；
-- Gmail/Ed/Moodle 任一授权路径被证明不可用；
-- Moodle posts 的抓取成本超出 1 周；
-- 模型误报导致 critical 不可信；
-- 个人时间容量变化超过 30%。
+**目标：** 真实 Gmail 连接、首次 backfill、history 增量、规则分诊、证据、来源链接、纠错。
 
-## 13. 第一周（只放 3 件）
+**任务：**
 
-1. **M1-01** 建 `local-service/` 骨架，`GET /health` 返回 `{ok:true}`；
-2. **M1-02** 写 API contract v1；
-3. **M1-03** 写 SQLite schema v1。
+- [ ] `SecretStore` 封装 macOS `security` CLI：set/get/delete；测试 roundtrip。
+- [ ] `docs/plan/real-path/credentials.md`：Google OAuth client、测试用户、Ed token、Moodle session 的获取步骤。
+- [ ] Gmail OAuth：loopback server、PKCE/state、token exchange、refresh；token 只进 Keychain。
+- [ ] Gmail client：list messages、get message、MIME 正文提取；错误分类 401/429/5xx。
+- [ ] 首次 backfill：最近 20 封，保留 `sourceItemId`、threadId、`publishedAt`、url。
+- [ ] `sync_cursors` 存 Gmail `historyId`；增量失败可回退全量 backfill。
+- [ ] 规范化：作者、课程（可空）、标题、正文、hash、source URL。
+- [ ] 移植 `scripts/evaluation/replay-triage.mjs` 规则到 `local-service/src/triage/`。
+- [ ] 证据抽取：必须是原文子串；无证据的高风险条目降级。
+- [ ] `POST /api/sync` 只同步 Gmail；来源状态落库。
+- [ ] Web App 来源页显示真实 Gmail 状态；详情显示真实 URL。
+- [ ] Mock Gmail 集成测试：backfill、增量、401、空信箱。
+- [ ] 真实 Gmail 验证（用户凭据缺失则标记 blocked，不阻塞 S4）。
 
-第一件在 24 小时内可以开始；完成后先不要接 Gmail，先让 Web App 从本地 fixture API 取数。
+**验证：**
 
-## 14. 开放问题
+```bash
+cd local-service && npm test
+# mock OAuth / mock Gmail fetch
+```
 
-1. 每周实际能投入多少小时？本计划按 8–10 小时估算。
-2. Moodle 论坛帖子是否必须是第一版 P0？如果不是，M3 可以后置。
+**退出条件：** 没有用户凭据也能通过 mock 测试；有凭据时真实 Gmail 条目进入简报。
 
-## 15. 复盘节奏
+## 8. S4：Ed + Moodle 最小切片
 
-- 每周 20 分钟：完成什么、卡在哪、下周砍什么；
-- 每个里程碑结束：更新 [todo.md](todo.md)、记录实际耗时、更新风险；
-- 不把“学习/调研”当任务；每项必须有产出和验收。
+**目标：** Ed 和 Moodle 课程/assessment 进入同一简报；三源状态、增量、失败隔离。
+
+**任务：**
+
+- [ ] Ed client：token + region；按 active course 拉最新 30 个主题。
+- [ ] Ed 规范化：thread/reply、作者、课程、时间、URL、hash。
+- [ ] Ed 增量：按 thread 更新时间/ID 去重；不重复抓正文。
+- [ ] Moodle session：录入/Keychain；401/登录页识别。
+- [ ] Moodle client：复用 `stack/unicorn` 的 courses + assessments 逻辑（本地端口）。
+- [ ] 同步编排器：per-source 并发、单源失败不阻塞、状态落库。
+- [ ] 调度：启动时同步 + 手动同步；运行中每 60 分钟一次；失败退避。
+- [ ] 课程归属：样本/规则；失败显示“未归属”。
+- [ ] 真实时间戳/URL：所有条目必须有 `publishedAt`/`updatedAt`/`url`。
+- [ ] 精确去重：`(source, sourceItemId)` + `contentHash`。
+- [ ] 来源页：三源独立状态、上次成功、错误、重试。
+- [ ] 失败注入测试：401、超时、429、空响应、部分失败。
+- [ ] 三源 mock E2E。
+
+**验证：**
+
+```bash
+cd local-service && npm test
+cd ../webapp && npm run check
+```
+
+**退出条件：** 三源 fixture/mock 全部进入简报；单源失败其他源仍展示。
+
+## 9. S5：Moodle 论坛帖子
+
+**目标：** 在不破坏现有 Moodle 课程/assessment 的前提下，增量拉取论坛帖子。
+
+**任务：**
+
+- [ ] 用真实会话探测 forum/discussion 列表 URL、分页、帖子 URL；记录到 adapter notes。
+- [ ] 实现 forum list：active courses、discussion 列表、分页。
+- [ ] 实现 thread/post detail：正文、作者、时间、URL、parent/reply。
+- [ ] 规范化：post id、thread id、course、hash、updatedAt。
+- [ ] 增量：新 discussion、新 reply、编辑检测；消失软删除。
+- [ ] session 过期：识别登录页/401，提示重新授权，保留旧数据。
+- [ ] 限流与重试：429/5xx 退避；不并发轰炸。
+- [ ] HTML fixture 测试：列表、分页、帖子、编辑、登录页。
+- [ ] Web App 展示帖子，证据句正确。
+- [ ] 真实账号 smoke（用户 session 缺失则 blocked）。
+- [ ] 若真实结构无法稳定解析：记录失败原因和新适配器方案，不能伪造成功。
+
+**验证：**
+
+```bash
+cd local-service && npm test
+# HTML fixture 覆盖
+```
+
+**退出条件：** 一个课程的论坛列表和帖子可进入简报；重复同步不重复；编辑可检测。
+
+## 10. S6：规则/模型分诊
+
+**目标：** 真实数据上的标签、证据、critical 护栏可追溯、可回归。
+
+**任务：**
+
+- [ ] 规则分诊抽成共享模块：Web/API 共用类型；输入 item，输出 labels + evidence + version。
+- [ ] 规则覆盖：否定作用域、行政优先级、Moodle 档位、行动线索（沿用当前 baseline）。
+- [ ] 模型适配：OpenAI-compatible endpoint；provider/model/key 可配置；无 key 自动回退。
+- [ ] 输出 schema：`authority/content_type/importance/action_required/open_original/evidence_quote`。
+- [ ] 证据校验：quote 必须是原文子串；失败重试一次，仍失败回退规则。
+- [ ] critical 护栏：模型 critical 无证据 → `uncertain`/降级；不允许无证据 critical。
+- [ ] 版本：`triage_version`、`model`、`prompt_version` 存入 item。
+- [ ] `npm run eval`：55 条 Gold Set 回归，输出指标和差异。
+- [ ] 真实样本 holdout：至少 10 条脱敏自用样本；单独报告。
+- [ ] Web App 显示“待确认/低置信”，不把模型建议写成事实。
+- [ ] 关闭模型时全流程可用。
+
+**验证：**
+
+```bash
+cd local-service && npm test
+cd .. && node scripts/evaluation/replay-triage.test.mjs
+# 需要模型时再运行真实调用；无 key 时用规则
+```
+
+**退出条件：** 关模型可用；模型坏输出不进入 DB；critical 有证据或待确认；评测可重复。
+
+## 11. S7：可靠性、安全、交付
+
+**目标：** 可启动、可试用、可清除、可回归的本地版本。
+
+**任务：**
+
+- [ ] 本地服务只绑 `127.0.0.1`；Origin/CSRF 校验；CSP。
+- [ ] Token/session/正文不进日志；错误日志脱敏。
+- [ ] `DELETE /api/data` 清 DB + Keychain；断开来源。
+- [ ] 失败注入：401、429、超时、磁盘只读、空 DB、损坏 fixture。
+- [ ] Playwright E2E：mock 连接 → 同步 → 简报 → 详情 → 纠错 → 重启 → 清除。
+- [ ] 生产模式：Node 服务同源提供 `webapp/dist` 和 `/api`；无 Vite dev。
+- [ ] 启动器：macOS 双击/一条命令；日志和数据目录可见。
+- [ ] 运行手册：安装、授权、同步、失败、清除、隐私。
+- [ ] 发布检查表：P0 验收、测试结果、已知限制、回滚。
+- [ ] `npm run check` 覆盖 service + webapp + E2E 的静态/构建部分。
+
+**验证：**
+
+```bash
+cd local-service && npm test
+cd ../webapp && npm run check
+npm run e2e
+npm run build
+```
+
+**退出条件：** 干净目录可启动；E2E 通过；清除后无残留；文档可照做。
+
+## 12. S8：真实账号验证
+
+**目标：** 用用户本人账号做最后验证；这是唯一允许等待用户的阶段。
+
+前置：
+
+- Google OAuth client + 测试用户；
+- Ed API token；
+- Moodle 登录后的 session；
+- 可选模型 key（只在启用模型时需要）。
+
+任务：
+
+- [ ] Gmail 真实连接 + 同步 + 打开一条原文；
+- [ ] Ed 真实同步；
+- [ ] Moodle 课程/assessment 真实同步；
+- [ ] Moodle 论坛列表/帖子真实同步；
+- [ ] 真实条目进入简报，证据/来源正确；
+- [ ] 重启后纠错/已读仍在；
+- [ ] 清除数据后 DB/Keychain 无残留；
+- [ ] 记录真实环境问题并修复。
+
+**退出条件：** 三源真实同步成功，至少一条完整闭环；否则明确标记“代码完成，真实账号未验证”。
+
+## 13. 执行循环
+
+每个阶段结束：
+
+1. 运行验证命令；
+2. 更新 [next.md](next.md)：`current_stage`、`next_action`、`blocked`、`last_verified`；
+3. 在 [execution-log.md](execution-log.md) 追加一行：时间、阶段、命令、结果；
+4. 回到 `next.md` 读取下一阶段；
+5. 继续，不等待确认。
+
+阶段失败：
+
+- 先修复一次；
+- 同一原因第二次失败：记录到 `next.md` 的 `Blocked`，继续做不依赖该阶段的代码/测试；
+- 不用“应该可以”代替验证。
+
+## 14. 全局验证矩阵
+
+| 层 | 命令 | 必须通过 |
+|---|---|---|
+| service | `npm test` | API、DB、adapter mock、triage |
+| webapp | `npm run check` | fixture、类型、构建 |
+| contract | `npm run test:contract` | 字段/错误/游标 |
+| eval | `npm run eval` | 55 条回归 |
+| e2e | `npm run e2e` | 核心闭环 |
+| live | 手工 | 三源真实同步 |
+
+## 15. 明确不做
+
+- 云端、账号、多用户；
+- Electron/Tauri 桌面壳；
+- 自动提交/回复；
+- OnTrack、提醒、问答、MCP；
+- 语义去重、教师结论自动提炼、个性化；
+- 用假成功掩盖真实账号未验证。
+
+## 16. 当前指针
+
+初始状态：**S1 ready**。详见 [next.md](next.md)。

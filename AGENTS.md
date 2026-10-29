@@ -60,6 +60,10 @@ Keep generated output in `build/` or `dist/` and out of commits unless a release
 
 `webapp/` is the active local Web App: Vite, React, TypeScript, and Ant Design. Run `npm run dev` from that directory. `npm run check` validates the anonymized fixture and runs the TypeScript production build. It reads `src/data/demo-data.json` and has no backend, OAuth, real links, or live model calls; the repository boundary for a future local API is `src/data/repository.ts`.
 
+## Real-Data Execution
+
+When the user says to start the real-data work, read `docs/plan/real-path/next.md` first and follow its `current_stage`. Execute `plan.md` stages S1–S8 continuously. After each stage: run its verification commands, append `execution-log.md`, advance `next.md`, and continue without asking for stage-by-stage approval. Stop only for user-only credentials, irreversible operations, or a repeated hard blocker; when blocked, continue independent stages and report the exact user action at the end. Never describe mock or fixture results as verified real-account data.
+
 ## Build, Test, and Development Commands
 
 Run project commands from `stack/unicorn`. Before changes, inspect the worktree; before delivery, run the full check and whitespace validation:

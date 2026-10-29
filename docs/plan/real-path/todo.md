@@ -1,102 +1,119 @@
-# 待办：Cove 真实数据长线计划
+# 执行队列：Cove 真实数据
 
-> 对应 [plan.md](plan.md)。每周只把本周要做的 3–5 项移到「本周」，其余留在里程碑里。
+> 只按顺序执行；完成一个阶段后回到 [next.md](next.md)。这里不写人的周计划。
 
-## 第 1 周（只放 3 件）
+## S1 本地运行时 + fixture API
 
-- [ ] **M1-01** 建 `local-service/` 骨架，`GET /health` 返回 `{ok:true}`（验收：`npm run dev` 可启动并返回 JSON；2h）
-- [ ] **M1-02** 写本地 API contract v1（验收：5 个端点、错误结构、`since` 语义写清；2h）
-- [ ] **M1-03** 写 SQLite schema v1（验收：5 张表、唯一键、索引、迁移顺序写清；2h）
+- [ ] 建 `local-service/`：Node 26 + TypeScript + Fastify，`GET /health`
+- [ ] 写 API contract v1
+- [ ] 复制 55 条 fixture 到 `local-service/fixtures/`
+- [ ] 实现 `/api/sources`、`/api/brief`、`/api/items/:id`
+- [ ] 统一错误结构
+- [ ] Vite proxy `/api` → `127.0.0.1:4317`
+- [ ] `webapp` 数据层改为 fetch
+- [ ] API 合约测试
+- [ ] 跑 S1 验证并更新 `next.md`
 
-## M1：本地链路 + Gmail
+## S2 SQLite + 持久状态
 
-- [ ] M1-04 实现数据库连接和迁移（验收：空目录启动自动建表；2h）
-- [ ] M1-05 实现 `/api/sources` + `/api/health`（验收：fixture 三源状态；2h）
-- [ ] M1-06 实现 `/api/brief` fixture（验收：统一 items、`since`、来源过滤；2h）
-- [ ] M1-07 实现 `/api/items/:id` + 错误结构（验收：404/500 统一错误；2h）
-- [ ] M1-08 Web App 改接本地 API（验收：Vite proxy，不再 import fixture；2h）
-- [ ] M1-09 钥匙串 spike（验收：写入/读取/删除测试 token；2h）
-- [ ] M1-10 创建 Google OAuth desktop client（验收：loopback redirect + gmail.readonly + 测试用户；1h）
-- [ ] M1-11 Gmail OAuth loopback + token 交换（验收：token 只进钥匙串；2h）
-- [ ] M1-12 Gmail 首次 backfill（验收：最近 20 封入库；2h）
-- [ ] M1-13 Gmail history 增量（验收：第二次只处理新增；2h）
-- [ ] M1-14 统一条目映射（验收：id/线程/时间/作者/url/正文/hash；2h）
-- [ ] M1-15 移植规则分诊 + 证据校验（验收：证据句是原文子串；2h）
-- [ ] M1-16 纠错/已读/查看时间 API（验收：重启后存在；2h）
-- [ ] M1-17 Gmail 纵向切片 E2E（验收：连接→同步→详情→纠错→重启；2h）
-- [ ] M1-18 Web App 真实来源状态（验收：last sync/error 来自 API；2h）
+- [ ] `node:sqlite` 建库和路径
+- [ ] 建表与索引
+- [ ] migration runner
+- [ ] fixture seed
+- [ ] `/api/check`
+- [ ] `/api/items/:id/correction`
+- [ ] `DELETE /api/data`
+- [ ] Web App 状态改 API
+- [ ] 重启持久测试
+- [ ] `.gitignore` 数据库文件
+- [ ] 跑 S2 验证并更新 `next.md`
 
-**M1 完成门槛：** 真实 Gmail 条目可看、可核对、可纠错；重启不丢。
+## S3 Gmail 纵向切片
 
-## M2：Ed + Moodle 最小切片
+- [ ] `SecretStore`（macOS Keychain）
+- [ ] credentials 文档
+- [ ] Gmail OAuth loopback + refresh
+- [ ] Gmail list/get/MIME
+- [ ] 首次 backfill 20 封
+- [ ] history cursor + 回退
+- [ ] 规范化字段
+- [ ] 规则分诊移植
+- [ ] 证据校验
+- [ ] `/api/sync`（Gmail）
+- [ ] 来源页真实状态
+- [ ] 详情真实 URL
+- [ ] mock Gmail 测试
+- [ ] 真实 Gmail（凭据缺失则 blocked）
+- [ ] 跑 S3 验证并更新 `next.md`
 
-- [ ] M2-01 Ed token/region 存储（2h）
-- [ ] M2-02 Ed 拉取最新 30 个主题（2h）
-- [ ] M2-03 Ed 规范化 + 游标 + 去重（2h）
-- [ ] M2-04 课程映射与“未归属”降级（2h）
-- [ ] M2-05 Moodle session 获取/录入（2h）
-- [ ] M2-06 Moodle courses/assessments 适配（2h）
-- [ ] M2-07 同步编排器（2h）
-- [ ] M2-08 同步状态/错误 UI（2h）
-- [ ] M2-09 真实时间戳和 URL（2h）
-- [ ] M2-10 精确去重（2h）
-- [ ] M2-11 三源纵向 E2E（2h）
-- [ ] M2-12 失败注入测试（2h）
+## S4 Ed + Moodle 最小切片
 
-**M2 完成门槛：** 三源各成功一次；单源失败不阻塞；无重复条目。
+- [ ] Ed token/region
+- [ ] Ed 最新 30 主题
+- [ ] Ed 规范化 + 增量
+- [ ] Moodle session 录入/Keychain
+- [ ] Moodle courses/assessments
+- [ ] 同步编排器
+- [ ] 60 分钟调度 + 失败退避
+- [ ] 课程归属/未归属
+- [ ] 时间戳/URL
+- [ ] 精确去重
+- [ ] 三源来源状态
+- [ ] 失败注入
+- [ ] 三源 mock E2E
+- [ ] 跑 S4 验证并更新 `next.md`
 
-## M3：Moodle 论坛帖子（条件）
+## S5 Moodle 论坛帖子
 
-- [ ] M3-01 决策：帖子是否 P0（0.5h）
-- [ ] M3-02 探测论坛页面与端点（2h）
-- [ ] M3-03 论坛列表适配（2h）
-- [ ] M3-04 分页与限流（2h）
-- [ ] M3-05 帖子正文抓取（2h）
-- [ ] M3-06 更新检测和软删除（2h）
-- [ ] M3-07 会话过期处理（2h）
-- [ ] M3-08 帖子 UI 验证（2h）
-- [ ] M3-09 真实账号 smoke（2h）
+- [ ] 探测论坛 URL/分页/帖子 URL
+- [ ] forum list
+- [ ] thread/post detail
+- [ ] post 规范化
+- [ ] 增量/编辑/软删除
+- [ ] session 过期
+- [ ] 限流与重试
+- [ ] HTML fixture 测试
+- [ ] Web App 帖子显示
+- [ ] 真实账号 smoke（凭据缺失则 blocked）
+- [ ] 跑 S5 验证并更新 `next.md`
 
-**M3 完成门槛：** 一个课程的最新帖子可增量进入简报；编辑/删除可见。
+## S6 规则/模型分诊
 
-## M4：规则/模型混合分诊
+- [ ] 规则模块共享
+- [ ] 规则覆盖边界
+- [ ] 模型适配 + 回退
+- [ ] 输出 schema
+- [ ] 证据校验
+- [ ] critical 护栏
+- [ ] 版本字段
+- [ ] 55 条回归
+- [ ] 10 条真实 holdout
+- [ ] UI 待确认/低置信
+- [ ] 关模型可用
+- [ ] 跑 S6 验证并更新 `next.md`
 
-- [ ] M4-01 规则分诊共享模块（2h）
-- [ ] M4-02 模型适配层（2h）
-- [ ] M4-03 结构化输出校验（2h）
-- [ ] M4-04 证据句校验（2h）
-- [ ] M4-05 critical 护栏（2h）
-- [ ] M4-06 triage 版本记录（1h）
-- [ ] M4-07 Gold Set 回归（2h）
-- [ ] M4-08 真实样本 holdout（2h）
-- [ ] M4-09 不确定状态 UI（2h）
+## S7 可靠性、安全、交付
 
-**M4 完成门槛：** 关模型仍可运行；模型失败有回退；critical 有证据或待确认。
+- [ ] loopback/Origin/CSRF/CSP
+- [ ] 日志脱敏
+- [ ] 数据删除与 Keychain 清除
+- [ ] 失败注入
+- [ ] Playwright happy path
+- [ ] Playwright 失败/清除
+- [ ] 生产同源服务
+- [ ] 启动器
+- [ ] 运行手册
+- [ ] 发布检查表
+- [ ] 跑 S7 验证并更新 `next.md`
 
-## M5：可靠性、安全、交付
+## S8 真实账号验证
 
-- [ ] M5-01 loopback 安全（2h）
-- [ ] M5-02 日志脱敏（2h）
-- [ ] M5-03 数据删除与保留（2h）
-- [ ] M5-04 失败注入演练（2h）
-- [ ] M5-05a Playwright happy path（2h）
-- [ ] M5-05b Playwright 失败/清除路径（2h）
-- [ ] M5-06 生产本地服务（2h）
-- [ ] M5-07 启动器（2h）
-- [ ] M5-08 运行手册（2h）
-- [ ] M5-09 发布检查表（2h）
-
-**M5 完成门槛：** 干净机器能启动；真实闭环通过；清除后无残留。
-
-## 决策门
-
-- [ ] D1（M1 后）contract/schema 能支撑真实条目；否则先修契约。
-- [ ] D2（M2 后）Moodle 帖子是否 P0；否则跳过 M3。
-- [ ] D3（M4 后）规则/模型质量是否足够；否则只发规则版。
-- [ ] D4（M5 前）本地 Web App 是否足够交付；否则不做桌面壳。
-
-## 复盘
-
-- 每周 20 分钟：做完什么、卡在哪、下周砍什么。
-- 连续两周完成率 < 50%：砍范围，不加时。
-- 每个里程碑结束更新本文件，记录实际耗时。
+- [ ] Gmail 真实同步 + 原文
+- [ ] Ed 真实同步
+- [ ] Moodle courses/assessments 真实同步
+- [ ] Moodle 论坛真实同步
+- [ ] 真实简报/证据/链接
+- [ ] 重启持久
+- [ ] 清除无残留
+- [ ] 记录并修复真实环境问题
+- [ ] 更新 `next.md` 为 done
