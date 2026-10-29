@@ -60,4 +60,4 @@ COVE_STATIC_DIR=../webapp/dist npm start
 
 ## 当前状态
 
-S1–S7 的代码路径已完成；Gmail 已用真实账号完成 OAuth、backfill 和 history 增量验证；Ed/Moodle 仍待用户 token/session。不能把 mock 结果描述为真实账号已接通。
+S1–S8 完成；Gmail 20、Ed 90、Moodle 6 均已真实同步，重启后仍 connected。Moodle 当前课程无 forum 链接，论坛同步返回 0。

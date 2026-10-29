@@ -14,3 +14,4 @@
 | 2026-10-30 | S7 | `cd local-service && npm test`; `cd webapp && npm run check`; `cd webapp && npm run e2e` | 21 service tests；webapp build；production E2E pass | S8 blocked：无真实凭据 |
 | 2026-10-30 | S8 | — | blocked | 代码路径完成；等待用户提供 Google OAuth client、Ed token、Moodle session 和真实 holdout |
 | 2026-10-30 | S8 (Gmail) | browser OAuth; `POST /api/sync`; `GET /api/sources` | Gmail 真实授权成功；backfill 20；history 0；fixture Gmail 移除；Gmail=20 | Ed/Moodle 仍 blocked |
+| 2026-10-30 | S8 (all) | browser OAuth; Moodle cookie; `POST /api/sync` x3; restart | Gmail 20；Ed 90；Moodle 6；重启后三源 connected；总 116 条 | Moodle 论坛 0（当前课程无 forum 链接） |

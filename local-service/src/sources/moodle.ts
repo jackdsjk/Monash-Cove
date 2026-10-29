@@ -19,6 +19,9 @@ interface MoodleEvent {
   id?: number;
   name?: string;
   modname?: string;
+  modulename?: string;
+  purpose?: string;
+  activityname?: string;
   timesort?: number;
   timestart?: number;
   url?: string;
@@ -57,7 +60,7 @@ export class MoodleClient {
         {
           index: 1,
           methodname: TIMELINE_METHOD,
-          args: { limitnum: 50, timesortfrom: 0, timesortto: 0, aftereventid: 0, limittononsuspendedevents: true },
+          args: { limitnum: 50, timesortfrom: Math.floor(Date.now() / 1000), timesortto: 0, aftereventid: 0, limittononsuspendedevents: true },
         },
       ]),
       signal: AbortSignal.timeout(20_000),
@@ -68,7 +71,7 @@ export class MoodleClient {
     if (envelope.some((entry) => entry.error)) throw new Error("Moodle AJAX returned an error.");
     const events = envelope[1]?.data?.events ?? [];
     return events
-      .filter((event) => ASSESSMENT_MODULES.has(event.modname ?? ""))
+      .filter((event) => event.purpose === "assessment" || ASSESSMENT_MODULES.has(event.modulename ?? event.modname ?? ""))
       .map((event) => this.mapAssessment(event))
       .filter((item): item is MoodleRawItem => item !== null);
   }
@@ -79,7 +82,7 @@ export class MoodleClient {
     if (!id || !due) return null;
     const dueAt = new Date(due * 1000).toISOString();
     const course = event.course?.shortname ?? event.course?.fullname ?? "";
-    const title = event.name ?? `Moodle assessment ${id}`;
+    const title = event.name ?? event.activityname ?? `Moodle assessment ${id}`;
     const text = `${title} submission deadline is ${dueAt}.`;
     return {
       id: `moodle:assessment:${id}`,

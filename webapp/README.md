@@ -67,7 +67,7 @@ cd ../webapp && npm run e2e
 
 ## 已知边界
 
-- Gmail 已用真实账号完成 OAuth/backfill/history；Ed/Moodle 仍需用户在 S8 提供凭据；没有凭据时只用 fixture/mock；
+- Gmail 20、Ed 90、Moodle 6 已真实同步；Moodle 当前课程无论坛链接；没有凭据时只用 fixture/mock；
 - Moodle 论坛解析基于 HTML fixture，真实页面结构仍需 S8 smoke；
 - 模型默认回退规则；真实模型 key 未配置时不会调用外部 API；
 - 构建包约 960KB，Vite 有 chunk 警告；
