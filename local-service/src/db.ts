@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import type { BriefResponse, FixtureItem, NewItem, Source, SourceStatus, StoredItem } from "./domain.js";
+import type { BriefResponse, FixtureItem, MoodleContentRow, NewItem, Source, SourceStatus, StoredItem } from "./domain.js";
 
 const SOURCE_LABELS: Record<Source, string> = { gmail: "Gmail", ed: "Ed", moodle: "Moodle" };
 const SOURCE_IDS: Source[] = ["gmail", "ed", "moodle"];
@@ -65,6 +65,19 @@ CREATE TABLE IF NOT EXISTS reads (
   item_id TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
   read_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS moodle_content (
+  id TEXT PRIMARY KEY,
+  course_id TEXT NOT NULL,
+  course_name TEXT NOT NULL,
+  section_number INTEGER NOT NULL,
+  section_title TEXT NOT NULL,
+  module TEXT NOT NULL,
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  text TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS moodle_content_course ON moodle_content(course_id, section_number);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -112,6 +125,9 @@ export class CoveDatabase {
   }
 
   seedFixture() {
+    const connectedRows = this.db.prepare("SELECT id FROM sources WHERE status = 'connected'").all() as Array<{ id: string }>;
+    const connected = new Set(connectedRows.map((row) => row.id));
+    for (const source of connected) this.removeFixtures(source as Source);
     const data = JSON.parse(readFileSync(this.fixturePath, "utf8")) as { items: FixtureItem[] };
     const now = Date.now();
     const insertItem = this.db.prepare(`
@@ -125,6 +141,7 @@ export class CoveDatabase {
       "INSERT OR IGNORE INTO item_content (item_id, text, evidence_quote) VALUES (?, ?, ?)",
     );
     for (const item of data.items) {
+      if (connected.has(item.source)) continue;
       const publishedAt = new Date(now - item.ageHours * 3_600_000).toISOString();
       const hash = createHash("sha256").update(item.text).digest("hex");
       insertItem.run(
@@ -149,9 +166,9 @@ export class CoveDatabase {
       );
       insertContent.run(item.id, item.text, item.evidenceQuote);
     }
-    this.setSourceStatus("gmail", "fixture", new Date().toISOString(), null);
-    this.setSourceStatus("ed", "fixture", new Date().toISOString(), null);
-    this.setSourceStatus("moodle", "fixture", new Date().toISOString(), null);
+    for (const source of SOURCE_IDS) {
+      if (!connected.has(source)) this.setSourceStatus(source, "fixture", new Date().toISOString(), null);
+    }
   }
 
   removeFixtures(source: Source) {
@@ -349,8 +366,37 @@ export class CoveDatabase {
     return this.getItem(id);
   }
 
+  replaceMoodleContent(courseId: string, rows: MoodleContentRow[]) {
+    this.db.prepare("DELETE FROM moodle_content WHERE course_id = ?").run(courseId);
+    const insert = this.db.prepare(`
+      INSERT INTO moodle_content (id, course_id, course_name, section_number, section_title, module, title, url, text, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const row of rows) {
+      insert.run(row.id, row.courseId, row.courseName, row.sectionNumber, row.sectionTitle, row.module, row.title, row.url, row.text, row.updatedAt);
+    }
+  }
+
+  listMoodleContent(courseId: string): MoodleContentRow[] {
+    const rows = this.db
+      .prepare("SELECT * FROM moodle_content WHERE course_id = ? ORDER BY section_number, title")
+      .all(courseId) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      courseId: String(row.course_id),
+      courseName: String(row.course_name),
+      sectionNumber: Number(row.section_number),
+      sectionTitle: String(row.section_title),
+      module: String(row.module),
+      title: String(row.title),
+      url: String(row.url),
+      text: String(row.text ?? ""),
+      updatedAt: String(row.updated_at),
+    }));
+  }
+
   clearAll() {
-    this.db.exec("DELETE FROM corrections; DELETE FROM reads; DELETE FROM sync_cursors; DELETE FROM settings; DELETE FROM item_content; DELETE FROM items;");
+    this.db.exec("DELETE FROM corrections; DELETE FROM reads; DELETE FROM sync_cursors; DELETE FROM settings; DELETE FROM item_content; DELETE FROM items; DELETE FROM moodle_content;");
     for (const source of SOURCE_IDS) {
       this.setSourceStatus(source, "disconnected", null, null);
     }

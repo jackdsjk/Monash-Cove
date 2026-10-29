@@ -25,6 +25,25 @@ export interface SourceStatus {
   itemCount: number;
 }
 
+export interface MoodleCourse {
+  id: number;
+  shortname: string;
+  fullname: string;
+}
+
+export interface MoodleContentItem {
+  id: string;
+  courseId: string;
+  courseName: string;
+  sectionNumber: number;
+  sectionTitle: string;
+  module: string;
+  title: string;
+  url: string;
+  text: string;
+  updatedAt: string;
+}
+
 export interface BriefItem extends DemoItem {
   sourceItemId?: string;
   publishedAt?: string;

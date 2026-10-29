@@ -1,3 +1,9 @@
+export interface MoodleCourseSummary {
+  id: number;
+  shortname: string;
+  fullname: string;
+}
+
 export interface MoodleRawItem {
   id: string;
   sourceItemId: string;
@@ -44,6 +50,30 @@ export class MoodleClient {
 
   private headers() {
     return { cookie: `MoodleSession=${this.session}` };
+  }
+
+  async listCourses(): Promise<MoodleCourseSummary[]> {
+    const dashboard = await this.fetcher(`${this.baseUrl}/my/`, { headers: this.headers(), redirect: "manual" });
+    if (!dashboard.ok) throw new Error(`Moodle dashboard returned HTTP ${dashboard.status}.`);
+    const sesskey = parseSesskey(await dashboard.text());
+    const url = new URL("/lib/ajax/service.php", this.baseUrl);
+    url.searchParams.set("sesskey", sesskey);
+    url.searchParams.set("info", COURSES_METHOD);
+    const response = await this.fetcher(url, {
+      method: "POST",
+      headers: { ...this.headers(), "content-type": "application/json" },
+      body: JSON.stringify([
+        { index: 0, methodname: COURSES_METHOD, args: { classification: "all", limit: 100, offset: 0, sort: "fullname" } },
+      ]),
+    });
+    if (!response.ok) throw new Error(`Moodle AJAX returned HTTP ${response.status}.`);
+    const envelope = (await response.json()) as Array<{ error?: boolean; data?: { courses?: Array<Record<string, unknown>> } }>;
+    if (!Array.isArray(envelope) || envelope[0]?.error) throw new Error("Moodle course list failed.");
+    return (envelope[0]?.data?.courses ?? []).map((course) => ({
+      id: Number(course.id),
+      shortname: String(course.shortname ?? ""),
+      fullname: String(course.fullname ?? ""),
+    }));
   }
 
   async pull(): Promise<MoodleRawItem[]> {

@@ -1,4 +1,4 @@
-import type { BriefItem, SourceStatus } from "../types";
+import type { BriefItem, MoodleContentItem, MoodleCourse, SourceStatus } from "../types";
 
 export interface BriefData {
   items: BriefItem[];
@@ -26,4 +26,27 @@ export async function fetchBrief(): Promise<BriefData> {
 export async function fetchSources(): Promise<SourceStatus[]> {
   const data = await getJson<{ sources: SourceStatus[] }>("/sources");
   return data.sources;
+}
+
+export async function fetchMoodleCourses(): Promise<MoodleCourse[]> {
+  const data = await getJson<{ courses: MoodleCourse[] }>("/moodle/courses");
+  return data.courses;
+}
+
+export async function fetchMoodleContent(courseId: number): Promise<MoodleContentItem[]> {
+  const data = await getJson<{ items: MoodleContentItem[] }>(`/moodle/content?courseId=${courseId}`);
+  return data.items;
+}
+
+export async function syncMoodleContent(courseId: number): Promise<{ sections: number; items: number }> {
+  const response = await fetch("/api/moodle/content-sync", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ courseId }),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+    throw new Error(body?.error?.message ?? `Moodle sync returned ${response.status}`);
+  }
+  return response.json() as Promise<{ sections: number; items: number }>;
 }

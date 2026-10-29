@@ -80,6 +80,26 @@ Base URL in development: `http://127.0.0.1:4317`. The Web App uses `/api` via Vi
 }
 ```
 
+## GET /api/moodle/courses
+
+Requires a stored Moodle session. Returns:
+
+```json
+{ "courses": [{ "id": 46337, "shortname": "FIT1047_S2_2026", "fullname": "FIT1047 ..." }] }
+```
+
+## POST /api/moodle/content-sync
+
+```json
+{ "courseId": 46337 }
+```
+
+Fetches Moodle course sections and weekly activity links, then replaces the local cache for that course.
+
+## GET /api/moodle/content?courseId=46337
+
+Returns cached weekly rows: `sectionNumber`, `sectionTitle`, `module`, `title`, `url`, `text`, `updatedAt`.
+
 ## GET /api/items/:id
 
 Returns one item in the same shape as `items[]`; `404` when missing.

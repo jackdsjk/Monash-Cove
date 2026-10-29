@@ -194,12 +194,13 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 验证：service 22 tests；webapp check；Playwright 生产 E2E 通过；
 - S8 真实账号完成：Gmail 20、Ed 91、Moodle 6，共 117 条；重启后三源仍 connected；
 - Gmail 使用 OAuth + history；Ed 使用 token；Moodle 使用 `MoodleSession`；凭据只在 Keychain；
-- Moodle 当前课程无 forum 链接，论坛同步返回 0；不是把 mock 当真实；
+- Moodle 作业页当前没有可下载附件；论坛公告在课程页存在，但正文接口不可用；不是把 mock 当真实；
 - 简报页“模拟一次同步”已改为真实 `POST /api/sync` ×3，浏览器网络面板均 200；
 - 新增“过去的内容”折叠区：默认不打扰当前简报，展开后每次加载 20 条历史条目。
 - 2026-10-30 真实数据校准：critical 20 → 7，action yes 67 → 9；旧 deadline 降级、学生提问不再 critical、低价值内容不再要求行动。
 - 新增 Moodle `dueAt` / `deadlineKind` 结构化字段和独立的“倒计时”侧栏页面；按已截止、24 小时内、7 天内、更晚自动分组。
 - Moodle 作业/资料下载检查：当前没有实现；只支持打开原始 Moodle 页面。
+- 新增独立“每周资料”页面：按课程板块列出资料、作业/考核、公告/讨论和 label 说明；课程页抓取缓存到 SQLite；公告目前是链接列表，尚未抽取正文。
 
 ## 三、下一步开发顺序
 

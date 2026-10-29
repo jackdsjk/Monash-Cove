@@ -98,6 +98,25 @@ export interface BriefResponse {
   lastCheckedAt: string | null;
 }
 
+export interface MoodleCourseSummary {
+  id: number;
+  shortname: string;
+  fullname: string;
+}
+
+export interface MoodleContentRow {
+  id: string;
+  courseId: string;
+  courseName: string;
+  sectionNumber: number;
+  sectionTitle: string;
+  module: string;
+  title: string;
+  url: string;
+  text: string;
+  updatedAt: string;
+}
+
 export interface ApiError {
   error: { code: string; message: string; retryable: boolean };
 }

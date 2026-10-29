@@ -5,6 +5,8 @@ import { createDatabase, type CoveDatabase } from "./db.js";
 import { GoogleOAuth, OAuthError, type GoogleOAuthConfig } from "./oauth/google.js";
 import { defaultSecretStore, type SecretStore } from "./secrets.js";
 import { SyncOrchestrator } from "./sync/orchestrator.js";
+import { MoodleClient } from "./sources/moodle.js";
+import { syncMoodleContent } from "./sync/moodle-content.js";
 import type { ApiError, Source } from "./domain.js";
 
 const sourceSchema = z.enum(["gmail", "ed", "moodle"]);
@@ -188,6 +190,46 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (source.data === "gmail") await google.disconnect();
     db.setSourceStatus(source.data, "disconnected", null, null);
     return { ok: true };
+  });
+
+  app.get("/api/moodle/courses", async (_request, reply) => {
+    const raw = await secrets.get("moodle-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
+    const credentials = moodleCredentials.parse(JSON.parse(raw));
+    try {
+      const client = new MoodleClient(credentials.baseUrl, credentials.session, options.fetcher ?? fetch);
+      return { courses: await client.listCourses() };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Moodle course list failed.";
+      return reply.code(502).send({ error: { code: "moodle_courses_failed", message, retryable: true } } satisfies ApiError);
+    }
+  });
+
+  app.post<{ Body: { courseId?: number } }>("/api/moodle/content-sync", async (request, reply) => {
+    const courseId = Number(request.body?.courseId);
+    if (!Number.isInteger(courseId) || courseId <= 0) {
+      return reply.code(400).send({ error: { code: "invalid_course", message: "courseId is required.", retryable: false } } satisfies ApiError);
+    }
+    const raw = await secrets.get("moodle-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
+    const credentials = moodleCredentials.parse(JSON.parse(raw));
+    try {
+      const result = await syncMoodleContent(db, credentials.baseUrl, credentials.session, courseId, options.fetcher);
+      db.setSourceStatus("moodle", "connected", new Date().toISOString(), null);
+      return { ok: true, ...result };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Moodle content sync failed.";
+      db.setSourceStatus("moodle", "error", null, message);
+      return reply.code(502).send({ error: { code: "moodle_content_failed", message, retryable: true } } satisfies ApiError);
+    }
+  });
+
+  app.get<{ Querystring: { courseId?: string } }>("/api/moodle/content", async (request, reply) => {
+    const courseId = request.query.courseId;
+    if (!courseId) {
+      return reply.code(400).send({ error: { code: "invalid_course", message: "courseId is required.", retryable: false } } satisfies ApiError);
+    }
+    return { courseId, items: db.listMoodleContent(courseId) };
   });
 
   app.post<{ Body: { source?: string } }>("/api/sync", async (request, reply) => {

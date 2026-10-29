@@ -63,6 +63,8 @@ try {
 
   await page.getByRole("menuitem", { name: "倒计时" }).click();
   await page.getByRole("heading", { name: "截止倒计时" }).waitFor();
+  await page.getByRole("menuitem", { name: "每周资料" }).click();
+  await page.getByRole("heading", { name: "每周资料" }).waitFor();
   await page.getByRole("menuitem", { name: "数据源" }).click();
   await page.getByRole("heading", { name: "数据源" }).waitFor();
   await page.getByRole("menuitem", { name: "设置" }).click();
