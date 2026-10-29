@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const data = JSON.parse(fs.readFileSync(new URL("../src/data/demo-data.json", import.meta.url), "utf8"));
+const data = JSON.parse(fs.readFileSync(new URL("../../local-service/fixtures/items.json", import.meta.url), "utf8"));
 const required = ["id", "source", "title", "text", "evidenceQuote", "contentType", "importance", "actionRequired", "openOriginal"];
 const sources = new Set(["gmail", "ed", "moodle"]);
 

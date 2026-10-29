@@ -1,11 +1,25 @@
 import { DeleteOutlined } from "@ant-design/icons";
 import { Alert, App as AntApp, Button, Card, Descriptions, Popconfirm, Space, Tag, Typography } from "antd";
-import { demoData } from "../data/demo-data";
+import { useEffect, useState } from "react";
+import { fetchSources } from "../data/repository";
 import { useDemoStore } from "../state/DemoStateContext";
 
 export default function SettingsPage() {
   const { message } = AntApp.useApp();
   const { state, reset } = useDemoStore();
+  const [itemsCount, setItemsCount] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    void fetchSources()
+      .then((sources) => {
+        if (active) setItemsCount(sources.reduce((total, source) => total + source.itemCount, 0));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const clear = () => {
     reset();
@@ -34,7 +48,7 @@ export default function SettingsPage() {
           column={2}
           colon={false}
           items={[
-            { key: "items", label: "样本条目", children: `${demoData.items.length} 条` },
+            { key: "items", label: "样本条目", children: `${itemsCount} 条` },
             { key: "window", label: "查看窗口", children: state.windowHours === 0 ? "上次查看后（无新内容）" : `${state.windowHours} 小时` },
             { key: "corrections", label: "纠错记录", children: `${Object.keys(state.corrections).length} 条` },
             { key: "read", label: "已读条目", children: `${Object.keys(state.read).length} 条` },

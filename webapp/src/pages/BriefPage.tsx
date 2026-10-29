@@ -7,7 +7,7 @@ import ItemDrawer from "../components/ItemDrawer";
 import FeedbackModal from "../components/FeedbackModal";
 import { useDemoStore } from "../state/DemoStateContext";
 import { filterItems, formatWindow, groupBySection, summarize } from "../lib/triage";
-import type { DemoItem, Feedback, Source } from "../types";
+import type { BriefItem, Feedback, Source } from "../types";
 
 type ViewMode = "since" | "all";
 type SourceFilter = "all" | Source;
@@ -21,8 +21,8 @@ const sourceOptions = [
 
 export default function BriefPage() {
   const { message } = AntApp.useApp();
-  const { state, toggleCorrection, saveFeedback, markRead, markChecked, simulateSync } = useDemoStore();
-  const [items, setItems] = useState<DemoItem[]>([]);
+  const { state, hydrate, toggleCorrection, saveFeedback, markRead, markChecked, simulateSync } = useDemoStore();
+  const [items, setItems] = useState<BriefItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("since");
@@ -30,13 +30,15 @@ export default function BriefPage() {
   const [query, setQuery] = useState("");
   const [onlyAction, setOnlyAction] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [feedbackItem, setFeedbackItem] = useState<DemoItem | null>(null);
+  const [feedbackItem, setFeedbackItem] = useState<BriefItem | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      setItems(await fetchBrief());
+      const data = await fetchBrief();
+      setItems(data.items);
+      hydrate(data.items);
     } catch {
       setError("无法读取本地演示数据。请重试。");
     } finally {

@@ -1,13 +1,29 @@
-import { demoData } from "./demo-data";
-import type { DemoItem } from "../types";
+import type { BriefItem, SourceStatus } from "../types";
 
-const LATENCY_MS = 300;
+export interface BriefData {
+  items: BriefItem[];
+  sources: SourceStatus[];
+  syncedAt: string | null;
+  lastCheckedAt: string | null;
+}
 
-/**
- * Temporary local repository. Replace the body with the local Node API when
- * OAuth and sync land; the page contract stays "list of triage items".
- */
-export async function fetchBrief(): Promise<DemoItem[]> {
-  await new Promise((resolve) => window.setTimeout(resolve, LATENCY_MS));
-  return demoData.items;
+const API = "/api";
+
+async function getJson<T>(path: string): Promise<T> {
+  const response = await fetch(`${API}${path}`);
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+    throw new Error(body?.error?.message ?? `Local API returned ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+/** The UI contract is a list of normalized items; the service owns source access. */
+export async function fetchBrief(): Promise<BriefData> {
+  return getJson<BriefData>("/brief");
+}
+
+export async function fetchSources(): Promise<SourceStatus[]> {
+  const data = await getJson<{ sources: SourceStatus[] }>("/sources");
+  return data.sources;
 }

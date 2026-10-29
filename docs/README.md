@@ -10,7 +10,8 @@
 | [project-resume-roadmap.md](project-resume-roadmap.md) | 从产品定义到 MVP、评测、Demo 和简历证据的阶段路线 | **当前执行路线** |
 | [mvp-scope-2026-10-29.md](mvp-scope-2026-10-29.md) | 第一版 P0/P1、功能评分、验收标准和明确砍掉项 | **P0 初版已锁定** |
 | [webapp-design.md](webapp-design.md) | 本地 Web App 的信息架构、布局、token、组件映射和状态设计 | **设计已落地为 v0.1 骨架** |
-| [../webapp/README.md](../webapp/README.md) | 本地 Vite + React + Ant Design Web App 的运行、范围和边界 | **v0.1 骨架；真实同步未接** |
+| [../webapp/README.md](../webapp/README.md) | 本地 Web App 的运行、范围和边界 | **S1–S7 代码完成；S8 待凭据** |
+| [../local-service/README.md](../local-service/README.md) | 本地 Node/SQLite/API 服务、运行方式、安全边界 | **S1–S7 代码完成；S8 live blocked** |
 | [plan/real-path/plan.md](plan/real-path/plan.md) | Agent 执行计划：S1–S8、连续执行规则、阶段验收和阻塞处理 | **S1 ready；未开始实现** |
 | [information-triage-labeling-guide.md](information-triage-labeling-guide.md) | 真实样本的匿名化、人工标注口径与第一版评测指标 | **当前评测规范** |
 | [value-replay-2026-10-28.md](value-replay-2026-10-28.md) | 第一轮真实数据统计、价值判断及继续/停止标准 | **当前验证记录** |

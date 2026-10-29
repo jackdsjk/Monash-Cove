@@ -1,0 +1,242 @@
+import Fastify, { type FastifyInstance } from "fastify";
+import staticPlugin from "@fastify/static";
+import { z } from "zod";
+import { createDatabase, type CoveDatabase } from "./db.js";
+import { GoogleOAuth, OAuthError, type GoogleOAuthConfig } from "./oauth/google.js";
+import { defaultSecretStore, type SecretStore } from "./secrets.js";
+import { SyncOrchestrator } from "./sync/orchestrator.js";
+import type { ApiError, Source } from "./domain.js";
+
+const sourceSchema = z.enum(["gmail", "ed", "moodle"]);
+
+const correctionSchema = z.object({
+  pinned: z.boolean().optional(),
+  dismissed: z.boolean().optional(),
+  feedback: z
+    .object({
+      reason: z.enum(["content_type", "importance", "action", "other"]),
+      note: z.string().max(300).default(""),
+      at: z.string().min(1),
+    })
+    .optional(),
+});
+
+const checkSchema = z.object({ ids: z.array(z.string()).default([]) });
+
+export interface AppOptions {
+  dbPath: string;
+  fixturePath?: string;
+  seed?: boolean;
+  logger?: boolean;
+  autoSync?: boolean;
+  staticDir?: string | null;
+  secretStore?: SecretStore;
+  google?: GoogleOAuthConfig | null;
+  fetcher?: typeof fetch;
+}
+
+export function buildApp(options: AppOptions): FastifyInstance {
+  const db: CoveDatabase = createDatabase(options);
+  const app = Fastify({
+    logger: options.logger ? { level: "info", redact: ["req.headers.authorization", "req.headers.cookie"] } : false,
+    bodyLimit: 1_000_000,
+  });
+  const allowedOrigins = new Set([
+    "http://127.0.0.1:5174",
+    "http://localhost:5174",
+    "http://127.0.0.1:4317",
+    "http://localhost:4317",
+  ]);
+  app.addHook("onRequest", async (request, reply) => {
+    const origin = request.headers.origin;
+    if (origin && !allowedOrigins.has(origin) && ["POST", "PATCH", "DELETE"].includes(request.method)) {
+      return reply.code(403).send({ error: { code: "forbidden_origin", message: "Origin is not allowed.", retryable: false } } satisfies ApiError);
+    }
+  });
+  const secrets = options.secretStore ?? defaultSecretStore();
+  const google = new GoogleOAuth(options.google ?? null, secrets, options.fetcher ?? fetch);
+  const orchestrator = new SyncOrchestrator(db, secrets, google, options.fetcher ?? fetch);
+  if (options.autoSync) {
+    const timer = setInterval(() => void orchestrator.syncAll(), 60 * 60 * 1000);
+    timer.unref();
+    app.addHook("onReady", async () => {
+      void orchestrator.syncAll();
+    });
+    app.addHook("onClose", async () => clearInterval(timer));
+  }
+
+  app.decorate("coveDb", db);
+  app.addHook("onClose", async () => db.close());
+
+  app.setErrorHandler((error, _request, reply) => {
+    const err = error as Error & { statusCode?: number };
+    const status = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500;
+    const body: ApiError = {
+      error: {
+        code: status === 400 ? "invalid_request" : "internal_error",
+        message: err.message,
+        retryable: status >= 500,
+      },
+    };
+    reply.code(status).send(body);
+  });
+
+  app.get("/api/health", async () => ({ ok: true }));
+
+  app.get("/api/sources", async () => ({ sources: db.listSources() }));
+
+  app.get<{ Querystring: { since?: string; source?: string; q?: string } }>("/api/brief", async (request, reply) => {
+    const { since, source, q } = request.query;
+    if (source && !sourceSchema.safeParse(source).success) {
+      return reply.code(400).send({ error: { code: "invalid_source", message: "Unknown source", retryable: false } } satisfies ApiError);
+    }
+    return db.brief({ since, source: source as Source | undefined, query: q });
+  });
+
+  app.get<{ Params: { id: string } }>("/api/items/:id", async (request, reply) => {
+    const item = db.getItem(request.params.id);
+    if (!item) {
+      return reply.code(404).send({ error: { code: "not_found", message: "Item not found", retryable: false } } satisfies ApiError);
+    }
+    return item;
+  });
+
+  app.post("/api/check", async (request, reply) => {
+    const parsed = checkSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: "invalid_request", message: parsed.error.message, retryable: false } } satisfies ApiError);
+    }
+    db.markChecked(parsed.data.ids);
+    return { ok: true, lastCheckedAt: db.getSetting("last_checked_at") };
+  });
+
+  app.patch<{ Params: { id: string } }>("/api/items/:id/correction", async (request, reply) => {
+    const parsed = correctionSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: "invalid_request", message: parsed.error.message, retryable: false } } satisfies ApiError);
+    }
+    if (!db.getItem(request.params.id)) {
+      return reply.code(404).send({ error: { code: "not_found", message: "Item not found", retryable: false } } satisfies ApiError);
+    }
+    return db.saveCorrection(request.params.id, parsed.data);
+  });
+
+  app.get("/api/oauth/google/start", async (_request, reply) => {
+    try {
+      return { url: google.start() };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Google OAuth is not configured.";
+      return reply.code(503).send({ error: { code: "oauth_not_configured", message, retryable: false } } satisfies ApiError);
+    }
+  });
+
+  app.get<{ Querystring: { code?: string; state?: string; error?: string } }>("/oauth/google/callback", async (request, reply) => {
+    const { code, state, error } = request.query;
+    const appUrl = process.env.COVE_APP_URL ?? "http://127.0.0.1:5174/";
+    if (error || !code || !state) {
+      const target = new URL(appUrl);
+      target.searchParams.set("connected", "error");
+      return reply.code(302).header("location", target.toString()).send();
+    }
+    try {
+      await google.handleCallback(code, state);
+      const target = new URL(appUrl);
+      target.searchParams.set("connected", "gmail");
+      return reply.code(302).header("location", target.toString()).send();
+    } catch (cause) {
+      const target = new URL(appUrl);
+      target.searchParams.set("connected", "error");
+      return reply.code(302).header("location", target.toString()).send();
+    }
+  });
+
+  app.post("/api/oauth/google/disconnect", async () => {
+    await google.disconnect();
+    db.setSourceStatus("gmail", "disconnected", null, null);
+    return { ok: true };
+  });
+
+  const edCredentials = z.object({ token: z.string().min(1), region: z.enum(["us", "au", "eu"]).default("us") });
+  const moodleCredentials = z.object({ baseUrl: z.string().url(), session: z.string().min(1) });
+
+  app.post<{ Params: { source: string } }>("/api/sources/:source/credentials", async (request, reply) => {
+    const source = sourceSchema.safeParse(request.params.source);
+    if (!source.success) {
+      return reply.code(400).send({ error: { code: "invalid_source", message: "Unknown source", retryable: false } } satisfies ApiError);
+    }
+    if (source.data === "gmail") {
+      return reply.code(400).send({ error: { code: "use_oauth", message: "Use the Gmail OAuth flow.", retryable: false } } satisfies ApiError);
+    }
+    if (source.data === "ed") {
+      const parsed = edCredentials.safeParse(request.body ?? {});
+      if (!parsed.success) return reply.code(400).send({ error: { code: "invalid_request", message: parsed.error.message, retryable: false } } satisfies ApiError);
+      await secrets.set("ed-credentials", JSON.stringify(parsed.data));
+    } else {
+      const parsed = moodleCredentials.safeParse(request.body ?? {});
+      if (!parsed.success) return reply.code(400).send({ error: { code: "invalid_request", message: parsed.error.message, retryable: false } } satisfies ApiError);
+      await secrets.set("moodle-credentials", JSON.stringify(parsed.data));
+    }
+    db.setSourceStatus(source.data, "degraded", null, null);
+    return { ok: true };
+  });
+
+  app.post<{ Params: { source: string } }>("/api/sources/:source/disconnect", async (request, reply) => {
+    const source = sourceSchema.safeParse(request.params.source);
+    if (!source.success) return reply.code(400).send({ error: { code: "invalid_source", message: "Unknown source", retryable: false } } satisfies ApiError);
+    if (source.data === "ed") await secrets.delete("ed-credentials");
+    if (source.data === "moodle") await secrets.delete("moodle-credentials");
+    if (source.data === "gmail") await google.disconnect();
+    db.setSourceStatus(source.data, "disconnected", null, null);
+    return { ok: true };
+  });
+
+  app.post<{ Body: { source?: string } }>("/api/sync", async (request, reply) => {
+    const source = request.body?.source ?? "gmail";
+    if (!sourceSchema.safeParse(source).success) {
+      return reply.code(400).send({ error: { code: "invalid_source", message: "Unknown source", retryable: false } } satisfies ApiError);
+    }
+    try {
+      const result = await orchestrator.sync(source as Source);
+      return { ok: true, source, ...result };
+    } catch (error) {
+      const isOauth = error instanceof OAuthError;
+      const status = isOauth ? (error.code === "not_connected" ? 409 : 502) : 502;
+      const message = error instanceof Error ? error.message : "Source sync failed.";
+      db.setSourceStatus(source as Source, status === 409 ? "disconnected" : "error", null, message);
+      return reply.code(status).send({
+        error: { code: isOauth ? error.code : "sync_failed", message, retryable: status >= 500 },
+      } satisfies ApiError);
+    }
+  });
+
+  app.delete("/api/data", async () => {
+    await google.disconnect();
+    await secrets.delete("ed-credentials");
+    await secrets.delete("moodle-credentials");
+    db.clearAll();
+    return { ok: true };
+  });
+
+  if (options.staticDir) {
+    app.register(staticPlugin, {
+      root: options.staticDir,
+      prefix: "/",
+      setHeaders: (reply) => {
+        reply.header(
+          "content-security-policy",
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self';",
+        );
+        reply.header("x-content-type-options", "nosniff");
+        reply.header("referrer-policy", "no-referrer");
+      },
+    });
+    app.setNotFoundHandler((request, reply) => {
+      if (request.url.startsWith("/api") || request.url.startsWith("/oauth")) {
+        return reply.code(404).send({ error: { code: "not_found", message: "Not found", retryable: false } } satisfies ApiError);
+      }
+      return reply.sendFile("index.html");
+    });
+  }
+
+  return app;
+}

@@ -16,6 +16,27 @@ export type Importance = "critical" | "important" | "reference" | "skip";
 export type ActionRequired = "yes" | "no" | "uncertain";
 export type OpenOriginal = "required" | "optional" | "no";
 
+export interface SourceStatus {
+  id: Source;
+  label: string;
+  status: "connected" | "degraded" | "error" | "disconnected" | "fixture";
+  lastSyncAt: string | null;
+  lastError: string | null;
+  itemCount: number;
+}
+
+export interface BriefItem extends DemoItem {
+  sourceItemId?: string;
+  publishedAt?: string;
+  updatedAt?: string;
+  url?: string;
+  contentHash?: string;
+  triageVersion?: string;
+  model?: string;
+  read?: boolean;
+  correction?: Correction;
+}
+
 export interface DemoItem {
   id: string;
   source: Source;

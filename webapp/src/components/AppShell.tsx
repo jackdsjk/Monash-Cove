@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ApiOutlined, InboxOutlined, SettingOutlined } from "@ant-design/icons";
 import { Badge, Layout, Menu, Typography } from "antd";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { demoData } from "../data/demo-data";
+import { fetchSources } from "../data/repository";
 import { SOURCE_LABELS } from "../lib/triage";
 import type { Source } from "../types";
 
@@ -18,10 +18,21 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const counts = useMemo(() => {
-    const result: Record<Source, number> = { gmail: 0, ed: 0, moodle: 0 };
-    for (const item of demoData.items) result[item.source] += 1;
-    return result;
+  const [counts, setCounts] = useState<Record<Source, number>>({ gmail: 0, ed: 0, moodle: 0 });
+
+  useEffect(() => {
+    let active = true;
+    void fetchSources()
+      .then((sources) => {
+        if (!active) return;
+        const next: Record<Source, number> = { gmail: 0, ed: 0, moodle: 0 };
+        for (const source of sources) next[source.id] = source.itemCount;
+        setCounts(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
   }, []);
 
   const selectedKey = location.pathname === "/" ? "/" : location.pathname;

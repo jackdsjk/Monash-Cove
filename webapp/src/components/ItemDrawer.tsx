@@ -7,16 +7,16 @@ import {
   SOURCE_LABELS,
   formatAge,
 } from "../lib/triage";
-import type { Correction, DemoItem, Importance } from "../types";
+import type { BriefItem, Correction, Importance } from "../types";
 
 interface ItemDrawerProps {
-  item: DemoItem | null;
+  item: BriefItem | null;
   open: boolean;
   correction?: Correction;
   onClose: () => void;
   onTogglePin: (id: string) => void;
   onDismiss: (id: string) => void;
-  onFeedback: (item: DemoItem) => void;
+  onFeedback: (item: BriefItem) => void;
 }
 
 function statusOf(importance: Importance): "error" | "warning" | "default" {
@@ -81,8 +81,8 @@ export default function ItemDrawer({ item, open, correction = {}, onClose, onTog
             className="drawer-alert"
             type="info"
             showIcon
-            message="这是预录模型判断，不是实时结论"
-            description="模型和规则都可能出错。演示环境没有真实来源链接；请以原文和学校系统为准。"
+            message={item.model?.startsWith("deterministic") ? "这是规则判断，不是模型结论" : `判断来源：${item.model ?? "unknown"}`}
+            description={`${item.triageVersion ? `规则/模型版本：${item.triageVersion}。` : ""}判断可能出错，请以原文和学校系统为准。`}
           />
 
           <section className="drawer-section">

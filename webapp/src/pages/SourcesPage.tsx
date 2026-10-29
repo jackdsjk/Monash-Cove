@@ -1,8 +1,9 @@
 import { ApiOutlined, CheckCircleOutlined } from "@ant-design/icons";
-import { Alert, App as AntApp, Badge, Button, Card, Col, Descriptions, Row, Space, Tag, Typography } from "antd";
-import { demoData } from "../data/demo-data";
+import { Alert, App as AntApp, Badge, Button, Card, Col, Descriptions, Form, Input, Modal, Row, Select, Space, Tag, Typography } from "antd";
+import { useCallback, useEffect, useState } from "react";
+import { fetchSources } from "../data/repository";
 import { SOURCE_LABELS } from "../lib/triage";
-import type { Source } from "../types";
+import type { Source, SourceStatus } from "../types";
 
 const sources: Array<{ source: Source; status: "success" | "warning"; lastSync: string; scope: string }> = [
   { source: "gmail", status: "success", lastSync: "12 分钟前", scope: "只读邮件与线程" },
@@ -12,6 +13,71 @@ const sources: Array<{ source: Source; status: "success" | "warning"; lastSync: 
 
 export default function SourcesPage() {
   const { message } = AntApp.useApp();
+  const [statuses, setStatuses] = useState<SourceStatus[]>([]);
+  const [connectSource, setConnectSource] = useState<Source | null>(null);
+  const [form] = Form.useForm();
+
+  const loadStatuses = useCallback(async () => {
+    try {
+      setStatuses(await fetchSources());
+    } catch {
+      setStatuses([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadStatuses();
+  }, [loadStatuses]);
+
+  const syncSource = async (source: Source) => {
+    const response = await fetch("/api/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ source }),
+    });
+    const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+    if (!response.ok) {
+      message.warning(body?.error?.message ?? "同步失败");
+      await loadStatuses();
+      return;
+    }
+    message.success(`${SOURCE_LABELS[source]} 同步完成`);
+    await loadStatuses();
+  };
+
+  const openConnect = (source: Source) => {
+    setConnectSource(source);
+    form.resetFields();
+    if (source === "ed") form.setFieldsValue({ region: "au" });
+    if (source === "moodle") form.setFieldsValue({ baseUrl: "https://learning.monash.edu" });
+  };
+
+  const saveCredentials = async (values: Record<string, string>) => {
+    if (!connectSource) return;
+    const response = await fetch(`/api/sources/${connectSource}/credentials`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(values),
+    });
+    const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+    if (!response.ok) {
+      message.error(body?.error?.message ?? "保存凭据失败");
+      return;
+    }
+    message.success(`${SOURCE_LABELS[connectSource]} 凭据已保存到本机`);
+    setConnectSource(null);
+    await loadStatuses();
+  };
+
+  const connectGmail = async () => {
+    const response = await fetch("/api/oauth/google/start");
+    const body = (await response.json().catch(() => null)) as { url?: string; error?: { message?: string } } | null;
+    if (!response.ok || !body?.url) {
+      message.info(body?.error?.message ?? "Google OAuth 尚未配置");
+      return;
+    }
+    window.location.href = body.url;
+  };
 
   return (
     <>
@@ -39,7 +105,9 @@ export default function SourcesPage() {
 
       <Row gutter={[16, 16]}>
         {sources.map((config) => {
-          const count = demoData.items.filter((item) => item.source === config.source).length;
+          const apiStatus = statuses.find((status) => status.id === config.source);
+          const count = apiStatus?.itemCount ?? 0;
+          const status = apiStatus?.status === "connected" ? "success" : apiStatus?.status === "error" ? "error" : "default";
           return (
             <Col xs={24} md={8} key={config.source}>
               <Card
@@ -49,14 +117,14 @@ export default function SourcesPage() {
                     <span>{SOURCE_LABELS[config.source]}</span>
                   </Space>
                 }
-                extra={<Badge status={config.status} text={config.status === "success" ? "已连接" : "需检查"} />}
+                extra={<Badge status={status} text={status === "success" ? "已连接" : apiStatus?.status === "fixture" ? "演示数据" : "需检查"} />}
               >
                 <Descriptions
                   size="small"
                   column={1}
                   colon={false}
                   items={[
-                    { key: "last", label: "最近同步", children: config.lastSync },
+                    { key: "last", label: "最近同步", children: apiStatus?.lastSyncAt ? new Date(apiStatus.lastSyncAt).toLocaleString("zh-CN") : config.lastSync },
                     { key: "scope", label: "读取范围", children: config.scope },
                     { key: "count", label: "样本数", children: `${count} 条` },
                   ]}
@@ -65,11 +133,20 @@ export default function SourcesPage() {
                   <Tag color="green" icon={<CheckCircleOutlined />}>
                     只读
                   </Tag>
-                  <Button
-                    size="small"
-                    icon={<ApiOutlined />}
-                    onClick={() => message.info("真实同步需要本地 Node 服务，当前演示数据不会访问账号")}
-                  >
+                  {apiStatus?.status !== "connected" ? (
+                    <Button
+                      size="small"
+                      type="primary"
+                      onClick={() => (config.source === "gmail" ? void connectGmail() : openConnect(config.source))}
+                    >
+                      连接 {SOURCE_LABELS[config.source]}
+                    </Button>
+                  ) : (
+                    <Button size="small" onClick={() => openConnect(config.source)}>
+                      管理
+                    </Button>
+                  )}
+                  <Button size="small" icon={<ApiOutlined />} onClick={() => void syncSource(config.source)}>
                     立即同步
                   </Button>
                 </Space>
@@ -78,6 +155,42 @@ export default function SourcesPage() {
           );
         })}
       </Row>
+
+      <Modal
+        open={Boolean(connectSource)}
+        title={connectSource ? `连接 ${SOURCE_LABELS[connectSource]}` : "连接来源"}
+        okText="保存到本机"
+        cancelText="取消"
+        onCancel={() => setConnectSource(null)}
+        onOk={() => form.submit()}
+        destroyOnHidden
+      >
+        <Form form={form} layout="vertical" onFinish={saveCredentials} requiredMark={false}>
+          {connectSource === "ed" ? (
+            <>
+              <Form.Item name="token" label="Ed API token" rules={[{ required: true, message: "请输入 token" }]}>
+                <Input.Password placeholder="只保存在本机 Keychain" />
+              </Form.Item>
+              <Form.Item name="region" label="区域" rules={[{ required: true }]}>
+                <Select options={[{ value: "us", label: "US" }, { value: "au", label: "AU" }, { value: "eu", label: "EU" }]} />
+              </Form.Item>
+            </>
+          ) : null}
+          {connectSource === "moodle" ? (
+            <>
+              <Form.Item name="baseUrl" label="Moodle 地址" rules={[{ required: true, type: "url", message: "请输入完整 URL" }]}>
+                <Input placeholder="https://learning.monash.edu" />
+              </Form.Item>
+              <Form.Item name="session" label="MoodleSession cookie" rules={[{ required: true, message: "请输入 session" }]}>
+                <Input.Password placeholder="只保存在本机 Keychain" />
+              </Form.Item>
+            </>
+          ) : null}
+          {connectSource === "gmail" ? (
+            <Alert type="info" showIcon message="Gmail 使用 OAuth" description="点击来源卡片的“连接 Gmail”完成授权；这里不保存密码。" />
+          ) : null}
+        </Form>
+      </Modal>
 
       <Card className="info-card" title="接入边界">
         <Typography.Paragraph type="secondary">
