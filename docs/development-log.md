@@ -22,6 +22,7 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 两轮 agent-assisted 标注及裁决 manifest；
 - 无模型、无网络、无新增依赖的最小离线 replay/evaluation harness；
 - 确定性分诊规则 baseline、测试和 Markdown/JSON 报告输出；
+- 全部分歧输出、失效模式归类和高/中/低优先级 Bad Case 清单；
 - 当前规则版本的 baseline 指标记录。
 
 当前未完成：
@@ -41,7 +42,7 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 2. 用确定性规则预测 `authority`、`content_type`、`importance`、`action_required` 和 `open_original`；
 3. 检查证据句是否来自样本文本；
 4. 输出字段准确率、重要信息召回率、重要信息精确率、关键误报率、低价值压缩率和按来源结果；
-5. 列出最多 20 条需要进一步查看的分歧。
+5. 输出全部分歧样本，按严重度和失效模式归类，并生成 Bad Case 清单。
 
 它不访问 Gmail、Ed、Moodle，不读取真实账号，不调用模型或外部 API，也不向 Cove Worker、数据库或外部服务写入数据。
 
@@ -62,13 +63,15 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 | `action_required` 准确率 | 74.5% |
 | `open_original` 准确率 | 58.2% |
 
+同一版本下有 36 条样本存在至少一个字段分歧：高 15、中 7、低 14。其中 `authority` 直接沿用样本的 `author_role`，证据句由原文切句得到，`open_original` 由 `importance` 与 `action_required` 推导，因此 100% 与 58.2% 不是独立能力指标；只有 `content_type`、`importance` 和 `action_required` 是从文本判断的字段，后两者依赖 `content_type`。
+
 ### 分支与提交状态
 
 - 工作分支：`codex/triage-evaluation-harness`；
 - 基线：`master` 的 `159006f`；
-- 本阶段提交：`1099491 Add lightweight triage evaluation harness`；
+- 本阶段提交（均未 push）：`1099491` harness、`7dec247` 状态文档、`Expand triage replay output with failure taxonomy and bad cases`、`Sync evaluation docs and clarify repo boundaries`；
 - 提交已创建于本地，尚未 push；
-- `docs/.miaoyan-conflicts/` 是既有未跟踪目录，本阶段未触碰、未提交；
+- `docs/.miaoyan-conflicts/` 是既有未跟踪目录，已加入 `.gitignore`，未提交；
 - `stack/unicorn/wrangler.jsonc` 的既有本地修改不属于本阶段范围，未触碰。
 
 ## 二、开发日志
@@ -103,10 +106,20 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - `git diff --check` 通过；
 - 仅提交本阶段 5 个目标文件，未提交既有冲突目录。
 
+### 2026-10-29：补齐全部分歧与 Bad Case 输出
+
+- 回放器不再把分歧截断到 20 条，默认输出全部 36 条并标注严重度；
+- 新增失效模式归类，按首要失效模式统计到高/中/低三档；
+- 新增 `--badcases`，按优先级生成可直接排期的 Bad Case 清单；
+- 报告内嵌指标口径说明，标出 `authority`、证据支持率和 `open_original` 的构造性来源；
+- 测试增加到覆盖不截断、计数一致、Bad Case 完整性和报告章节；
+- 修正 `.gitignore`，把 `docs/.miaoyan-conflicts/` 与 `build/` 排除在版本控制外；
+- 澄清根 `AGENTS.md` 中 `stack/unicorn` 与根仓库分诊方向的关系。
+
 ## 三、下一步开发顺序
 
-1. 基于当前 baseline 和分歧样本完成 MVP 功能取舍，明确 P0、延后项和非目标；
-2. 将当前回放结果转成可解释的 Bad Case 清单，优先处理高风险漏判和关键误报；
+1. 基于当前 baseline 和 Bad Case 清单完成 MVP 功能取舍，明确 P0、延后项和非目标；
+2. 按 Bad Case 优先级修复规则：先处理误报 `critical` 和漏判行动要求，再看漏判高价值；
 3. 设计匿名 Demo 的 Today / Since Last Check 核心流程；
 4. 只有在 MVP 边界稳定后，再评估真实脱敏样本、模型评测和语义去重是否值得引入；
 5. 产品界面可以运行后，再安装并使用对应的 UI 和端到端测试技能。

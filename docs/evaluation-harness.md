@@ -14,6 +14,7 @@
 匿名样本 + 已确认的 prototype Gold Set
 → 确定性规则 baseline
 → 字段比较与基础指标
+→ 失效模式归类与 Bad Case 清单
 → Markdown/JSON 报告
 ```
 
@@ -37,6 +38,13 @@
 - `open_original`；
 - `evidence_quote` 是否来自样本文本；
 - 重要信息召回率、重要信息精确率、关键误报率、低价值压缩率和字段准确率。
+
+报告同时包含：
+
+- 全部分歧样本（不截断），按严重度和 `sample_id` 排序；
+- 失效模式归类，以及按模式、严重度的计数（JSON 报告另含按来源计数）；
+- `--badcases` 生成的 Bad Case 清单，按高/中/低优先级分组；
+- 指标口径说明，标出哪些指标是构造性结果而非独立判断能力。
 
 课程字段直接沿用匿名样本中的结构化课程归属，仅作为输入保留，不把它伪装成课程识别评测结果。
 
@@ -71,12 +79,13 @@
 在父仓库根目录运行：
 
 ```bash
-node scripts/evaluation/replay-triage.mjs
-node scripts/evaluation/replay-triage.mjs --json
-node scripts/evaluation/replay-triage.test.mjs
+node scripts/evaluation/replay-triage.mjs             # 汇总报告（含全部分歧与失效模式）
+node scripts/evaluation/replay-triage.mjs --json      # 机器可读报告
+node scripts/evaluation/replay-triage.mjs --badcases  # 按优先级分组的 Bad Case 清单
+node scripts/evaluation/replay-triage.test.mjs        # 自检
 ```
 
-默认输出 Markdown 报告；`--json` 输出包含逐条分歧的机器可读 JSON 报告。报告不写入 Git，避免把生成结果混入源文件。
+默认输出 Markdown 报告；`--json` 输出包含全部逐条分歧、失效模式统计和指标口径的机器可读 JSON；`--badcases` 输出可直接用于规则修复排期的 Bad Case 清单。需要留档时重定向到 `build/`，该目录已被忽略。报告不写入 Git，避免把生成结果混入源文件。
 
 ## 6. 当前结果
 
@@ -99,6 +108,32 @@ node scripts/evaluation/replay-triage.test.mjs
 
 这些结果只用于验证规则 baseline 和回放流程，不代表真实用户效果，也不代表生产质量。
 
+### 6.2 指标口径
+
+- `authority` 直接沿用样本的 `author_role`（`staff_answer` 例外），100% 不代表识别能力；
+- `evidence_quote` 由样本文本切句得到，`summary` 是 `title + evidence_quote`，证据支持率 100% 是构造结果；
+- `open_original` 由 `importance` 与 `action_required` 推导，其准确率反映上游误差传导，不是独立能力；
+- 当前只有 `content_type`、`importance` 和 `action_required` 是从文本判断的字段；后两者以 `content_type` 为中间结果，误差会向下传导；课程字段是输入，不是识别结果。
+
+### 6.3 失效模式（当前规则版本）
+
+55 条样本中有 36 条存在至少一个字段分歧，其中高 15、中 7、低 14。按首要失效模式统计：
+
+| 失效模式 | 严重度 | 条数 |
+|---|---|---:|
+| 漏判行动要求 | 高 | 6 |
+| 误报 critical | 高 | 5 |
+| 漏判高价值 | 高 | 3 |
+| 漏判 critical | 高 | 1 |
+| 误报高价值 | 中 | 3 |
+| 重要性相邻档混淆 | 中 | 3 |
+| 误报行动要求 | 中 | 1 |
+| 原文跳转不符 | 低 | 11 |
+| 行动确定性不符 | 低 | 2 |
+| 内容类型不符 | 低 | 1 |
+
+高优先级分歧集中在三类问题：Ed 学习材料和 Gmail 行政通知被误判为 `critical` 或 `requirement_change`；教师答复与 Gmail 通知中的行动要求被漏判；少数高价值内容被压到 `reference`。下一步修复应优先处理这三类，而不是先动低风险的 `open_original` 映射。
+
 ## 7. 后续升级方案
 
 完整评测 harness 暂时只作为后续方案记录，不阻塞 MVP：
@@ -119,6 +154,8 @@ node scripts/evaluation/replay-triage.test.mjs
 - 一条命令可离线运行；
 - 55 条样本全部参与；
 - 输出结果确定且可复现；
-- 指标定义和隐私边界写入本文档；
-- 测试覆盖输入完整性、规则关键路径和指标计算；
+- 全部分歧完整输出，不截断；
+- 失效模式计数与分歧总数一致，Bad Case 清单可单独生成；
+- 指标定义、口径说明和隐私边界写入本文档；
+- 测试覆盖输入完整性、规则关键路径、指标计算和输出完整性；
 - 不修改 Cove Worker、账号数据或外部服务。
