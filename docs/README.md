@@ -11,6 +11,7 @@
 | [mvp-scope-2026-10-29.md](mvp-scope-2026-10-29.md) | 第一版 P0/P1、功能评分、验收标准和明确砍掉项 | **P0 初版已锁定** |
 | [webapp-design.md](webapp-design.md) | 本地 Web App 的信息架构、布局、token、组件映射和状态设计 | **设计已落地为 v0.1 骨架** |
 | [../webapp/README.md](../webapp/README.md) | 本地 Vite + React + Ant Design Web App 的运行、范围和边界 | **v0.1 骨架；真实同步未接** |
+| [plan/real-path/plan.md](plan/real-path/plan.md) | 真实数据长线计划：里程碑、任务、风险、决策门和每周节奏 | **计划草案；第 1 周未开始** |
 | [information-triage-labeling-guide.md](information-triage-labeling-guide.md) | 真实样本的匿名化、人工标注口径与第一版评测指标 | **当前评测规范** |
 | [value-replay-2026-10-28.md](value-replay-2026-10-28.md) | 第一轮真实数据统计、价值判断及继续/停止标准 | **当前验证记录** |
 | [gold-set-human-review-2026-10-28.md](gold-set-human-review-2026-10-28.md) | 给项目所有者直接勾选和填写的 55 条人工复核表 | **人工操作入口** |

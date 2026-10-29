@@ -175,11 +175,19 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - `npm run check` 通过：fixture 完整性 + TypeScript 构建；
 - 真实 OAuth、同步和本地 Node 服务仍未接入。
 
+### 2026-10-29：建立真实数据长线计划
+
+- 新增 `docs/plan/real-path/plan.md` 和 `todo.md`；
+- 按 M1 本地链路 + Gmail、M2 Ed + Moodle 最小切片、M3 Moodle 帖子（条件）、M4 规则/模型、M5 可靠性/交付拆分；
+- 计划按每周 8–10 小时、40% 缓冲估算，总计约 100–120 小时；
+- 明确第一周只做 `local-service` 骨架、API contract 和 SQLite schema；
+- 设 D1–D4 决策门，Moodle 帖子是否 P0 放到 M2 后决定。
+
 ## 三、下一步开发顺序
 
-1. 接本地 Node 服务，定义 `fetchBrief()` 对应的 API 和错误结构；
-2. 先打通一条真实来源的纵向切片，再接第二个和第三个；
-3. 补同步失败、授权过期、首次连接和空数据状态；
+1. 按 [真实数据计划](plan/real-path/plan.md) 第 1 周执行 M1-01 到 M1-03；
+2. 用 fixture 跑通本地 API 后，接 Gmail 纵向切片；
+3. 再接 Ed 和 Moodle 最小切片，Moodle 帖子在 M2 后决策；
 4. 用真实自用账号和匿名样本分别验证同步、分诊、证据和纠错；
 5. P0 闭环稳定后，再评估桌面壳、课程归属、教师结论提炼和完整评测矩阵。
 
@@ -193,4 +201,5 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - [MVP 范围与优先级决策](mvp-scope-2026-10-29.md)
 - [本地 Web App 设计规范](webapp-design.md)
 - [本地 Web App 代码](../webapp/README.md)
+- [真实数据长线计划](plan/real-path/plan.md)
 - [文档导航](README.md)
