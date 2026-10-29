@@ -8,6 +8,7 @@
 |---|---|---|
 | [PRD-Monash-Agent.md](PRD-Monash-Agent.md) | 当前产品问题、用户、价值主张、AI 边界和第一版方案 | **当前产品定义** |
 | [project-resume-roadmap.md](project-resume-roadmap.md) | 从产品定义到 MVP、评测、Demo 和简历证据的阶段路线 | **当前执行路线** |
+| [mvp-scope-2026-10-29.md](mvp-scope-2026-10-29.md) | 第一版 P0/P1、功能评分、验收标准和明确砍掉项 | **P0 初版已锁定** |
 | [information-triage-labeling-guide.md](information-triage-labeling-guide.md) | 真实样本的匿名化、人工标注口径与第一版评测指标 | **当前评测规范** |
 | [value-replay-2026-10-28.md](value-replay-2026-10-28.md) | 第一轮真实数据统计、价值判断及继续/停止标准 | **当前验证记录** |
 | [gold-set-human-review-2026-10-28.md](gold-set-human-review-2026-10-28.md) | 给项目所有者直接勾选和填写的 55 条人工复核表 | **人工操作入口** |
