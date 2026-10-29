@@ -30,14 +30,14 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 
 - 真实脱敏用户样本替换 prototype 集；
 - 完整语义去重评测；
-- 多模型或提示词矩阵；
 - 摘要忠实度的严格评测；
+- 未参与调参的 holdout 模型回放与完整模型/提示词矩阵；
 - CI 评测门禁；
 - MVP 功能取舍及可操作产品界面。
 
 ### 当前实现边界
 
-本阶段的代码只位于根仓库的 `scripts/evaluation/`，输入和规范位于 `docs/`。回放器：
+本阶段的代码只位于根仓库的 `scripts/evaluation/`，输入和规范位于 `docs/`。确定性回放器本身：
 
 1. 读取匿名样本与最终裁决标签；
 2. 用确定性规则预测 `authority`、`content_type`、`importance`、`action_required` 和 `open_original`；
@@ -70,7 +70,7 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 
 - 工作分支：`codex/triage-evaluation-harness`；
 - 基线：`master` 的 `159006f`；
-- 本阶段提交（均未 push）：`1099491` harness、`7dec247` 状态文档、`Expand triage replay output with failure taxonomy and bad cases`、`Sync evaluation docs and clarify repo boundaries`、`Fix false critical triage rules and missed action cues`、`Update triage baseline after rule fixes`；
+- 本阶段提交（均未 push）：`1099491` harness、`7dec247` 状态文档、`Expand triage replay output with failure taxonomy and bad cases`、`Sync evaluation docs and clarify repo boundaries`、`Fix false critical triage rules and missed action cues`、`Update triage baseline after rule fixes`、`Record gpt-5.6-luna model replay`；
 - 提交已创建于本地，尚未 push；
 - `docs/.miaoyan-conflicts/` 是既有未跟踪目录，已加入 `.gitignore`，未提交；
 - `stack/unicorn/wrangler.jsonc` 的既有本地修改不属于本阶段范围，未触碰。
@@ -127,12 +127,21 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 未修复：`gmail-002` 的条件式登记要求与 `gmail-005` 的 gold 口径冲突；漏判 critical 与漏判高价值不在本轮范围；
 - 这些调整基于同一批样本，指标提升属于样本内结果。
 
+### 2026-10-29：完成 gpt-5.6-luna 单模型回放
+
+- 使用当前 DSH desktop profile 的 `gpt-5.6-luna`，对 55 条样本逐条独立调用一次，共 55 次；
+- 55/55 个 JSON 合法，55/55 个 `evidence_quote` 是原文连续子串；没有自动重试；
+- 模型结果：重要信息召回率 100.0%、精确率 90.6%、关键误报率 22.2%、`open_original` 准确率 70.9%；
+- 与规则 baseline 相比，模型召回率和原文打开建议更高，但关键误报、内容类型和行动要求仍需代码约束；
+- 逐条比较四个主要判断字段：模型与规则都全对 16 条，只有模型全对 10 条，只有规则全对 10 条，两者都不是全对 19 条；
+- 这是同一 prototype 集上的一次模型运行，没有 holdout、第二个模型或真人复核，不能当作泛化或生产质量证据。
+
 ## 三、下一步开发顺序
 
 1. 基于当前 baseline 和 Bad Case 清单完成 MVP 功能取舍，明确 P0、延后项和非目标；
 2. 用未参与调参的样本验证本轮规则，再处理剩余 4 条高优先级分歧（1 条漏判 critical、2 条漏判高价值、1 条条件式行动要求）；
 3. 设计匿名 Demo 的 Today / Since Last Check 核心流程；
-4. 只有在 MVP 边界稳定后，再评估真实脱敏样本、模型评测和语义去重是否值得引入；
+4. 只有在 MVP 边界稳定后，再扩展 holdout/真实脱敏样本、模型矩阵和语义去重评测；
 5. 产品界面可以运行后，再安装并使用对应的 UI 和端到端测试技能。
 
 ## 四、相关文档
