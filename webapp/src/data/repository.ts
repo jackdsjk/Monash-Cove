@@ -1,4 +1,4 @@
-import type { BriefItem, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus } from "../types";
+import type { AttendanceAssistantState, AttendanceCode, AttendanceStatus, BriefItem, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus } from "../types";
 
 export interface BriefData {
   items: BriefItem[];
@@ -26,6 +26,43 @@ export async function fetchBrief(): Promise<BriefData> {
 export async function fetchSources(): Promise<SourceStatus[]> {
   const data = await getJson<{ sources: SourceStatus[] }>("/sources");
   return data.sources;
+}
+
+export async function fetchAttendanceStatus(): Promise<AttendanceStatus> {
+  return getJson<AttendanceStatus>("/attendance/status");
+}
+
+export async function fetchAttendanceCodes(refresh = false): Promise<AttendanceCode[]> {
+  const data = await getJson<{ codes: AttendanceCode[] }>(`/attendance/codes${refresh ? "?refresh=1" : ""}`);
+  return data.codes;
+}
+
+export async function startAttendanceAssistant(): Promise<AttendanceAssistantState> {
+  const response = await fetch("/api/attendance/connect/start", { method: "POST" });
+  const data = (await response.json()) as { assistant: AttendanceAssistantState };
+  return data.assistant;
+}
+
+export async function fetchAttendanceAssistant(): Promise<AttendanceAssistantState> {
+  const data = await getJson<{ assistant: AttendanceAssistantState }>("/attendance/connect/status");
+  return data.assistant;
+}
+
+export async function cancelAttendanceAssistant(): Promise<AttendanceAssistantState> {
+  const response = await fetch("/api/attendance/connect/cancel", { method: "POST" });
+  const data = (await response.json()) as { assistant: AttendanceAssistantState };
+  return data.assistant;
+}
+
+export async function fillAttendanceCode(code: AttendanceCode): Promise<{ status: "filled" | "inactive" | "not_found"; message: string }> {
+  const response = await fetch("/api/attendance/fill", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ course: code.course, week: code.week, session: code.session, code: code.code }),
+  });
+  const body = (await response.json().catch(() => null)) as { status?: "filled" | "inactive" | "not_found"; message?: string; error?: { message?: string } } | null;
+  if (!response.ok || !body?.status) throw new Error(body?.error?.message ?? body?.message ?? `Attendance fill returned ${response.status}`);
+  return { status: body.status, message: body.message ?? "" };
 }
 
 export async function fetchRuntimeStatus(): Promise<RuntimeStatus> {

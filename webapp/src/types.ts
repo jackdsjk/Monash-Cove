@@ -31,6 +31,29 @@ export interface FullSyncJob {
   sources: Record<Source, SyncSourceProgress>;
 }
 
+export interface AttendanceCode {
+  id: string;
+  source: "gmail" | "moodle" | "ed";
+  course: string;
+  week: number;
+  session: string;
+  code: string;
+  title: string;
+  url: string;
+  publishedAt: string;
+}
+
+export interface AttendanceAssistantState {
+  status: "idle" | "waiting_login" | "connected" | "error" | "cancelled";
+  message: string;
+  startedAt?: string;
+}
+
+export interface AttendanceStatus {
+  connected: boolean;
+  assistant: AttendanceAssistantState;
+}
+
 export interface RuntimeCheck {
   id: string;
   label: string;

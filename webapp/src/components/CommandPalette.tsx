@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { Command } from "cmdk";
 import { Modal } from "antd";
-import { ArrowRightOutlined, ClockCircleOutlined, InboxOutlined, SearchOutlined, SettingOutlined } from "@ant-design/icons";
+import { ArrowRightOutlined, CheckSquareOutlined, ClockCircleOutlined, InboxOutlined, SearchOutlined, SettingOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 
 const destinations = [
   { label: "简报", path: "/", icon: <InboxOutlined />, hint: "查看最近更新" },
   { label: "倒计时", path: "/deadlines", icon: <ClockCircleOutlined />, hint: "查看 Moodle 截止时间" },
   { label: "每周资料", path: "/materials", icon: <InboxOutlined />, hint: "按周浏览课程资料" },
+  { label: "签到", path: "/attendance", icon: <CheckSquareOutlined />, hint: "查看和填写 attendance code" },
   { label: "数据源", path: "/sources", icon: <SearchOutlined />, hint: "连接 Gmail、Ed、Moodle" },
   { label: "设置", path: "/settings", icon: <SettingOutlined />, hint: "管理本地数据" },
 ];

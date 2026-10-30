@@ -1506,6 +1506,62 @@ a {
   width: 260px !important;
 }
 
+.attendance-connect-card {
+  margin-bottom: 16px;
+}
+
+.attendance-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin: 12px 0;
+}
+
+.attendance-list {
+  display: grid;
+  gap: 8px;
+}
+
+.attendance-code-card {
+  border-color: #e5eee8;
+}
+
+.attendance-code-row {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.attendance-code-main {
+  min-width: 0;
+}
+
+.attendance-code {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.attendance-source-note {
+  font-size: 12px;
+  margin: 6px 0 0 !important;
+}
+
+@media (max-width: 640px) {
+  .attendance-code-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .attendance-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+}
+
 .settings-card {
   margin-bottom: 16px;
 }

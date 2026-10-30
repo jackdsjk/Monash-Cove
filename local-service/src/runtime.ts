@@ -48,6 +48,13 @@ export async function getRuntimeStatus(options: { dataDir: string; oauthConfigur
   const nodeMajor = Number(process.versions.node.split(".")[0]);
   const electronRuntime = process.env.COVE_DESKTOP === "1" || Boolean(process.versions.electron);
   const chrome = await chromeAvailable();
+  let ocr = false;
+  try {
+    await execFileAsync("tesseract", ["--version"]);
+    ocr = true;
+  } catch {
+    ocr = false;
+  }
   const checks: RuntimeCheck[] = [
     {
       id: "node",
@@ -66,6 +73,12 @@ export async function getRuntimeStatus(options: { dataDir: string; oauthConfigur
       label: "Google OAuth",
       status: options.oauthConfigured ? "ok" : "warn",
       detail: options.oauthConfigured ? "本地 OAuth client 已配置" : "未配置 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET；Gmail 连接会不可用",
+    },
+    {
+      id: "ocr",
+      label: "Moodle OCR",
+      status: ocr ? "ok" : "warn",
+      detail: ocr ? "已检测到 tesseract，可读取 Moodle 图片中的 attendance code" : "未检测到 tesseract；Moodle 图片里的 code 暂不可提取",
     },
     {
       id: "secrets",

@@ -165,3 +165,17 @@ codes = {
 - 不默认自动提交；
 - 不在没有 active form 时伪造请求；
 - 不把 attendance cookie 上传云端。
+
+
+## 实现更新（2026-10-31）
+
+已实现第一版：
+
+- `local-service/src/attendance/parser.ts`：Gmail / Moodle 文本 attendance code 解析；
+- `local-service/src/attendance/moodle-ocr.ts`：Moodle 图片 label 的 tesseract OCR；
+- `local-service/src/attendance/assistant.ts`：Attendance 登录助手，保存 cookie；
+- `local-service/src/attendance/client.ts`：session 验证和一键填入尝试；
+- `GET /api/attendance/status`、`GET /api/attendance/codes`、`POST /api/attendance/fill`；
+- `webapp/src/pages/AttendancePage.tsx`：签到页面、code 列表、课程/周次筛选、一键填写。
+
+当前“一键填写”如果遇到没有 active code 输入框的页面，会返回 `inactive`，不会猜测提交接口。

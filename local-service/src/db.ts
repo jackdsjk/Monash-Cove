@@ -381,6 +381,44 @@ export class CoveDatabase {
     }
   }
 
+  listAttendanceItems(): Array<{ id: string; source: "gmail" | "ed"; course: string; title: string; text: string; url: string; publishedAt: string }> {
+    const rows = this.db.prepare(`
+      SELECT i.id, i.source, i.course, i.title, i.published_at, i.url, c.text
+      FROM items i JOIN item_content c ON c.item_id = i.id
+      WHERE i.deleted_at IS NULL AND (
+        lower(i.title) LIKE '%attendance%' OR lower(c.text) LIKE '%attendance%'
+      )
+      ORDER BY i.published_at DESC
+    `).all() as Array<Record<string, unknown>>;
+    return rows
+      .filter((row) => row.source === "gmail" || row.source === "ed")
+      .map((row) => ({
+        id: String(row.id),
+        source: String(row.source) as "gmail" | "ed",
+        course: String(row.course ?? ""),
+        title: String(row.title ?? ""),
+        text: String(row.text ?? ""),
+        url: String(row.url ?? ""),
+        publishedAt: String(row.published_at ?? ""),
+      }));
+  }
+
+  listAllMoodleContent(): MoodleContentRow[] {
+    const rows = this.db.prepare("SELECT * FROM moodle_content ORDER BY course_name, section_number, title").all() as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      courseId: String(row.course_id),
+      courseName: String(row.course_name),
+      sectionNumber: Number(row.section_number),
+      sectionTitle: String(row.section_title),
+      module: String(row.module),
+      title: String(row.title),
+      url: String(row.url),
+      text: String(row.text ?? ""),
+      updatedAt: String(row.updated_at),
+    }));
+  }
+
   listMoodleContent(courseId: string): MoodleContentRow[] {
     const rows = this.db
       .prepare("SELECT * FROM moodle_content WHERE course_id = ? ORDER BY section_number, title")

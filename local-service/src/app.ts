@@ -21,6 +21,10 @@ import { downloadMoodleResource, MoodleDownloadError, safeDownloadName } from ".
 import type { ApiError, Source } from "./domain.js";
 import { getRuntimeStatus } from "./runtime.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
+import { AttendanceLoginAssistant } from "./attendance/assistant.js";
+import { fillAttendance, validateAttendance, type AttendanceCredentials } from "./attendance/client.js";
+import { parseAttendanceRows } from "./attendance/parser.js";
+import { scanMoodleAttendanceImages } from "./attendance/moodle-ocr.js";
 
 const sourceSchema = z.enum(["gmail", "ed", "moodle"]);
 
@@ -73,6 +77,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const orchestrator = new SyncOrchestrator(db, secrets, google, options.fetcher ?? fetch);
   const fullSyncJobs = new FullSyncJobs();
   const moodleAssistant = new MoodleLoginAssistant(secrets, db);
+  const attendanceAssistant = new AttendanceLoginAssistant(secrets);
+  let attendanceOcrCache: { at: number; codes: ReturnType<typeof parseAttendanceRows> } | null = null;
   const mcpSessions = new Map<string, StreamableHTTPServerTransport>();
   if (options.autoSync) {
     const timer = setInterval(() => void orchestrator.syncAll(), 60 * 60 * 1000);
@@ -141,6 +147,79 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
 
   app.get("/api/sources", async () => ({ sources: db.listSources() }));
+
+  app.get("/api/attendance/status", async () => {
+    const raw = await secrets.get("attendance-credentials");
+    let connected = false;
+    if (raw) {
+      try {
+        const credentials = JSON.parse(raw) as AttendanceCredentials;
+        connected = await validateAttendance(credentials);
+      } catch {
+        connected = false;
+      }
+    }
+    return { connected, assistant: attendanceAssistant.get() };
+  });
+
+  app.post("/api/attendance/connect/start", async () => ({ assistant: await attendanceAssistant.start() }));
+  app.get("/api/attendance/connect/status", async () => ({ assistant: attendanceAssistant.get() }));
+  app.post("/api/attendance/connect/cancel", async () => ({ assistant: await attendanceAssistant.cancel() }));
+
+  app.get<{ Querystring: { refresh?: string } }>("/api/attendance/codes", async (request) => {
+    const moodleRows = db.listAllMoodleContent();
+    const rows = [
+      ...db.listAttendanceItems().map((row) => ({
+        id: row.id,
+        source: row.source,
+        course: row.course,
+        title: row.title,
+        text: row.text,
+        url: row.url,
+        publishedAt: row.publishedAt,
+      })),
+      ...moodleRows.map((row) => ({
+        id: row.id,
+        source: "moodle" as const,
+        course: row.courseName,
+        title: row.title,
+        text: row.text,
+        url: row.url,
+        publishedAt: row.updatedAt,
+      })),
+    ];
+    const textCodes = parseAttendanceRows(rows);
+    if (request.query.refresh === "1") {
+      const raw = await secrets.get("moodle-credentials");
+      if (raw) {
+        try {
+          const credentials = moodleCredentials.parse(JSON.parse(raw));
+          attendanceOcrCache = { at: Date.now(), codes: await scanMoodleAttendanceImages(credentials, moodleRows) };
+        } catch {
+          attendanceOcrCache = { at: Date.now(), codes: [] };
+        }
+      }
+    }
+    return { codes: [...textCodes, ...(attendanceOcrCache?.codes ?? [])] };
+  });
+
+  app.post<{ Body: { course?: string; week?: number; session?: string; code?: string } }>("/api/attendance/fill", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.course || !body.session || !body.code || !Number.isInteger(body.week) || Number(body.week) < 1) {
+      return reply.code(400).send({ error: { code: "invalid_attendance", message: "course, week, session and code are required.", retryable: false } } satisfies ApiError);
+    }
+    const raw = await secrets.get("attendance-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "attendance_not_connected", message: "Attendance login is not configured.", retryable: false } } satisfies ApiError);
+    try {
+      const credentials = JSON.parse(raw) as AttendanceCredentials;
+      const valid = await validateAttendance(credentials);
+      if (!valid) return reply.code(409).send({ error: { code: "attendance_expired", message: "Attendance session expired; reconnect Attendance.", retryable: false } } satisfies ApiError);
+      const result = await fillAttendance({ course: body.course, week: Number(body.week), session: body.session, code: body.code }, credentials);
+      return result;
+    } catch (error) {
+      return reply.code(502).send({ error: { code: "attendance_fill_failed", message: error instanceof Error ? error.message : "Attendance fill failed.", retryable: true } } satisfies ApiError);
+    }
+  });
 
   app.get<{ Querystring: { since?: string; source?: string; q?: string } }>("/api/brief", async (request, reply) => {
     const { since, source, q } = request.query;
