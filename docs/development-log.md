@@ -208,6 +208,7 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - UI 组件审计：克隆并 CodeGraph 索引 shadcn、Nuxt UI、MUI；新增 shadcn command 风格的全局跳转面板，保留 AntD/Nuxt 不混用。
 - 重做截止倒计时：深绿 hero 卡 + 紧凑分组行，精确到秒并每秒更新；修复 390px 下的横向溢出。
 - 简报页增加类型、课程、只看未读筛选，和来源/搜索/只看行动/清除筛选组合。
+- 每周资料增加地区筛选（马来西亚/澳大利亚/印度尼西亚），按课程和校区标注过滤；下载文件改用 Moodle 资料标题与真实扩展名，ZIP 使用课程/板块名；
 - 新增 `/setup` 首次设置向导和自动跳转；Moodle 本地 headed-Chrome 登录助手捕获 `MoodleSession`，Gmail OAuth / Ed token 接入向导；
 - 新增 Cove 品牌动态 loader：双轨道旋转、呼吸核心和三段节奏条，用于简报/倒计时/每周资料/数据源加载；
 - 增加首次全量同步：Gmail 全部分页、Ed 全部分页、Moodle 全部课程资料；后台任务 + 来源进度 + 完成标记；App 打开时做限流增量。

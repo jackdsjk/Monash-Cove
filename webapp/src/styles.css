@@ -776,6 +776,10 @@ a {
   align-items: center;
 }
 
+.region-select {
+  width: 118px;
+}
+
 .course-select {
   min-width: 280px;
 }
@@ -955,7 +959,11 @@ a {
 }
 
 @media (max-width: 720px) {
-  .course-select {
+  .region-select {
+  width: 118px;
+}
+
+.course-select {
     min-width: 0;
     width: 100%;
   }
@@ -1508,6 +1516,22 @@ a {
 
 .setup-profile-card {
   margin-bottom: 16px;
+}
+
+.setup-profile-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.setup-profile-row .ant-input {
+  flex: 1 1 200px;
+  min-width: 160px;
+}
+
+.setup-profile-row .ant-btn {
+  flex: 0 0 auto;
 }
 
 .setup-note {

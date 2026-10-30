@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import CoveLoader from "../components/CoveLoader";
 import { fetchMoodleContent, fetchMoodleCourses, syncMoodleContent } from "../data/repository";
 import type { MoodleContentItem, MoodleCourse } from "../types";
+import { REGION_LABELS, REGION_OPTIONS, courseMatchesRegion, defaultRegionForCourses, loadRegion, saveRegion, textMatchesRegion, type CampusRegion } from "../lib/region";
 
 const MODULE_LABELS: Record<string, string> = {
   resource: "资料",
@@ -53,6 +54,7 @@ export default function MaterialsPage() {
   const { message } = AntApp.useApp();
   const [courses, setCourses] = useState<MoodleCourse[]>([]);
   const [courseId, setCourseId] = useState<number | null>(null);
+  const [region, setRegion] = useState<CampusRegion>(() => loadRegion() ?? "malaysia");
   const [items, setItems] = useState<MoodleContentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -69,12 +71,16 @@ export default function MaterialsPage() {
       .then((next) => {
         if (!active) return;
         setCourses(next);
+        const effectiveRegion = loadRegion() ?? defaultRegionForCourses(next);
+        setRegion(effectiveRegion);
+        saveRegion(effectiveRegion);
+        const visible = next.filter((course) => courseMatchesRegion(course, effectiveRegion));
         const preferred =
-          next.find((course) => /FIT1047/i.test(course.shortname)) ??
-          next.find((course) => /FIT1045/i.test(course.shortname)) ??
-          next.find((course) => /MPU3312/i.test(course.shortname)) ??
-          next.find((course) => /ETW2001/i.test(course.shortname)) ??
-          next[0];
+          visible.find((course) => /FIT1047/i.test(course.shortname)) ??
+          visible.find((course) => /FIT1045/i.test(course.shortname)) ??
+          visible.find((course) => /MPU3312/i.test(course.shortname)) ??
+          visible.find((course) => /ETW2001/i.test(course.shortname)) ??
+          visible[0];
         if (preferred) setCourseId(preferred.id);
       })
       .catch((cause) => {
@@ -124,17 +130,35 @@ export default function MaterialsPage() {
     }
   };
 
+  const visibleCourses = useMemo(
+    () => courses.filter((course) => courseMatchesRegion(course, region)),
+    [courses, region],
+  );
+
+  const selectRegion = (next: CampusRegion) => {
+    setRegion(next);
+    saveRegion(next);
+    setSelected([]);
+    const visible = courses.filter((course) => courseMatchesRegion(course, next));
+    setCourseId(visible[0]?.id ?? null);
+  };
+
   const sectionOptions = useMemo(
     () =>
-      [...new Map(items.map((item) => [item.sectionNumber, item.sectionTitle])).entries()]
+      [...new Map(
+        items
+          .filter((item) => textMatchesRegion(`${item.sectionTitle} ${item.title}`, region))
+          .map((item) => [item.sectionNumber, item.sectionTitle]),
+      ).entries()]
         .sort(([a], [b]) => a - b)
         .map(([value, label]) => ({ value: String(value), label })),
-    [items],
+    [items, region],
   );
 
   const filteredItems = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return items.filter((item) => {
+      if (!textMatchesRegion(`${item.sectionTitle} ${item.title}`, region)) return false;
       if (typeFilter === "forum") {
         if (item.module !== "forum") return false;
       } else if (typeFilter !== "all" && categoryOf(item) !== typeFilter) {
@@ -147,7 +171,7 @@ export default function MaterialsPage() {
         .toLowerCase()
         .includes(needle);
     });
-  }, [items, query, sectionFilter, typeFilter]);
+  }, [items, query, region, sectionFilter, typeFilter]);
 
   const announcements = useMemo(
     () =>
@@ -175,7 +199,7 @@ export default function MaterialsPage() {
 
   useEffect(() => {
     setSelected([]);
-  }, [courseId, query, sectionFilter, typeFilter]);
+  }, [courseId, query, region, sectionFilter, typeFilter]);
 
   const toggleAll = (checked: boolean) => {
     setSelected(checked ? downloadableItems.map((item) => item.id) : []);
@@ -186,16 +210,21 @@ export default function MaterialsPage() {
   };
 
   const downloadSelected = async () => {
-    const urls = items
-      .filter((item) => isDownloadable(item) && selected.includes(item.id))
-      .map((item) => item.url);
-    if (urls.length === 0) return;
+    const chosen = items.filter((item) => isDownloadable(item) && selected.includes(item.id));
+    if (chosen.length === 0) return;
+    const currentCourse = courses.find((course) => course.id === courseId);
+    const currentSection = sectionFilter === "all" ? null : sectionOptions.find((option) => option.value === sectionFilter);
+    const archiveBase = `${currentCourse?.shortname ?? "Moodle"}${currentSection ? `-${currentSection.label}` : "-Materials"}`;
+    const archiveName = `${archiveBase}.zip`;
     setDownloading(true);
     try {
       const response = await fetch("/api/moodle/download-batch", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ urls }),
+        body: JSON.stringify({
+          archiveName,
+          items: chosen.map((item) => ({ url: item.url, name: item.title })),
+        }),
       });
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
@@ -205,12 +234,12 @@ export default function MaterialsPage() {
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = href;
-      anchor.download = "cove-moodle-materials.zip";
+      anchor.download = archiveName;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(href), 1000);
-      const count = response.headers.get("x-cove-batch-count") ?? String(urls.length);
+      const count = response.headers.get("x-cove-batch-count") ?? String(chosen.length);
       const skipped = response.headers.get("x-cove-batch-skipped");
       message.success(`已打包 ${count} 个资料${skipped && skipped !== "0" ? `，跳过 ${skipped} 个` : ""}`);
     } catch (cause) {
@@ -246,10 +275,17 @@ export default function MaterialsPage() {
         </div>
         <Space wrap className="materials-actions">
           <Select
+            className="region-select"
+            value={region}
+            options={REGION_OPTIONS}
+            onChange={selectRegion}
+            aria-label="选择地区"
+          />
+          <Select
             className="course-select"
             value={courseId ?? undefined}
-            placeholder="选择课程"
-            options={courses.map((course) => ({ value: course.id, label: course.shortname || course.fullname }))}
+            placeholder={`选择${REGION_LABELS[region]}课程`}
+            options={visibleCourses.map((course) => ({ value: course.id, label: course.shortname || course.fullname }))}
             onChange={setCourseId}
             showSearch
             optionFilterProp="label"
@@ -423,7 +459,7 @@ export default function MaterialsPage() {
                               {isDownloadable(item) ? (
                                 <a
                                   className="material-download"
-                                  href={`/api/moodle/download?url=${encodeURIComponent(item.url)}`}
+                                  href={`/api/moodle/download?url=${encodeURIComponent(item.url)}&name=${encodeURIComponent(item.title)}`}
                                   download
                                   onClick={(event) => event.stopPropagation()}
                                 >

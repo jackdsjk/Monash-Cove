@@ -12,7 +12,7 @@ import { syncAllMoodleContent } from "./sync/moodle-content.js";
 import { FullSyncJobs } from "./sync/jobs.js";
 import { MoodleClient } from "./sources/moodle.js";
 import { syncMoodleContent } from "./sync/moodle-content.js";
-import { downloadMoodleResource, MoodleDownloadError } from "./moodle-download.js";
+import { downloadMoodleResource, MoodleDownloadError, safeDownloadName } from "./moodle-download.js";
 import type { ApiError, Source } from "./domain.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
 
@@ -233,14 +233,14 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
   });
 
-  app.get<{ Querystring: { url?: string } }>("/api/moodle/download", async (request, reply) => {
+  app.get<{ Querystring: { url?: string; name?: string } }>("/api/moodle/download", async (request, reply) => {
     const targetValue = request.query.url;
     if (!targetValue) return reply.code(400).send({ error: { code: "invalid_url", message: "url is required.", retryable: false } } satisfies ApiError);
     const raw = await secrets.get("moodle-credentials");
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const file = await downloadMoodleResource(credentials, targetValue, options.fetcher ?? fetch);
+      const file = await downloadMoodleResource(credentials, targetValue, request.query.name, options.fetcher ?? fetch);
       reply.header("content-type", file.contentType);
       reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
       return reply.send(file.buffer);
@@ -252,9 +252,18 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
   });
 
-  app.post<{ Body: { urls?: string[] } }>("/api/moodle/download-batch", async (request, reply) => {
-    const urls = [...new Set((request.body?.urls ?? []).filter((value): value is string => typeof value === "string"))];
-    if (urls.length === 0 || urls.length > 100) {
+  app.post<{ Body: { urls?: string[]; items?: Array<{ url?: string; name?: string }>; archiveName?: string } }>("/api/moodle/download-batch", async (request, reply) => {
+    const rawItems: Array<{ url?: string; name?: string }> = request.body?.items?.length
+      ? request.body.items
+      : (request.body?.urls ?? []).map((url) => ({ url }));
+    const seenUrls = new Set<string>();
+    const items = rawItems
+      .filter((item): item is { url: string; name?: string } => {
+        if (typeof item.url !== "string" || !item.url || seenUrls.has(item.url)) return false;
+        seenUrls.add(item.url);
+        return true;
+      });
+    if (items.length === 0 || items.length > 100) {
       return reply.code(400).send({ error: { code: "invalid_urls", message: "Select between 1 and 100 resources.", retryable: false } } satisfies ApiError);
     }
     const raw = await secrets.get("moodle-credentials");
@@ -264,15 +273,23 @@ export function buildApp(options: AppOptions): FastifyInstance {
     let added = 0;
     let skipped = 0;
     let totalBytes = 0;
-    for (const url of urls) {
+    const usedNames = new Set<string>();
+    for (const item of items) {
       try {
-        const file = await downloadMoodleResource(credentials, url, options.fetcher ?? fetch);
+        const file = await downloadMoodleResource(credentials, item.url, item.name, options.fetcher ?? fetch);
         if (totalBytes + file.buffer.length > 100 * 1024 * 1024) {
           skipped += 1;
           continue;
         }
-        const safeName = file.fileName.replace(/[\\/:*?"<>|]/g, "_");
-        zip.file(`${String(added + 1).padStart(2, "0")}-${safeName}`, file.buffer);
+        let name = file.fileName;
+        let suffix = 2;
+        while (usedNames.has(name.toLowerCase())) {
+          const dot = name.lastIndexOf(".");
+          name = dot > 0 ? `${file.fileName.slice(0, dot)} (${suffix})${file.fileName.slice(dot)}` : `${file.fileName} (${suffix})`;
+          suffix += 1;
+        }
+        usedNames.add(name.toLowerCase());
+        zip.file(name, file.buffer);
         totalBytes += file.buffer.length;
         added += 1;
       } catch {
@@ -284,7 +301,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
     const archive = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
     reply.header("content-type", "application/zip");
-    reply.header("content-disposition", 'attachment; filename="cove-moodle-materials.zip"');
+    const requestedArchive = safeDownloadName(request.body?.archiveName ?? "moodle-materials") || "moodle-materials";
+    const archiveName = requestedArchive.toLowerCase().endsWith(".zip") ? requestedArchive : `${requestedArchive}.zip`;
+    reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(archiveName)}`);
     reply.header("x-cove-batch-count", String(added));
     reply.header("x-cove-batch-skipped", String(skipped));
     return reply.send(archive);

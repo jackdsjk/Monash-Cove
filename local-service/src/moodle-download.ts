@@ -24,9 +24,48 @@ export interface DownloadedFile {
 
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
+const MIME_EXTENSIONS: Record<string, string> = {
+  "application/pdf": ".pdf",
+  "application/zip": ".zip",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+  "application/msword": ".doc",
+  "application/vnd.ms-powerpoint": ".ppt",
+  "application/vnd.ms-excel": ".xls",
+  "text/plain": ".txt",
+  "text/html": ".html",
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "application/json": ".json",
+};
+
+export function safeDownloadName(value: string) {
+  return value
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\.+/, "")
+    .slice(0, 180);
+}
+
+export function fileNameForDownload(actualName: string, preferredName?: string, contentType?: string) {
+  const actual = safeDownloadName(decodeURIComponent(actualName));
+  const title = preferredName ? safeDownloadName(preferredName) : actual;
+  if (!title) return "moodle-file";
+  const actualExtension = /\.[A-Za-z0-9]{1,8}$/.exec(actual)?.[0] ?? "";
+  const titleHasExtension = /\.[A-Za-z0-9]{1,8}$/.test(title);
+  if (titleHasExtension) return title;
+  const mimeExtension = contentType ? MIME_EXTENSIONS[contentType.split(";")[0].trim()] ?? "" : "";
+  const usefulActualExtension = /\.(php|aspx?|cgi)$/i.test(actualExtension) ? "" : actualExtension;
+  return `${title}${usefulActualExtension || mimeExtension}`;
+}
+
 export async function downloadMoodleResource(
   credentials: MoodleCredentials,
   resourceUrl: string,
+  preferredName?: string,
   fetcher: typeof fetch = fetch,
 ): Promise<DownloadedFile> {
   const base = new URL(credentials.baseUrl);
@@ -77,9 +116,11 @@ export async function downloadMoodleResource(
   if (!file.ok) throw new MoodleDownloadError(502, "download_failed", `Moodle file returned HTTP ${file.status}.`);
   const size = Number(file.headers.get("content-length") ?? 0);
   if (size > MAX_FILE_BYTES) throw new MoodleDownloadError(413, "file_too_large", "File exceeds the 50 MB local limit.");
+  const contentType = file.headers.get("content-type") ?? "application/octet-stream";
+  const actualName = fileTarget.pathname.split("/").pop() ?? "moodle-file";
   return {
     buffer: Buffer.from(await file.arrayBuffer()),
-    fileName: decodeURIComponent(fileTarget.pathname.split("/").pop() ?? "moodle-file"),
-    contentType: file.headers.get("content-type") ?? "application/octet-stream",
+    fileName: fileNameForDownload(actualName, preferredName, contentType),
+    contentType,
   };
 }

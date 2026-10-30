@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Alert, App as AntApp, Button, Card, Col, Input, Progress, Row, Space, Tag, Typography } from "antd";
+import { Alert, App as AntApp, Button, Card, Col, Input, Progress, Row, Select, Space, Tag, Typography } from "antd";
 import { CheckCircleOutlined, GoogleOutlined, LockOutlined, LoginOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { fetchMoodleAssistant, fetchSetupStatus, fetchSyncStatus, startFullSync, startMoodleAssistant, cancelMoodleAssistant } from "../data/repository";
 import type { FullSyncJob, MoodleAssistantState, SetupStatus } from "../types";
+import { REGION_OPTIONS, loadRegion, saveRegion, type CampusRegion } from "../lib/region";
 
 const EMPTY_SETUP: SetupStatus = {
   gmailConnected: false,
@@ -25,6 +26,7 @@ export default function SetupPage() {
   const [job, setJob] = useState<FullSyncJob | null>(null);
   const [startingFull, setStartingFull] = useState(false);
   const [profileName, setProfileName] = useState(() => window.localStorage.getItem("cove-profile-name") ?? "");
+  const [region, setRegion] = useState<CampusRegion>(() => loadRegion() ?? "malaysia");
 
   const refresh = async () => {
     try {
@@ -131,7 +133,8 @@ export default function SetupPage() {
 
   const saveProfile = () => {
     window.localStorage.setItem("cove-profile-name", profileName.trim());
-    message.success("本地显示名已保存");
+    saveRegion(region);
+    message.success("本地称呼和地区已保存");
   };
 
   if (loading) return <div className="setup-loading">正在检查首次设置…</div>;
@@ -170,15 +173,22 @@ export default function SetupPage() {
       ) : null}
 
       <Card className="setup-profile-card" title="本地称呼（可选）">
-        <Space.Compact style={{ width: "100%" }}>
+        <div className="setup-profile-row">
           <Input
             value={profileName}
             onChange={(event) => setProfileName(event.target.value)}
             placeholder="Cove 在本机怎么称呼你"
             maxLength={40}
           />
+          <Select
+            value={region}
+            onChange={(value) => { setRegion(value); saveRegion(value); }}
+            options={REGION_OPTIONS}
+            style={{ width: 132 }}
+            aria-label="所在地区"
+          />
           <Button onClick={saveProfile}>保存</Button>
-        </Space.Compact>
+        </div>
         <Typography.Paragraph type="secondary" className="setup-note">
           只保存在浏览器 localStorage，用于界面显示；不是登录凭据。
         </Typography.Paragraph>

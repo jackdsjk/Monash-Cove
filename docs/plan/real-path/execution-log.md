@@ -28,3 +28,4 @@
 | 2026-10-30 | Full sync | `POST /api/sync/full`; status polling | Gmail 678/678；Ed 1586 threads；Moodle 10/10 courses, 535 资料；`full_sync_completed_at` 已写入；Gmail 全量按 100ms 节流避免 403 | 全量约 8–10 分钟 |
 | 2026-10-30 | UI loader | browser; Playwright delayed API route | 简报/倒计时/每周资料/数据源页面使用 Cove 动态 loader；延迟 API 截图验证 | 加载结束自动切回内容 |
 | 2026-10-30 | Setup wizard | clean temp service 4318; browser | 无凭据时 `/` 自动跳 `/setup`；Gmail/Ed/Moodle 连接卡；Moodle 助手 start/cancel；全量按钮 | 真实 Moodle 登录需用户手动完成 |
+| 2026-10-30 | Region + naming | Malaysia/Indonesia campus labels; download headers; ZIP archive | `[Indonesia Campus]` hidden under Malaysia; individual file `FIT1047 Textbook (pdf version).pdf`; ZIP `FIT1047_S2_2026-Week-03.zip`; tests 32 | 校区判定基于课程名与 section/title 标记；未标注内容按 shared |
