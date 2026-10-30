@@ -15,8 +15,8 @@ Full hashes:
 bf6ce2eb21783749bf0ab8718ad1da67f2dbeade50f90bd7f3f15ad1cb9f5294  desktop/release/Cove-0.1.0-arm64.dmg
 ab36ae6bc5bbb2f281760807a197fc25c153104e4c5ca31030c8e9c47ce3b09f  desktop/release/Cove-0.1.0-x64.zip
 03378ea4d02f2bfa689e422a34e79d3c8a23ee5a7d60d61e84d58af9f85b8b9d  desktop/release/Cove-0.1.0-win-x64.zip
-0d97c97a4213cf51f8825106a9fdc4c88dfcf965066e304637e3e3908ddc2cf8  desktop/release/CoveLauncher-0.1.0-arm64.dmg
-7335fd64a03b9a6ec7b0dace08cab8ee0e6e3af9a67663429ccd5bc3530403f6  desktop/release/CoveLauncher-0.1.0-arm64.zip
+19a225e943ebb33c5a9b32a84b1105995e63e2d42a972369ec3eb86fb3d1019e  desktop/release/CoveLauncher-0.1.0-arm64.dmg
+de4a286f99f7d0507b34cc6ae8b2f7011ec9f8e7dc7cebad97106c38123a44f5  desktop/release/CoveLauncher-0.1.0-arm64.zip
 ```
 
 ## Quick launcher

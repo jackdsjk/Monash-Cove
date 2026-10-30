@@ -37,6 +37,10 @@ mkdirSync(output, { recursive: true });
 const script = path.join(cache, "launcher.applescript");
 writeFileSync(script, `on run
   set appPath to POSIX path of (path to me)
+  if appPath starts with "/Volumes/" then
+    display dialog "请先把 CoveLauncher 拖进 Applications，再推出 DMG。不要在 DMG 里直接运行。" buttons {"好"} default button 1 with title "Cove Launcher"
+    return
+  end if
   set nodePath to appPath & "Contents/Resources/runtime/node"
   set servicePath to appPath & "Contents/Resources/local-service/dist/index.js"
   set webappPath to appPath & "Contents/Resources/webapp"
@@ -44,9 +48,15 @@ writeFileSync(script, `on run
   set dataPath to homePath & "Library/Application Support/CoveLauncher"
   set logPath to homePath & "Library/Logs/CoveLauncher.log"
   do shell script "mkdir -p " & quoted form of dataPath & " " & quoted form of (POSIX path of (path to home folder)) & "Library/Logs"
-  do shell script "COVE_PORT=4317 COVE_DATA_DIR=" & quoted form of dataPath & " COVE_STATIC_DIR=" & quoted form of webappPath & " COVE_DESKTOP=1 " & quoted form of nodePath & " " & quoted form of servicePath & " >> " & quoted form of logPath & " 2>&1 &"
-  delay 2
-  open location "http://127.0.0.1:4317"
+  try
+    do shell script "/usr/bin/curl -fsS --max-time 2 http://127.0.0.1:4317/api/health >/dev/null 2>&1 || true"
+    do shell script "COVE_PORT=4317 COVE_DATA_DIR=" & quoted form of dataPath & " COVE_STATIC_DIR=" & quoted form of webappPath & " COVE_DESKTOP=1 " & quoted form of nodePath & " " & quoted form of servicePath & " >> " & quoted form of logPath & " 2>&1 &"
+    delay 2
+    do shell script "/usr/bin/curl -fsS --max-time 5 http://127.0.0.1:4317/api/health >/dev/null"
+    open location "http://127.0.0.1:4317"
+  on error errMsg number errNum
+    display dialog "Cove 启动失败：" & return & errMsg & return & return & "日志：" & logPath buttons {"好"} default button 1 with title "Cove Launcher"
+  end try
 end run
 `);
 execFileSync("osacompile", ["-o", app, script], { stdio: "inherit" });
