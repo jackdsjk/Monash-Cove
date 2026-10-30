@@ -31,6 +31,22 @@ export interface FullSyncJob {
   sources: Record<Source, SyncSourceProgress>;
 }
 
+export interface RuntimeCheck {
+  id: string;
+  label: string;
+  status: "ok" | "warn" | "fail";
+  detail: string;
+}
+
+export interface RuntimeStatus {
+  platform: string;
+  arch: string;
+  node: string;
+  desktop: boolean;
+  dataDir: string;
+  checks: RuntimeCheck[];
+}
+
 export interface SetupStatus {
   gmailConnected: boolean;
   edConnected: boolean;

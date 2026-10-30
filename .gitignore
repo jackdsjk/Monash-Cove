@@ -17,3 +17,7 @@ node_modules/
 .env
 .env.*
 !.env.example
+desktop/release/
+desktop/resources/
+desktop/node_modules/
+desktop/release/

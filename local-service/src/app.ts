@@ -1,6 +1,8 @@
 import JSZip from "jszip";
 import Fastify, { type FastifyInstance } from "fastify";
 import staticPlugin from "@fastify/static";
+import os from "node:os";
+import path from "node:path";
 import { z } from "zod";
 import { createDatabase, type CoveDatabase } from "./db.js";
 import { GoogleOAuth, OAuthError, type GoogleOAuthConfig } from "./oauth/google.js";
@@ -14,6 +16,7 @@ import { MoodleClient } from "./sources/moodle.js";
 import { syncMoodleContent } from "./sync/moodle-content.js";
 import { downloadMoodleResource, MoodleDownloadError, safeDownloadName } from "./moodle-download.js";
 import type { ApiError, Source } from "./domain.js";
+import { getRuntimeStatus } from "./runtime.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
 
 const sourceSchema = z.enum(["gmail", "ed", "moodle"]);
@@ -315,6 +318,13 @@ export function buildApp(options: AppOptions): FastifyInstance {
       return reply.code(400).send({ error: { code: "invalid_course", message: "courseId is required.", retryable: false } } satisfies ApiError);
     }
     return { courseId, items: db.listMoodleContent(courseId) };
+  });
+
+  app.get("/api/runtime/status", async () => {
+    return getRuntimeStatus({
+      dataDir: process.env.COVE_DATA_DIR ?? path.join(os.homedir(), "Library", "Application Support", "Cove"),
+      oauthConfigured: Boolean(options.google),
+    });
   });
 
   app.get("/api/setup/status", async () => {

@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -23,6 +26,46 @@ export class MemorySecretStore implements SecretStore {
 
   async delete(key: string) {
     this.values.delete(key);
+  }
+}
+
+export class FileSecretStore implements SecretStore {
+  private readonly file: string;
+
+  constructor(file = process.env.COVE_SECRET_FILE ?? path.join(os.homedir(), ".cove", "secrets.json")) {
+    this.file = file;
+  }
+
+  private async read() {
+    try {
+      return JSON.parse(await readFile(this.file, "utf8")) as Record<string, string>;
+    } catch {
+      return {};
+    }
+  }
+
+  private async write(values: Record<string, string>) {
+    await mkdir(path.dirname(this.file), { recursive: true });
+    const temporary = `${this.file}.tmp`;
+    await writeFile(temporary, JSON.stringify(values), { mode: 0o600 });
+    await rename(temporary, this.file);
+    await chmod(this.file, 0o600);
+  }
+
+  async get(key: string) {
+    return (await this.read())[key] ?? null;
+  }
+
+  async set(key: string, value: string) {
+    const values = await this.read();
+    values[key] = value;
+    await this.write(values);
+  }
+
+  async delete(key: string) {
+    const values = await this.read();
+    delete values[key];
+    await this.write(values);
   }
 }
 
@@ -52,5 +95,5 @@ export class MacKeychainStore implements SecretStore {
 export function defaultSecretStore(): SecretStore {
   if (process.env.COVE_SECRET_STORE === "memory") return new MemorySecretStore();
   if (process.platform === "darwin") return new MacKeychainStore();
-  return new MemorySecretStore();
+  return new FileSecretStore();
 }

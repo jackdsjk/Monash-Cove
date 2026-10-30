@@ -1510,6 +1510,36 @@ a {
   margin-bottom: 16px;
 }
 
+.runtime-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.runtime-checks {
+  display: grid;
+  gap: 8px;
+}
+
+.runtime-row {
+  align-items: start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 10px 100px minmax(0, 1fr);
+}
+
+.runtime-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.runtime-detail {
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .settings-profile-row {
   align-items: center;
   display: flex;

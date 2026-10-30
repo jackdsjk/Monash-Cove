@@ -13,6 +13,7 @@ try {
 const port = Number(process.env.COVE_PORT ?? 4317);
 const dataDir = process.env.COVE_DATA_DIR ?? path.join(os.homedir(), "Library", "Application Support", "Cove");
 mkdirSync(dataDir, { recursive: true });
+process.env.COVE_SECRET_FILE ??= path.join(dataDir, "secrets.json");
 
 const app = buildApp({
   dbPath: process.env.COVE_DB_PATH ?? path.join(dataDir, "cove.sqlite"),

@@ -1,9 +1,10 @@
 import { DeleteOutlined } from "@ant-design/icons";
-import { Alert, App as AntApp, Button, Card, Descriptions, Input, Popconfirm, Select, Space, Tag, Typography } from "antd";
+import { Alert, App as AntApp, Badge, Button, Card, Descriptions, Input, Popconfirm, Select, Space, Tag, Typography } from "antd";
 import { useEffect, useState } from "react";
 import FullSyncCard from "../components/FullSyncCard";
-import { fetchSources } from "../data/repository";
+import { fetchRuntimeStatus, fetchSources } from "../data/repository";
 import { useDemoStore } from "../state/DemoStateContext";
+import type { RuntimeStatus } from "../types";
 import { REGION_OPTIONS, loadRegion, saveRegion, type CampusRegion } from "../lib/region";
 
 export default function SettingsPage() {
@@ -12,12 +13,18 @@ export default function SettingsPage() {
   const [itemsCount, setItemsCount] = useState(0);
   const [profileName, setProfileName] = useState(() => window.localStorage.getItem("cove-profile-name") ?? "");
   const [region, setRegion] = useState<CampusRegion>(() => loadRegion() ?? "malaysia");
+  const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
 
   useEffect(() => {
     let active = true;
     void fetchSources()
       .then((sources) => {
         if (active) setItemsCount(sources.reduce((total, source) => total + source.itemCount, 0));
+      })
+      .catch(() => undefined);
+    void fetchRuntimeStatus()
+      .then((status) => {
+        if (active) setRuntime(status);
       })
       .catch(() => undefined);
     return () => {
@@ -74,6 +81,32 @@ export default function SettingsPage() {
         <Typography.Paragraph type="secondary" className="settings-note">
           地区用于过滤 Moodle 课程和资料；只保存在本机浏览器。
         </Typography.Paragraph>
+      </Card>
+
+      <Card className="settings-card" title="运行环境">
+        {runtime ? (
+          <>
+            <div className="runtime-meta">
+              <Tag>{runtime.platform} / {runtime.arch}</Tag>
+              <Tag>Node {runtime.node}</Tag>
+              {runtime.desktop ? <Tag color="green">桌面 App</Tag> : <Tag>浏览器模式</Tag>}
+            </div>
+            <div className="runtime-checks">
+              {runtime.checks.map((check) => (
+                <div className="runtime-row" key={check.id}>
+                  <Badge status={check.status === "ok" ? "success" : check.status === "warn" ? "warning" : "error"} />
+                  <span className="runtime-label">{check.label}</span>
+                  <span className="runtime-detail">{check.detail}</span>
+                </div>
+              ))}
+            </div>
+            <Typography.Text type="secondary" className="settings-note">
+              数据目录：{runtime.dataDir}
+            </Typography.Text>
+          </>
+        ) : (
+          <Typography.Text type="secondary">正在检查运行环境…</Typography.Text>
+        )}
       </Card>
 
       <FullSyncCard />

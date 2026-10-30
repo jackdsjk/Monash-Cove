@@ -158,6 +158,10 @@ Marks items read and stores `last_checked_at`. Response `{ "ok": true, "lastChec
 
 Returns the updated item. `404` when missing; values are persisted in SQLite.
 
+## GET /api/runtime/status
+
+Returns platform/arch, Node version, data directory, and checks for Node, Google Chrome, Google OAuth, and credential storage.
+
 ## GET /api/setup/status
 
 Returns `gmailConnected`, `edConnected`, `moodleConnected`, `fullSyncCompleted`, `setupRequired`.

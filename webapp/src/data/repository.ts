@@ -1,4 +1,4 @@
-import type { BriefItem, MoodleAssistantState, MoodleContentItem, MoodleCourse, SetupStatus, SourceStatus, SyncStatus } from "../types";
+import type { BriefItem, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus } from "../types";
 
 export interface BriefData {
   items: BriefItem[];
@@ -26,6 +26,10 @@ export async function fetchBrief(): Promise<BriefData> {
 export async function fetchSources(): Promise<SourceStatus[]> {
   const data = await getJson<{ sources: SourceStatus[] }>("/sources");
   return data.sources;
+}
+
+export async function fetchRuntimeStatus(): Promise<RuntimeStatus> {
+  return getJson<RuntimeStatus>("/runtime/status");
 }
 
 export async function fetchSetupStatus(): Promise<SetupStatus> {
