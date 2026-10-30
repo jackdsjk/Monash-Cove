@@ -10,6 +10,10 @@ Cove 是一个本地优先的校园信息分诊应用：把 Gmail、Ed 和 Moodl
 - `docs/`：产品方向、设计、执行计划和 UI 审计；
 - `demo/`：匿名静态原型。
 
+## 桌面安装
+
+公开版本下载与安装说明：[docs/desktop-install.md](docs/desktop-install.md)。
+
 ## 桌面构建
 
 参见 [desktop/README.md](desktop/README.md)。构建结果与阻塞项见 [desktop-build-2026-10-30.md](docs/desktop-build-2026-10-30.md)。
