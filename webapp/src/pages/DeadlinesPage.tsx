@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { App as AntApp, Empty, Skeleton, Tag, Typography } from "antd";
+import { App as AntApp, Empty, Tag, Typography } from "antd";
 import { ClockCircleOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import DeadlineCountdown from "../components/DeadlineCountdown";
+import CoveLoader from "../components/CoveLoader";
 import { fetchBrief } from "../data/repository";
 import { useDemoStore } from "../state/DemoStateContext";
 import type { BriefItem } from "../types";
@@ -39,12 +40,7 @@ export default function DeadlinesPage() {
   );
 
   if (loading) {
-    return (
-      <div className="brief-skeleton">
-        <Skeleton.Input active className="skeleton-title" />
-        <Skeleton active paragraph={{ rows: 6 }} />
-      </div>
-    );
+    return <CoveLoader label="正在读取截止时间" />;
   }
 
   return (

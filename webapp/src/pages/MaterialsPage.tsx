@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, App as AntApp, Button, Card, Checkbox, Col, Empty, Input, Row, Segmented, Select, Skeleton, Space, Tag, Typography } from "antd";
+import { Alert, App as AntApp, Button, Card, Checkbox, Col, Empty, Input, Row, Segmented, Select, Space, Tag, Typography } from "antd";
 import { BookOutlined, DownloadOutlined, FileTextOutlined, LinkOutlined, NotificationOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { Link } from "react-router-dom";
+import CoveLoader from "../components/CoveLoader";
 import { fetchMoodleContent, fetchMoodleCourses, syncMoodleContent } from "../data/repository";
 import type { MoodleContentItem, MoodleCourse } from "../types";
 
@@ -225,13 +226,8 @@ export default function MaterialsPage() {
     setSectionFilter("all");
   };
 
-  if (loading && courses.length === 0) {
-    return (
-      <div className="brief-skeleton">
-        <Skeleton.Input active className="skeleton-title" />
-        <Skeleton active paragraph={{ rows: 6 }} />
-      </div>
-    );
+  if (loading) {
+    return <CoveLoader label="正在整理每周资料" />;
   }
 
   return (

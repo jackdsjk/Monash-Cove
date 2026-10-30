@@ -1,6 +1,7 @@
 import { ApiOutlined, CheckCircleOutlined } from "@ant-design/icons";
 import { Alert, App as AntApp, Badge, Button, Card, Col, Descriptions, Form, Input, Modal, Progress, Row, Select, Space, Tag, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
+import CoveLoader from "../components/CoveLoader";
 import { fetchSources, fetchSyncStatus, startFullSync } from "../data/repository";
 import { SOURCE_LABELS } from "../lib/triage";
 import type { Source, SourceStatus, SyncStatus } from "../types";
@@ -17,6 +18,7 @@ export default function SourcesPage() {
   const [connectSource, setConnectSource] = useState<Source | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [startingFull, setStartingFull] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [form] = Form.useForm();
 
   const loadSyncStatus = useCallback(async () => {
@@ -36,8 +38,13 @@ export default function SourcesPage() {
   }, []);
 
   useEffect(() => {
-    void loadStatuses();
-    void loadSyncStatus();
+    let active = true;
+    void Promise.all([loadStatuses(), loadSyncStatus()]).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => {
+      active = false;
+    };
   }, [loadStatuses, loadSyncStatus]);
 
   useEffect(() => {
@@ -110,6 +117,10 @@ export default function SourcesPage() {
     }
     window.location.href = body.url;
   };
+
+  if (loading) {
+    return <CoveLoader label="正在读取本地来源" />;
+  }
 
   return (
     <>

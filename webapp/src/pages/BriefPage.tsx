@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { HistoryOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
-import { Alert, App as AntApp, Button, Card, Col, Collapse, Empty, Input, Row, Segmented, Select, Skeleton, Space, Statistic, Switch, Tag, Typography } from "antd";
+import { Alert, App as AntApp, Button, Card, Col, Collapse, Empty, Input, Row, Segmented, Select, Space, Statistic, Switch, Tag, Typography } from "antd";
 import { fetchBrief, fetchSyncStatus, startFullSync } from "../data/repository";
 import ItemCard from "../components/ItemCard";
 import ItemDrawer from "../components/ItemDrawer";
 import FeedbackModal from "../components/FeedbackModal";
+import CoveLoader from "../components/CoveLoader";
 import { useDemoStore } from "../state/DemoStateContext";
 import { filterItems, formatWindow, groupBySection, summarize } from "../lib/triage";
 import type { BriefItem, Feedback, Source } from "../types";
@@ -214,7 +215,7 @@ export default function BriefPage() {
   };
 
   if (loading) {
-    return <BriefSkeleton />;
+    return <CoveLoader label="正在整理简报" />;
   }
 
   return (
@@ -486,14 +487,5 @@ export default function BriefPage() {
         onSubmit={handleFeedback}
       />
     </>
-  );
-}
-
-function BriefSkeleton() {
-  return (
-    <div className="brief-skeleton">
-      <Skeleton.Input active className="skeleton-title" />
-      <Skeleton active paragraph={{ rows: 6 }} />
-    </div>
   );
 }
