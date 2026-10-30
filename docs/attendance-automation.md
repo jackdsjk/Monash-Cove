@@ -221,3 +221,27 @@ https://github.com/Waldo0926/monash-attendance-reminder
 - 默认不点击 Submit；
 - 没有 `Entry.aspx`/active input 时返回 `inactive`，不伪造请求；
 - 真正的 active 窗口仍需下一次实际签到验证。
+
+
+## 2026-10-31 修复：其他课程也能显示
+
+原因：FIT1058/FIT1045 的 attendance code 是 **Moodle forum post 图片**，旧 OCR 只扫 Moodle `label`，因此只有文本 code 的 FIT1047 能出现。
+
+修复：
+
+- OCR 扫描 Gmail attendance 邮件正文里的 Moodle `mod/forum/discuss.php` URL；
+- 抓取论坛 post 的 `mod_forum/post` 图片；
+- 用同一套 tesseract OCR 解析；
+- OCR 并发执行，refresh 约 20 秒；
+- 根据已选班次过滤。
+
+现在一次 refresh 可得到：
+
+```text
+FIT1047
+FIT1058
+FIT1045
+ETW2001
+```
+
+并只显示已选班次。

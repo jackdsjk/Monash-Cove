@@ -226,7 +226,35 @@ export function buildApp(options: AppOptions): FastifyInstance {
       if (raw) {
         try {
           const credentials = moodleCredentials.parse(JSON.parse(raw));
-          attendanceOcrCache = { at: Date.now(), codes: await scanMoodleAttendanceImages(credentials, moodleRows) };
+          // Attendance announcements often arrive as Gmail copies of a Moodle forum
+          // post whose code is an image. Feed those forum URLs into the same OCR path.
+          const forumRows = db.listAttendanceItems()
+            .filter((row) => row.source === "gmail")
+            .flatMap((row) => {
+              const forumUrl = /https:\/\/learning\.monash\.edu\/mod\/forum\/discuss\.php\?d=\d+/.exec(row.text)?.[0];
+              if (!forumUrl) return [];
+              const course = /^(.+?)\s+-\s+Announcements\s+-/i.exec(row.title)?.[1] ?? row.course;
+              return [{
+                id: `gmail-forum:${row.id}`,
+                courseId: "",
+                courseName: course || "Moodle",
+                sectionNumber: 0,
+                sectionTitle: row.title,
+                module: "forum",
+                title: row.title,
+                url: forumUrl,
+                text: row.text,
+                updatedAt: row.publishedAt,
+              }];
+            });
+          const seen = new Set<string>();
+          const ocrRows = [...moodleRows, ...forumRows].filter((row) => {
+            const key = `${row.courseName}:${row.url}:${row.title}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+          attendanceOcrCache = { at: Date.now(), codes: await scanMoodleAttendanceImages(credentials, ocrRows) };
         } catch {
           attendanceOcrCache = { at: Date.now(), codes: [] };
         }
