@@ -1,13 +1,8 @@
-import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
+import { createWorker, type Worker } from "tesseract.js";
 import { parse } from "node-html-parser";
 import type { MoodleContentRow } from "../domain.js";
 import type { AttendanceCode } from "./parser.js";
-
-const execFileAsync = promisify(execFile);
 
 export interface MoodleAttendanceCredentials {
   baseUrl: string;
@@ -58,56 +53,61 @@ export function parseOcrLines(text: string, row: MoodleContentRow, url: string):
   return codes;
 }
 
-async function ocrImage(buffer: Buffer) {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-attendance-ocr-"));
-  try {
-    const file = path.join(dir, "image.png");
-    await writeFile(file, buffer);
-    const { stdout } = await execFileAsync("tesseract", [path.basename(file), "stdout", "--psm", "6"], { cwd: dir, timeout: 20_000 });
-    return stdout;
-  } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
-  }
+async function createOcrWorker() {
+  const langPath = fileURLToPath(new URL("../../node_modules/@tesseract.js-data/eng/4.0.0", import.meta.url));
+  return createWorker("eng", 1, { langPath, logger: () => undefined });
+}
+
+async function ocrImage(buffer: Buffer, worker: Worker) {
+  const result = await worker.recognize(buffer);
+  return result.data.text;
 }
 
 export async function scanMoodleAttendanceImages(
   credentials: MoodleAttendanceCredentials,
   rows: MoodleContentRow[],
 ): Promise<AttendanceCode[]> {
-  if (process.platform === "win32") return [];
   const candidates = rows.filter((row) => /attendance/i.test(`${row.title} ${row.text}`));
-  const results = await mapLimit(candidates, 4, async (row) => {
-    try {
-      const pageResponse = await fetch(row.url, {
-        headers: { cookie: `MoodleSession=${credentials.session}` },
-        signal: AbortSignal.timeout(20_000),
-      });
-      if (!pageResponse.ok) return [];
-      const root = parse(await pageResponse.text());
-      const images = row.module === "label"
-        ? [...root.querySelectorAll("li.activity")]
-            .filter((activity) => /attendance/i.test(activity.getAttribute("data-activityname") ?? activity.text))
-            .flatMap((activity) => activity.querySelectorAll("img"))
-        : [...root.querySelectorAll("img")].filter((image) => /\/mod_forum\/post\//.test(image.getAttribute("src") ?? ""));
-      const imageCodes = await mapLimit(images, 3, async (image) => {
-        const src = image.getAttribute("src");
-        if (!src || !/pluginfile\.php/.test(src)) return [];
-        const imageUrl = new URL(src, row.url).toString();
-        const imageResponse = await fetch(imageUrl, {
+  if (candidates.length === 0) return [];
+  let worker: Worker | null = null;
+  try {
+    worker = await createOcrWorker();
+    const results = await mapLimit(candidates, 4, async (row) => {
+      try {
+        const pageResponse = await fetch(row.url, {
           headers: { cookie: `MoodleSession=${credentials.session}` },
           signal: AbortSignal.timeout(20_000),
         });
-        if (!imageResponse.ok) return [];
-        const text = await ocrImage(Buffer.from(await imageResponse.arrayBuffer()));
-        return parseOcrLines(text, row, row.url);
-      });
-      return imageCodes.flat();
-    } catch {
-      // OCR is best-effort; a missing image/tesseract should not break the list.
-      return [];
-    }
-  });
-  return results.flat();
+        if (!pageResponse.ok) return [];
+        const root = parse(await pageResponse.text());
+        const images = row.module === "label"
+          ? [...root.querySelectorAll("li.activity")]
+              .filter((activity) => /attendance/i.test(activity.getAttribute("data-activityname") ?? activity.text))
+              .flatMap((activity) => activity.querySelectorAll("img"))
+          : [...root.querySelectorAll("img")].filter((image) => /\/mod_forum\/post\//.test(image.getAttribute("src") ?? ""));
+        const imageCodes = await mapLimit(images, 2, async (image) => {
+          const src = image.getAttribute("src");
+          if (!src || !/pluginfile\.php/.test(src)) return [];
+          const imageUrl = new URL(src, row.url).toString();
+          const imageResponse = await fetch(imageUrl, {
+            headers: { cookie: `MoodleSession=${credentials.session}` },
+            signal: AbortSignal.timeout(20_000),
+          });
+          if (!imageResponse.ok || !worker) return [];
+          const text = await ocrImage(Buffer.from(await imageResponse.arrayBuffer()), worker);
+          return parseOcrLines(text, row, row.url);
+        });
+        return imageCodes.flat();
+      } catch {
+        return [];
+      }
+    });
+    return results.flat();
+  } catch {
+    return [];
+  } finally {
+    await worker?.terminate().catch(() => undefined);
+  }
 }
 
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R[]>): Promise<R[]> {

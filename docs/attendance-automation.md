@@ -172,7 +172,7 @@ codes = {
 已实现第一版：
 
 - `local-service/src/attendance/parser.ts`：Gmail / Moodle 文本 attendance code 解析；
-- `local-service/src/attendance/moodle-ocr.ts`：Moodle 图片 label 的 tesseract OCR；
+- `local-service/src/attendance/moodle-ocr.ts`：Moodle 图片 label/forums 的内置 Tesseract.js（WASM）OCR，不依赖系统 tesseract；
 - `local-service/src/attendance/assistant.ts`：Attendance 登录助手，保存 cookie；
 - `local-service/src/attendance/client.ts`：session 验证和一键填入尝试；
 - `GET /api/attendance/status`、`GET /api/attendance/codes`、`POST /api/attendance/fill`；
@@ -245,3 +245,19 @@ ETW2001
 ```
 
 并只显示已选班次。
+
+
+## Tesseract.js 迁移
+
+`moodle-ocr.ts` 已从系统 `tesseract` CLI 改为 `tesseract.js`：
+
+```text
+tesseract.js@7
+@tesseract.js-data/eng
+```
+
+语言数据通过 `langPath` 指向本地 `node_modules/@tesseract.js-data/eng/4.0.0`。
+桌面包打包 `local-service/node_modules` 时会一起带入，因此 Windows 不需要安装
+Tesseract CLI。
+
+实测一次完整 refresh 约 32 秒，结果覆盖 FIT1047 / FIT1058 / FIT1045 / ETW2001。
