@@ -86,6 +86,26 @@ export async function fillAttendanceCode(code: AttendanceCode): Promise<{ status
   return { status: body.status, message: body.message ?? "" };
 }
 
+export interface AttendanceBulkResult {
+  filled: number;
+  inactive: number;
+  notFound: number;
+  results: Array<{ course?: string; week?: number; session?: string; code?: string; status: string; message?: string }>;
+}
+
+export async function fillAllAttendanceCodes(codes: AttendanceCode[]): Promise<AttendanceBulkResult> {
+  const response = await fetch("/api/attendance/fill-all", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      items: codes.map((code) => ({ course: code.course, week: code.week, session: code.session, code: code.code })),
+    }),
+  });
+  const body = (await response.json().catch(() => null)) as (AttendanceBulkResult & { error?: { message?: string } }) | null;
+  if (!response.ok || !body) throw new Error(body?.error?.message ?? `Attendance bulk fill returned ${response.status}`);
+  return body;
+}
+
 export async function fetchRuntimeStatus(): Promise<RuntimeStatus> {
   return getJson<RuntimeStatus>("/runtime/status");
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, App as AntApp, Badge, Button, Card, Checkbox, Empty, Modal, Select, Space, Tag, Typography } from "antd";
-import { CheckCircleOutlined, FormOutlined, ReloadOutlined } from "@ant-design/icons";
+import { CheckCircleOutlined, FormOutlined, ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { Link } from "react-router-dom";
 import CoveLoader from "../components/CoveLoader";
 import {
@@ -9,6 +9,7 @@ import {
   fetchAttendanceCodes,
   fetchAttendanceStatus,
   fillAttendanceCode,
+  fillAllAttendanceCodes,
   detectAttendancePreferences,
   fetchAttendancePreferences,
   saveAttendancePreferences,
@@ -66,6 +67,7 @@ export default function AttendancePage() {
   const [starting, setStarting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [filling, setFilling] = useState<string | null>(null);
+  const [fillingAll, setFillingAll] = useState(false);
   const [courseFilter, setCourseFilter] = useState("all");
   const [weekFilter, setWeekFilter] = useState("latest");
   const [preferences, setPreferences] = useState<AttendancePreferences>({ courses: [] });
@@ -155,6 +157,19 @@ export default function AttendancePage() {
       message.error(cause instanceof Error ? cause.message : "刷新失败");
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const fillAll = async () => {
+    if (groups.length === 0) return;
+    setFillingAll(true);
+    try {
+      const result = await fillAllAttendanceCodes(groups.map((item) => item.sources[0]));
+      message.success(`批量填写完成：已填入 ${result.filled} 个，未开始 ${result.inactive} 个，未找到 ${result.notFound} 个`);
+    } catch (cause) {
+      message.error(cause instanceof Error ? cause.message : "批量填写失败");
+    } finally {
+      setFillingAll(false);
     }
   };
 
@@ -338,8 +353,17 @@ export default function AttendancePage() {
           <Typography.Text type="secondary">
             {groups.length} 个 code / {new Set(groups.map((item) => item.course)).size} 门课程
           </Typography.Text>
+          <Button
+            type="primary"
+            icon={<ThunderboltOutlined />}
+            loading={fillingAll}
+            disabled={!connected || groups.length === 0 || filling !== null}
+            onClick={() => void fillAll()}
+          >
+            {weekFilter === "latest" ? `一键填写当周（${groups.length}）` : `一键填写当前列表（${groups.length}）`}
+          </Button>
         </Space>
-        <Typography.Text type="secondary">Moodle 图片 code 使用本地 OCR；默认不自动提交。</Typography.Text>
+        <Typography.Text type="secondary">Moodle 图片 code 使用本地 OCR；批量默认只填入，不自动提交。</Typography.Text>
       </div>
 
       {groups.length === 0 ? (

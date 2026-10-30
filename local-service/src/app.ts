@@ -271,6 +271,38 @@ export function buildApp(options: AppOptions): FastifyInstance {
     return { codes: allCodes.filter((code) => matchesPreferredSession(preferences, code.course, code.session)) };
   });
 
+  app.post<{ Body: { items?: Array<{ course?: string; week?: number; session?: string; code?: string }> } }>("/api/attendance/fill-all", async (request, reply) => {
+    const items = (request.body?.items ?? []).filter((item) => item && typeof item.course === "string" && typeof item.session === "string" && typeof item.code === "string" && Number.isInteger(item.week));
+    if (items.length === 0 || items.length > 50) {
+      return reply.code(400).send({ error: { code: "invalid_attendance", message: "Select between 1 and 50 attendance codes.", retryable: false } } satisfies ApiError);
+    }
+    const raw = await secrets.get("attendance-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "attendance_not_connected", message: "Attendance login is not configured.", retryable: false } } satisfies ApiError);
+    try {
+      const credentials = JSON.parse(raw) as AttendanceCredentials;
+      const valid = await validateAttendance(credentials);
+      if (!valid) return reply.code(409).send({ error: { code: "attendance_expired", message: "Attendance session expired; reconnect Attendance.", retryable: false } } satisfies ApiError);
+      const results = [];
+      let filled = 0;
+      let inactive = 0;
+      let notFound = 0;
+      for (const item of items) {
+        try {
+          const result = await fillAttendance({ course: item.course!, week: Number(item.week), session: item.session!, code: item.code! }, credentials);
+          if (result.status === "filled") filled += 1;
+          else if (result.status === "inactive") inactive += 1;
+          else notFound += 1;
+          results.push({ course: item.course, week: item.week, session: item.session, code: item.code, ...result });
+        } catch (error) {
+          results.push({ course: item.course, week: item.week, session: item.session, code: item.code, status: "error", message: error instanceof Error ? error.message : "fill failed" });
+        }
+      }
+      return { filled, inactive, notFound, results };
+    } catch (error) {
+      return reply.code(502).send({ error: { code: "attendance_fill_failed", message: error instanceof Error ? error.message : "Attendance fill failed.", retryable: true } } satisfies ApiError);
+    }
+  });
+
   app.post<{ Body: { course?: string; week?: number; session?: string; code?: string } }>("/api/attendance/fill", async (request, reply) => {
     const body = request.body ?? {};
     if (!body.course || !body.session || !body.code || !Number.isInteger(body.week) || Number(body.week) < 1) {

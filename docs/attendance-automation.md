@@ -261,3 +261,23 @@ tesseract.js@7
 Tesseract CLI。
 
 实测一次完整 refresh 约 32 秒，结果覆盖 FIT1047 / FIT1058 / FIT1045 / ETW2001。
+
+
+## 一键填写当周
+
+签到页新增：
+
+```text
+一键填写当周（N）
+```
+
+逻辑：
+
+- 使用当前筛选后的本周 code；
+- 批量调用 `POST /api/attendance/fill-all`；
+- 每条记录独立尝试 Entry.aspx；
+- 默认只填入，不自动提交；
+- 返回 filled / inactive / notFound 汇总；
+- 单条失败不会中断整批。
+
+实测当前（学期结束）批量结果是 `inactive`，因为不存在 active code 输入框。
