@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, App as AntApp, Button, Card, Col, Empty, Row, Select, Skeleton, Space, Tag, Typography } from "antd";
-import { BookOutlined, FileTextOutlined, LinkOutlined, NotificationOutlined, ReloadOutlined } from "@ant-design/icons";
+import { Alert, App as AntApp, Button, Card, Col, Empty, Input, Row, Segmented, Select, Skeleton, Space, Tag, Typography } from "antd";
+import { BookOutlined, FileTextOutlined, LinkOutlined, NotificationOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { Link } from "react-router-dom";
 import { fetchMoodleContent, fetchMoodleCourses, syncMoodleContent } from "../data/repository";
 import type { MoodleContentItem, MoodleCourse } from "../types";
@@ -44,6 +44,9 @@ export default function MaterialsPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState<"all" | "materials" | "work" | "forum" | "other">("all");
+  const [sectionFilter, setSectionFilter] = useState("all");
 
   useEffect(() => {
     let active = true;
@@ -106,23 +109,57 @@ export default function MaterialsPage() {
     }
   };
 
-  const announcements = useMemo(
-    () => items.filter((item) => item.module === "forum" && !/^\d+$/.test(item.title.trim()) && !item.url.includes("#unread")),
+  const sectionOptions = useMemo(
+    () =>
+      [...new Map(items.map((item) => [item.sectionNumber, item.sectionTitle])).entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([value, label]) => ({ value: String(value), label })),
     [items],
+  );
+
+  const filteredItems = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return items.filter((item) => {
+      if (typeFilter === "forum") {
+        if (item.module !== "forum") return false;
+      } else if (typeFilter !== "all" && categoryOf(item) !== typeFilter) {
+        return false;
+      }
+      if (sectionFilter !== "all" && String(item.sectionNumber) !== sectionFilter) return false;
+      if (!needle) return true;
+      return [item.title, item.text, item.sectionTitle, item.courseName, item.module]
+        .join(" ")
+        .toLowerCase()
+        .includes(needle);
+    });
+  }, [items, query, sectionFilter, typeFilter]);
+
+  const announcements = useMemo(
+    () =>
+      filteredItems.filter(
+        (item) => item.module === "forum" && !/^\d+$/.test(item.title.trim()) && !item.url.includes("#unread"),
+      ),
+    [filteredItems],
   );
   const sections = useMemo<Section[]>(() => {
     const map = new Map<number, Section>();
-    for (const item of items) {
+    for (const item of filteredItems) {
       if (item.module === "forum") continue;
       const section = map.get(item.sectionNumber) ?? { number: item.sectionNumber, title: item.sectionTitle, items: [] };
       section.items.push(item);
       map.set(item.sectionNumber, section);
     }
     return [...map.values()].sort((a, b) => a.number - b.number);
-  }, [items]);
+  }, [filteredItems]);
 
-  const materialCount = items.filter((item) => categoryOf(item) === "materials").length;
-  const otherCount = items.filter((item) => categoryOf(item) === "other").length;
+  const materialCount = filteredItems.filter((item) => categoryOf(item) === "materials").length;
+  const otherCount = filteredItems.filter((item) => categoryOf(item) === "other").length;
+
+  const resetFilters = () => {
+    setQuery("");
+    setTypeFilter("all");
+    setSectionFilter("all");
+  };
 
   if (loading && courses.length === 0) {
     return (
@@ -189,6 +226,53 @@ export default function MaterialsPage() {
             <Col xs={8}><Card size="small"><Typography.Text type="secondary">资料</Typography.Text><div className="materials-stat">{materialCount}</div></Card></Col>
             <Col xs={8}><Card size="small"><Typography.Text type="secondary">说明与其他</Typography.Text><div className="materials-stat">{otherCount}</div></Card></Col>
           </Row>
+
+          <Card className="materials-filter-bar" size="small">
+            <Space wrap size={[8, 8]}>
+              <Input
+                className="materials-search"
+                allowClear
+                prefix={<SearchOutlined />}
+                placeholder="搜索资料、说明或公告"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              <Segmented
+                value={typeFilter}
+                options={[
+                  { label: "全部", value: "all" },
+                  { label: "资料", value: "materials" },
+                  { label: "作业", value: "work" },
+                  { label: "公告", value: "forum" },
+                  { label: "说明", value: "other" },
+                ]}
+                onChange={(value) => setTypeFilter(value as typeof typeFilter)}
+              />
+              <Select
+                className="section-filter"
+                value={sectionFilter}
+                onChange={setSectionFilter}
+                options={[{ value: "all", label: "全部板块" }, ...sectionOptions]}
+                showSearch
+                optionFilterProp="label"
+              />
+              <Typography.Text type="secondary">{filteredItems.length} 条</Typography.Text>
+            </Space>
+          </Card>
+
+          {filteredItems.length === 0 ? (
+            <Empty
+              className="brief-empty"
+              description={
+                <div>
+                  <Typography.Title level={2}>没有匹配的内容</Typography.Title>
+                  <Typography.Paragraph type="secondary">调整搜索词、类型或板块筛选。</Typography.Paragraph>
+                </div>
+              }
+            >
+              <Button onClick={resetFilters}>清除筛选</Button>
+            </Empty>
+          ) : null}
 
           {announcements.length > 0 ? (
             <Card

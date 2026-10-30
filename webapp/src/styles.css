@@ -600,7 +600,30 @@ a {
 }
 
 .materials-stats {
-  margin: 16px 0;
+  margin: 16px 0 12px;
+}
+
+.materials-filter-bar {
+  margin-bottom: 16px;
+}
+
+.materials-filter-bar .ant-card-body {
+  padding: 12px;
+}
+
+.materials-search {
+  width: 280px;
+}
+
+.section-filter {
+  min-width: 190px;
+}
+
+@media (max-width: 720px) {
+  .materials-search,
+  .section-filter {
+    width: 100%;
+  }
 }
 
 .materials-stats .ant-card-body {
