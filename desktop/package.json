@@ -12,6 +12,7 @@
     "pack": "npm run prepare:resources && electron-builder --dir",
     "dist:mac": "npm run prepare:resources && electron-builder --mac dmg zip",
     "dist:win": "npm run prepare:resources && electron-builder --win zip --x64",
+    "build:launcher": "npm run prepare:resources && node scripts/build-launcher.cjs",
     "e2e": "node e2e/desktop-smoke.mjs"
   },
   "devDependencies": {

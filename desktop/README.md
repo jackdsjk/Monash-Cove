@@ -34,6 +34,30 @@ npm run prepare:resources
 npx electron-builder --win zip --arm64
 ```
 
+## 快速安装：CoveLauncher（无 Electron 签名）
+
+macOS 26 会拒绝当前未签名的 Electron App。为了先给测试用户一个**无需 Apple Developer ID**的入口，可以构建轻量 launcher：
+
+```bash
+cd desktop
+npm run build:launcher
+```
+
+产物：
+
+```text
+desktop/release/CoveLauncher-0.1.0-arm64.dmg
+desktop/release/CoveLauncher-0.1.0-arm64.zip
+```
+
+用户解压后双击 `CoveLauncher.app`，它会：
+
+1. 用包内的 Node 26 启动本地服务；
+2. 打开浏览器到 `http://127.0.0.1:4317`；
+3. 首次进入 `/setup`。
+
+这是一个 AppleScript 启动器，不是 Electron 原生窗口。它仍应做小范围测试；正式分发仍建议签名的 Electron App。
+
 ## 产物
 
 - macOS arm64：`release/Cove-0.1.0-arm64.dmg`、`release/Cove-0.1.0-arm64.zip`
@@ -60,15 +84,14 @@ Windows ZIP 未签名，首次运行会出现 SmartScreen 提示，需要用户�
 
 ### Google OAuth
 
-桌面包不包含 `.env.local` 或 Google OAuth client。当前桌面版需要从环境变量提供：
+本地构建时，`prepare-resources` 会把 `local-service/.env.local` 复制到桌面包的
+`local-service/.env.local`，因此测试包可以使用 Cove 当前的 Google OAuth client。
 
-```bash
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-GOOGLE_REDIRECT_URI=http://127.0.0.1:4317/oauth/google/callback
-```
+注意：
 
-更完整的桌面 OAuth 配置入口尚未实现。
+- 该文件包含 client secret，**不要发布构建产物**；
+- 正式公开分发应改为 Cove 统一 OAuth client + 服务端交换，或经过 Google 验证的公开 client；
+- 桌面版默认固定使用 `4317`，以匹配 OAuth callback；`COVE_PORT=0` 仅用于自动化测试随机端口。
 
 ### Moodle 登录助手
 

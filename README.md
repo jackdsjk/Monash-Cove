@@ -14,7 +14,7 @@ Cove 是一个本地优先的校园信息分诊应用：把 Gmail、Ed 和 Moodl
 
 参见 [desktop/README.md](desktop/README.md)。构建结果与阻塞项见 [desktop-build-2026-10-30.md](docs/desktop-build-2026-10-30.md)。
 
-当前 macOS 包未签名，正式分发需要 Developer ID 和 notarization；Windows 包未在真实 Windows 机器测试。
+当前 Electron macOS 包未签名，正式分发需要 Developer ID 和 notarization；测试可先用 `npm run build:launcher` 生成无需 Apple 签名的 CoveLauncher。Windows 包未在真实 Windows 机器测试。
 
 ## MCP
 

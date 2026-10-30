@@ -71,7 +71,7 @@ function waitForHealth(port, child) {
 }
 
 async function startService() {
-  const requestedPort = Number(process.env.COVE_PORT ?? 0);
+  const requestedPort = process.env.COVE_PORT === undefined ? 4317 : Number(process.env.COVE_PORT);
   const port = Number.isInteger(requestedPort) && requestedPort > 0 ? requestedPort : await getFreePort();
   const paths = getPaths();
   const dataDir = app.getPath("userData");

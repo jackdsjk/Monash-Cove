@@ -4,28 +4,24 @@
 
 | Target | File | Size | SHA-256 |
 |---|---|---:|---|
-| macOS Apple Silicon | `desktop/release/Cove-0.1.0-arm64.dmg` | ~125 MB | `24cc32...` |
-| macOS Intel | `desktop/release/Cove-0.1.0-x64.zip` | ~127 MB | `e1d8d2...` |
-| Windows x64 | `desktop/release/Cove-0.1.0-win-x64.zip` | ~158 MB | `e43897...` |
+| macOS Apple Silicon | `desktop/release/Cove-0.1.0-arm64.dmg` | ~125 MB | `bf6ce2...` |
+| macOS Intel | `desktop/release/Cove-0.1.0-x64.zip` | ~127 MB | `ab36ae...` |
+| Windows x64 | `desktop/release/Cove-0.1.0-win-x64.zip` | ~158 MB | `03378e...` |
+| macOS 快速启动器 | `desktop/release/CoveLauncher-0.1.0-arm64.dmg` / `.zip` | ~82 / ~61 MB | `见下方 Full hashes` |
 
 Full hashes:
 
 ```text
-24cc32209fa2324f0b48a75dff73f907a28c39d01b99723ebf0379d68257dd8e  desktop/release/Cove-0.1.0-arm64.dmg
-e1d8d2cf8462f81926e0b3a5623b855e9253f8427cd65a8f4d8e3b8b0706172d  desktop/release/Cove-0.1.0-x64.zip
-e438972f96dd38982e3f4b516b6fa4c67a607b00318712b020080322070b3b27  desktop/release/Cove-0.1.0-win-x64.zip
+bf6ce2eb21783749bf0ab8718ad1da67f2dbeade50f90bd7f3f15ad1cb9f5294  desktop/release/Cove-0.1.0-arm64.dmg
+ab36ae6bc5bbb2f281760807a197fc25c153104e4c5ca31030c8e9c47ce3b09f  desktop/release/Cove-0.1.0-x64.zip
+03378ea4d02f2bfa689e422a34e79d3c8a23ee5a7d60d61e84d58af9f85b8b9d  desktop/release/Cove-0.1.0-win-x64.zip
+0d97c97a4213cf51f8825106a9fdc4c88dfcf965066e304637e3e3908ddc2cf8  desktop/release/CoveLauncher-0.1.0-arm64.dmg
+7335fd64a03b9a6ec7b0dace08cab8ee0e6e3af9a67663429ccd5bc3530403f6  desktop/release/CoveLauncher-0.1.0-arm64.zip
 ```
 
-## Verification
+## Quick launcher
 
-- Desktop development shell launched with Electron 45.1.0 (Node 24.22.1):
-  - local service health OK;
-  - static webapp loaded;
-  - `/api/setup/status`, `/api/brief`, `/api/sources` returned 200.
-- `desktop/e2e/desktop-smoke.mjs` passed.
-- Packaged backend from `Cove.app/Contents/Resources/local-service` started and served `/api/health` and `/` under Electron's Node.
-- Webapp: `npm run check` and Playwright E2E passed.
-- Service: 33 tests passed.
+`desktop/release/CoveLauncher-0.1.0-arm64.dmg` / `.zip` is a non-Electron AppleScript launcher. It bundles the standalone Node 26 runtime, the production local-service, the webapp, and the local OAuth configuration. It launched successfully on the test Mac and served `/api/health` with OAuth configured.
 
 ## Blocking findings
 

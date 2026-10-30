@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const desktopDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const env = { ...process.env, COVE_DEVTOOLS: "0" };
+const env = { ...process.env, COVE_DEVTOOLS: "0", COVE_PORT: "0" };
 delete env.ELECTRON_RUN_AS_NODE;
 
 const app = await electron.launch({ args: [desktopDir], cwd: desktopDir, env });

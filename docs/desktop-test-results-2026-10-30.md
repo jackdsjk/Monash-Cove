@@ -12,6 +12,8 @@
 
 Desktop smoke launches Electron in development, starts the bundled local-service path, verifies the local URL and Cove UI, then completes the setup flow via “先使用匿名样例” and confirms `/api/health` from the renderer.
 
+The macOS quick launcher was also launched locally. It starts the bundled Node 26 runtime and local-service, serves `/api/health`, and reports OAuth configured from the bundled local `.env.local`.
+
 ## Manual user test
 
 Not performed in this session. The available Mac cannot launch the unsigned packaged app because macOS 26 AMFI rejects the ad-hoc signature. A Windows machine was not available.

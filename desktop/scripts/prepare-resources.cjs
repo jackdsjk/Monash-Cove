@@ -23,6 +23,12 @@ for (const file of ["package.json", "package-lock.json"]) {
 }
 cpSync(path.join(source, "dist"), path.join(target, "dist"), { recursive: true });
 cpSync(path.join(source, "fixtures"), path.join(target, "fixtures"), { recursive: true });
+const localEnv = path.join(source, ".env.local");
+if (existsSync(localEnv)) {
+  cpSync(localEnv, path.join(target, ".env.local"));
+  require("node:fs").chmodSync(path.join(target, ".env.local"), 0o600);
+  console.log("Bundled local OAuth configuration (not committed).");
+}
 
 console.log("Installing production backend dependencies for the desktop bundle…");
 const result = spawnSync("npm", ["ci", "--omit=dev", "--no-audit", "--no-fund"], {
