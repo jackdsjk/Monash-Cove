@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { Alert, App as AntApp, Button, Card, Col, Input, Progress, Row, Select, Space, Tag, Typography } from "antd";
 import { CheckCircleOutlined, GoogleOutlined, LockOutlined, LoginOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
-import { fetchMoodleAssistant, fetchSetupStatus, fetchSyncStatus, startFullSync, startMoodleAssistant, cancelMoodleAssistant } from "../data/repository";
+import { fetchMoodleAssistant, fetchMoodleCourses, fetchSetupStatus, fetchSyncStatus, startFullSync, startMoodleAssistant, cancelMoodleAssistant } from "../data/repository";
 import type { FullSyncJob, MoodleAssistantState, SetupStatus } from "../types";
-import { REGION_OPTIONS, loadRegion, saveRegion, type CampusRegion } from "../lib/region";
+import { REGION_LABELS, REGION_OPTIONS, defaultRegionForCourses, loadRegion, saveRegion, type CampusRegion } from "../lib/region";
 
 const EMPTY_SETUP: SetupStatus = {
   gmailConnected: false,
@@ -27,6 +27,8 @@ export default function SetupPage() {
   const [startingFull, setStartingFull] = useState(false);
   const [profileName, setProfileName] = useState(() => window.localStorage.getItem("cove-profile-name") ?? "");
   const [region, setRegion] = useState<CampusRegion>(() => loadRegion() ?? "malaysia");
+  const [detectedRegion, setDetectedRegion] = useState<CampusRegion | null>(null);
+  const hasSavedRegion = loadRegion() !== null;
 
   const refresh = async () => {
     try {
@@ -41,6 +43,25 @@ export default function SetupPage() {
   useEffect(() => {
     void refresh();
   }, []);
+
+  useEffect(() => {
+    if (!status.moodleConnected) return;
+    let active = true;
+    void fetchMoodleCourses()
+      .then((courses) => {
+        if (!active || courses.length === 0) return;
+        const detected = defaultRegionForCourses(courses);
+        setDetectedRegion(detected);
+        if (!loadRegion()) {
+          setRegion(detected);
+          saveRegion(detected);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [status.moodleConnected]);
 
   useEffect(() => {
     if (assistant.status !== "waiting_login") return;
@@ -192,6 +213,19 @@ export default function SetupPage() {
         <Typography.Paragraph type="secondary" className="setup-note">
           只保存在浏览器 localStorage，用于界面显示；不是登录凭据。
         </Typography.Paragraph>
+        {detectedRegion ? (
+          <Alert
+            type="info"
+            showIcon
+            className="setup-region-hint"
+            message={`检测到你的课程可能属于${REGION_LABELS[detectedRegion]}校区`}
+            description={
+              hasSavedRegion
+                ? `当前保存的地区是${REGION_LABELS[region]}；如果不对，直接改上面的选择。`
+                : "已帮你预选，但不会替你锁定；确认或修改后再保存。"
+            }
+          />
+        ) : null}
       </Card>
 
       <Row className="setup-grid" gutter={[16, 16]}>
