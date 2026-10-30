@@ -35,7 +35,7 @@ cd ../local-service && npm run build
 
 - `/`：Since Last Check 简报、注意力分组、来源筛选、搜索、只看需要行动、详情 Drawer、反馈 Modal；
 - 过去内容默认折叠在“过去的内容”里，可展开并按 20 条继续加载，不打断当前简报；
-- `/deadlines`：独立的“倒计时”侧栏页面，按 Moodle 作业的 `dueAt` 自动分成已截止、24 小时内、7 天内、更晚；没有结构化截止时间就不显示；
+- `/deadlines`：独立的“倒计时”侧栏页面，按 Moodle 作业的 `dueAt` 自动分成已截止、24 小时内、7 天内、更晚；倒计时精确到秒，每秒更新；没有结构化截止时间就不显示；
 - 顶栏“搜索或跳转”：`Cmd/Ctrl+K` 命令面板，可跳转简报、倒计时、每周资料、数据源、设置；
 - `/materials`：独立的“每周资料”页面，按 Moodle 课程板块列出资料、作业/考核、公告/讨论和说明文字；资料行支持单选、全选筛选结果和“下载选中”（批量 ZIP，仅 Moodle resource 文件）；页面提供搜索、类型（资料/作业/公告/说明）和板块筛选；ASSESSMENTS 板块的资源归入“作业/考核”。
 - `/sources`：Gmail OAuth、Ed token、Moodle session、来源状态和同步；

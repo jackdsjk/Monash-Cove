@@ -206,6 +206,7 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 资料支持单选、全选筛选结果、批量 ZIP 下载（1–100 个 resource/url，总上限 100 MB）。
 - ASSESSMENTS 板块里的 resource 归入“作业/考核”筛选，避免作业 specification/reflection template 被“资料”筛选隐藏。
 - UI 组件审计：克隆并 CodeGraph 索引 shadcn、Nuxt UI、MUI；新增 shadcn command 风格的全局跳转面板，保留 AntD/Nuxt 不混用。
+- 重做截止倒计时：深绿 hero 卡 + 紧凑分组行，精确到秒并每秒更新；修复 390px 下的横向溢出。
 
 ## 三、下一步开发顺序
 
