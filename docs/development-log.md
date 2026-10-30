@@ -203,7 +203,8 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 新增独立“每周资料”页面：按课程板块列出资料、作业/考核、公告/讨论和 label 说明；课程页抓取缓存到 SQLite；
 - 公告正文通过 `mod_forum_get_discussion_posts` 抽取；Moodle resource 文件可通过本地服务代理下载（限 50 MB，仅 `mod/resource`）；
 - 每周资料页增加搜索、类型和板块筛选，避免长列表只能滚动。
-- 资料支持单选、全选筛选结果、批量 ZIP 下载（1–100 个 resource，总上限 100 MB）。
+- 资料支持单选、全选筛选结果、批量 ZIP 下载（1–100 个 resource/url，总上限 100 MB）。
+- ASSESSMENTS 板块里的 resource 归入“作业/考核”筛选，避免作业 specification/reflection template 被“资料”筛选隐藏。
 
 ## 三、下一步开发顺序
 

@@ -36,19 +36,37 @@ export async function downloadMoodleResource(
   } catch {
     throw new MoodleDownloadError(400, "invalid_url", "Invalid Moodle URL.");
   }
-  if (target.origin !== base.origin || !target.pathname.startsWith("/mod/resource/view.php")) {
-    throw new MoodleDownloadError(400, "invalid_url", "Only Moodle resource pages can be downloaded.");
+  if (
+    target.origin !== base.origin ||
+    (!target.pathname.startsWith("/mod/resource/view.php") && !target.pathname.startsWith("/mod/url/view.php"))
+  ) {
+    throw new MoodleDownloadError(400, "invalid_url", "Only Moodle resource or URL pages can be downloaded.");
   }
   const headers = { cookie: `MoodleSession=${credentials.session}` };
-  const resource = await fetcher(target, { headers, redirect: "manual" });
+  let current = target;
   let fileUrl: string | null = null;
-  if ([301, 302, 303, 307, 308].includes(resource.status)) {
-    const location = resource.headers.get("location");
-    if (location) fileUrl = new URL(location, target).toString();
-  } else if (resource.ok) {
-    const link = parse(await resource.text()).querySelector("a[href*='pluginfile.php']");
+  for (let hop = 0; hop < 4; hop += 1) {
+    const response = await fetcher(current, { headers, redirect: "manual" });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get("location");
+      if (!location) break;
+      const next = new URL(location, current);
+      if (next.origin !== base.origin) throw new MoodleDownloadError(400, "invalid_file", "Moodle returned an untrusted redirect.");
+      if (next.pathname.startsWith("/pluginfile.php")) {
+        fileUrl = next.toString();
+        break;
+      }
+      if (next.pathname.startsWith("/mod/resource/view.php") || next.pathname.startsWith("/mod/url/view.php")) {
+        current = next;
+        continue;
+      }
+      break;
+    }
+    if (!response.ok) break;
+    const link = parse(await response.text()).querySelector("a[href*='pluginfile.php']");
     const href = link?.getAttribute("href");
-    if (href) fileUrl = new URL(href, target).toString();
+    if (href) fileUrl = new URL(href, current).toString();
+    break;
   }
   if (!fileUrl) throw new MoodleDownloadError(404, "file_not_found", "No downloadable file found for this resource.");
   const fileTarget = new URL(fileUrl);

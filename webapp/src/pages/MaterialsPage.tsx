@@ -25,9 +25,21 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 function categoryOf(item: MoodleContentItem) {
+  // Resources attached to the assessment section belong to the assignment
+  // workflow, not the general weekly reading list.
+  if (
+    /assessment|assignment|考核|作业/i.test(item.sectionTitle) &&
+    ["resource", "folder", "book", "url", "page", "assign", "quiz"].includes(item.module)
+  ) {
+    return "work";
+  }
   if (item.module === "resource" || item.module === "folder" || item.module === "book") return "materials";
   if (item.module === "assign" || item.module === "quiz") return "work";
   return "other";
+}
+
+function isDownloadable(item: MoodleContentItem) {
+  return item.module === "resource" || item.module === "url";
 }
 
 interface Section {
@@ -156,7 +168,7 @@ export default function MaterialsPage() {
 
   const materialCount = filteredItems.filter((item) => categoryOf(item) === "materials").length;
   const otherCount = filteredItems.filter((item) => categoryOf(item) === "other").length;
-  const downloadableItems = useMemo(() => filteredItems.filter((item) => item.module === "resource"), [filteredItems]);
+  const downloadableItems = useMemo(() => filteredItems.filter(isDownloadable), [filteredItems]);
   const allSelected = downloadableItems.length > 0 && downloadableItems.every((item) => selected.includes(item.id));
   const someSelected = downloadableItems.some((item) => selected.includes(item.id));
 
@@ -174,7 +186,7 @@ export default function MaterialsPage() {
 
   const downloadSelected = async () => {
     const urls = items
-      .filter((item) => item.module === "resource" && selected.includes(item.id))
+      .filter((item) => isDownloadable(item) && selected.includes(item.id))
       .map((item) => item.url);
     if (urls.length === 0) return;
     setDownloading(true);
@@ -401,7 +413,7 @@ export default function MaterialsPage() {
                         {group.map((item) => (
                           <div key={item.id} className="material-item">
                             <div className="material-item-title">
-                              {item.module === "resource" ? (
+                              {isDownloadable(item) ? (
                                 <Checkbox
                                   checked={selected.includes(item.id)}
                                   onChange={(event) => toggleOne(item.id, event.target.checked)}
@@ -412,7 +424,7 @@ export default function MaterialsPage() {
                               <a href={item.url} target="_blank" rel="noreferrer">
                                 {item.title} <LinkOutlined />
                               </a>
-                              {item.module === "resource" ? (
+                              {isDownloadable(item) ? (
                                 <a
                                   className="material-download"
                                   href={`/api/moodle/download?url=${encodeURIComponent(item.url)}`}
