@@ -4,16 +4,16 @@
 
 | Target | File | Size | SHA-256 |
 |---|---|---:|---|
-| macOS Apple Silicon | `desktop/release/Cove-0.1.0-arm64.dmg` | ~125 MB | `5845f6...` |
-| macOS Intel | `desktop/release/Cove-0.1.0-x64.zip` | ~127 MB | `fd1db3...` |
-| Windows x64 | `desktop/release/Cove-0.1.0-win-x64.zip` | ~158 MB | `802081...` |
+| macOS Apple Silicon | `desktop/release/Cove-0.1.0-arm64.dmg` | ~125 MB | `24cc32...` |
+| macOS Intel | `desktop/release/Cove-0.1.0-x64.zip` | ~127 MB | `e1d8d2...` |
+| Windows x64 | `desktop/release/Cove-0.1.0-win-x64.zip` | ~158 MB | `e43897...` |
 
 Full hashes:
 
 ```text
-5845f632c447a7e50f27919e7473354ff4f696b476e47ee1792b37b954ff1e8d  desktop/release/Cove-0.1.0-arm64.dmg
-fd1db3d72d464e76534352f8673cd05067a74c15e6800933712811b53152ce56  desktop/release/Cove-0.1.0-x64.zip
-80208175f4eda10ecd9a5924c02ca0f6ab5012f95421be21d53fbfcc813ddc6b  desktop/release/Cove-0.1.0-win-x64.zip
+24cc32209fa2324f0b48a75dff73f907a28c39d01b99723ebf0379d68257dd8e  desktop/release/Cove-0.1.0-arm64.dmg
+e1d8d2cf8462f81926e0b3a5623b855e9253f8427cd65a8f4d8e3b8b0706172d  desktop/release/Cove-0.1.0-x64.zip
+e438972f96dd38982e3f4b516b6fa4c67a607b00318712b020080322070b3b27  desktop/release/Cove-0.1.0-win-x64.zip
 ```
 
 ## Verification
