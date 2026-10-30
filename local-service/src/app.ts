@@ -22,9 +22,10 @@ import type { ApiError, Source } from "./domain.js";
 import { getRuntimeStatus } from "./runtime.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
 import { AttendanceLoginAssistant } from "./attendance/assistant.js";
-import { fillAttendance, validateAttendance, type AttendanceCredentials } from "./attendance/client.js";
+import { discoverAttendanceSessions, fillAttendance, validateAttendance, type AttendanceCredentials } from "./attendance/client.js";
 import { parseAttendanceRows } from "./attendance/parser.js";
 import { scanMoodleAttendanceImages } from "./attendance/moodle-ocr.js";
+import { parseAttendanceSessionPreference, detectedToPreferences, matchesPreferredSession, type AttendancePreferences } from "./attendance/preferences.js";
 
 const sourceSchema = z.enum(["gmail", "ed", "moodle"]);
 
@@ -166,6 +167,37 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.get("/api/attendance/connect/status", async () => ({ assistant: attendanceAssistant.get() }));
   app.post("/api/attendance/connect/cancel", async () => ({ assistant: await attendanceAssistant.cancel() }));
 
+  app.get("/api/attendance/preferences", async () => {
+    const raw = db.getSetting("attendance_preferences");
+    let value: AttendancePreferences = { courses: [] };
+    try {
+      value = raw ? parseAttendanceSessionPreference(JSON.parse(raw)) : value;
+    } catch {
+      value = { courses: [] };
+    }
+    return value;
+  });
+
+  app.put<{ Body: unknown }>("/api/attendance/preferences", async (request) => {
+    const preferences = parseAttendanceSessionPreference(request.body);
+    db.setSetting("attendance_preferences", JSON.stringify(preferences));
+    return preferences;
+  });
+
+  app.post("/api/attendance/detect", async (_request, reply) => {
+    const raw = await secrets.get("attendance-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "attendance_not_connected", message: "Attendance login is not configured.", retryable: false } } satisfies ApiError);
+    try {
+      const credentials = JSON.parse(raw) as AttendanceCredentials;
+      const valid = await validateAttendance(credentials);
+      if (!valid) return reply.code(409).send({ error: { code: "attendance_expired", message: "Attendance session expired; reconnect Attendance.", retryable: false } } satisfies ApiError);
+      const sessions = await discoverAttendanceSessions(credentials);
+      return { sessions, preferences: detectedToPreferences(sessions) };
+    } catch (error) {
+      return reply.code(502).send({ error: { code: "attendance_detect_failed", message: error instanceof Error ? error.message : "Attendance session detection failed.", retryable: true } } satisfies ApiError);
+    }
+  });
+
   app.get<{ Querystring: { refresh?: string } }>("/api/attendance/codes", async (request) => {
     const moodleRows = db.listAllMoodleContent();
     const rows = [
@@ -200,7 +232,15 @@ export function buildApp(options: AppOptions): FastifyInstance {
         }
       }
     }
-    return { codes: [...textCodes, ...(attendanceOcrCache?.codes ?? [])] };
+    const allCodes = [...textCodes, ...(attendanceOcrCache?.codes ?? [])];
+    const rawPreferences = db.getSetting("attendance_preferences");
+    let preferences = { courses: [] as Array<{ course: string; sessions: string[] }> };
+    try {
+      preferences = rawPreferences ? parseAttendanceSessionPreference(JSON.parse(rawPreferences)) : preferences;
+    } catch {
+      preferences = { courses: [] };
+    }
+    return { codes: allCodes.filter((code) => matchesPreferredSession(preferences, code.course, code.session)) };
   });
 
   app.post<{ Body: { course?: string; week?: number; session?: string; code?: string } }>("/api/attendance/fill", async (request, reply) => {

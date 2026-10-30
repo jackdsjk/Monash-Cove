@@ -179,3 +179,45 @@ codes = {
 - `webapp/src/pages/AttendancePage.tsx`：签到页面、code 列表、课程/周次筛选、一键填写。
 
 当前“一键填写”如果遇到没有 active code 输入框的页面，会返回 `inactive`，不会猜测提交接口。
+
+
+## 班次偏好（2026-10-31）
+
+首次连接并打开签到页时，Cove 会从 `Units.aspx` 的活动列表自动识别当前用户的班次，例如：
+
+```text
+FIT1047 Workshop 1 / Pass 4 / Applied 8
+ETW2001 Tutorial 7
+FIT1045 Applied 3 / Pass 3
+FIT1058 Workshop 2 / Pass 4 / Applied 1
+```
+
+识别结果保存到 `settings.attendance_preferences`，后续 code 列表只显示匹配的课程 + 班次。
+用户可以在签到页“我的签到班次”中手动勾选/取消，保存后立即生效。
+
+### 实现文件
+
+- `local-service/src/attendance/preferences.ts`
+- `local-service/src/attendance/client.ts` 的 `discoverAttendanceSessions`
+- `GET/PUT /api/attendance/preferences`
+- `POST /api/attendance/detect`
+
+## 参考项目
+
+参考并学习了：
+
+```text
+https://github.com/Waldo0926/monash-attendance-reminder
+```
+
+该仓库 README 明确写的是 **All Rights Reserved，不允许修改后再分发，也不允许 fork 后去掉确认步骤**。
+因此 Cove 没有复制它的代码；只参考了它的页面流程、`Entry.aspx` 入口、输入框/提交按钮识别思路，再用 Cove 自己的实现重写。
+不要把这个参考仓库的代码直接搬进 Cove 公开仓库。
+
+## 一键填写的当前边界
+
+- 优先找 `a[href*="Entry.aspx"]` 的班次入口；
+- 找到 Entry 页面后填入 code；
+- 默认不点击 Submit；
+- 没有 `Entry.aspx`/active input 时返回 `inactive`，不伪造请求；
+- 真正的 active 窗口仍需下一次实际签到验证。

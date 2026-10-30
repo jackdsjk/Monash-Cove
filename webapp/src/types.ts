@@ -43,6 +43,15 @@ export interface AttendanceCode {
   publishedAt: string;
 }
 
+export interface AttendancePreferenceCourse {
+  course: string;
+  sessions: string[];
+}
+
+export interface AttendancePreferences {
+  courses: AttendancePreferenceCourse[];
+}
+
 export interface AttendanceAssistantState {
   status: "idle" | "waiting_login" | "connected" | "error" | "cancelled";
   message: string;

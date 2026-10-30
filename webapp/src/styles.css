@@ -1523,6 +1523,25 @@ a {
   gap: 8px;
 }
 
+.attendance-session-editor {
+  display: grid;
+  gap: 14px;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.attendance-session-row {
+  display: grid;
+  gap: 8px;
+}
+
+.attendance-session-row .ant-checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .attendance-code-card {
   border-color: #e5eee8;
 }

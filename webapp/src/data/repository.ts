@@ -1,4 +1,4 @@
-import type { AttendanceAssistantState, AttendanceCode, AttendanceStatus, BriefItem, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus } from "../types";
+import type { AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus } from "../types";
 
 export interface BriefData {
   items: BriefItem[];
@@ -41,6 +41,27 @@ export async function startAttendanceAssistant(): Promise<AttendanceAssistantSta
   const response = await fetch("/api/attendance/connect/start", { method: "POST" });
   const data = (await response.json()) as { assistant: AttendanceAssistantState };
   return data.assistant;
+}
+
+export async function fetchAttendancePreferences(): Promise<AttendancePreferences> {
+  return getJson<AttendancePreferences>("/attendance/preferences");
+}
+
+export async function saveAttendancePreferences(preferences: AttendancePreferences): Promise<AttendancePreferences> {
+  const response = await fetch("/api/attendance/preferences", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(preferences),
+  });
+  if (!response.ok) throw new Error("保存签到班次失败");
+  return response.json() as Promise<AttendancePreferences>;
+}
+
+export async function detectAttendancePreferences(): Promise<AttendancePreferences> {
+  const response = await fetch("/api/attendance/detect", { method: "POST" });
+  const body = (await response.json().catch(() => null)) as { preferences?: AttendancePreferences; error?: { message?: string } } | null;
+  if (!response.ok || !body?.preferences) throw new Error(body?.error?.message ?? "识别签到班次失败");
+  return body.preferences;
 }
 
 export async function fetchAttendanceAssistant(): Promise<AttendanceAssistantState> {

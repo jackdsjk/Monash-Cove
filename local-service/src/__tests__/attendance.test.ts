@@ -49,3 +49,23 @@ describe("attendance parser", () => {
     expect(codes.every((item) => item.source === "moodle")).toBe(true);
   });
 });
+
+import { detectedToPreferences, matchesPreferredSession, normalizeSession } from "../attendance/preferences.js";
+
+describe("attendance session preferences", () => {
+  it("groups detected sessions by course and normalizes zero padding", () => {
+    const preferences = detectedToPreferences([
+      { course: "FIT1047", session: "Workshop 01" },
+      { course: "FIT1047", session: "Applied 8" },
+    ]);
+    expect(preferences.courses).toEqual([{ course: "FIT1047", sessions: ["Workshop 01", "Applied 8"] }]);
+    expect(normalizeSession("Workshop 01")).toBe("workshop 1");
+  });
+
+  it("matches only the configured course/session", () => {
+    const preferences = { courses: [{ course: "FIT1047", sessions: ["Applied 8"] }] };
+    expect(matchesPreferredSession(preferences, "FIT1047_S2_2026", "Applied 08")).toBe(true);
+    expect(matchesPreferredSession(preferences, "FIT1047_S2_2026", "Workshop 1")).toBe(false);
+    expect(matchesPreferredSession({ courses: [] }, "FIT1047_S2_2026", "Workshop 1")).toBe(true);
+  });
+});

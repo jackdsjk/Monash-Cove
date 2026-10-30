@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Alert, App as AntApp, Badge, Button, Card, Empty, Select, Space, Tag, Typography } from "antd";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Alert, App as AntApp, Badge, Button, Card, Checkbox, Empty, Modal, Select, Space, Tag, Typography } from "antd";
 import { CheckCircleOutlined, FormOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Link } from "react-router-dom";
 import CoveLoader from "../components/CoveLoader";
@@ -9,9 +9,20 @@ import {
   fetchAttendanceCodes,
   fetchAttendanceStatus,
   fillAttendanceCode,
+  detectAttendancePreferences,
+  fetchAttendancePreferences,
+  saveAttendancePreferences,
   startAttendanceAssistant,
 } from "../data/repository";
-import type { AttendanceAssistantState, AttendanceCode } from "../types";
+import type { AttendanceAssistantState, AttendanceCode, AttendancePreferenceCourse, AttendancePreferences } from "../types";
+
+function courseKey(value: string) {
+  return (/^[A-Z]{2,5}\d{3,4}/i.exec(value)?.[0] ?? value).toUpperCase();
+}
+
+function sessionKey(value: string) {
+  return value.replace(/\b0+(\d+)\b/g, "$1").trim().toLowerCase();
+}
 
 interface GroupedCode {
   key: string;
@@ -57,12 +68,22 @@ export default function AttendancePage() {
   const [filling, setFilling] = useState<string | null>(null);
   const [courseFilter, setCourseFilter] = useState("all");
   const [weekFilter, setWeekFilter] = useState("latest");
+  const [preferences, setPreferences] = useState<AttendancePreferences>({ courses: [] });
+  const [detecting, setDetecting] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [draftPreferences, setDraftPreferences] = useState<AttendancePreferenceCourse[]>([]);
+  const autoDetected = useRef(false);
 
   const load = async (refresh = false) => {
-    const [status, nextCodes] = await Promise.all([fetchAttendanceStatus(), fetchAttendanceCodes(refresh)]);
+    const [status, nextCodes, nextPreferences] = await Promise.all([
+      fetchAttendanceStatus(),
+      fetchAttendanceCodes(refresh),
+      fetchAttendancePreferences(),
+    ]);
     setConnected(status.connected);
     setAssistant(status.assistant);
     setCodes(nextCodes);
+    setPreferences(nextPreferences);
   };
 
   useEffect(() => {
@@ -74,6 +95,27 @@ export default function AttendancePage() {
       active = false;
     };
   }, []);
+
+  const detect = async () => {
+    setDetecting(true);
+    try {
+      const detected = await detectAttendancePreferences();
+      const saved = await saveAttendancePreferences(detected);
+      setPreferences(saved);
+      setCodes(await fetchAttendanceCodes());
+      message.success(`已识别你的签到班次：${saved.courses.length} 门课程`);
+    } catch (cause) {
+      message.warning(cause instanceof Error ? cause.message : "自动识别签到班次失败，可以手动调整");
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (loading || !connected || preferences.courses.length > 0 || autoDetected.current) return;
+    autoDetected.current = true;
+    void detect();
+  }, [loading, connected, preferences.courses.length]);
 
   useEffect(() => {
     if (assistant.status !== "waiting_login") return;
@@ -135,16 +177,59 @@ export default function AttendancePage() {
   };
 
   const allGroups = useMemo(() => groupCodes(codes), [codes]);
+  const sessionOptions = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const item of allGroups) {
+      const key = courseKey(item.course);
+      const set = map.get(key) ?? new Set<string>();
+      set.add(item.session);
+      map.set(key, set);
+    }
+    for (const item of preferences.courses) {
+      const set = map.get(item.course) ?? new Set<string>();
+      for (const session of item.sessions) set.add(session);
+      map.set(item.course, set);
+    }
+    return map;
+  }, [allGroups, preferences]);
+
+  const openManual = () => {
+    const draft = [...sessionOptions.entries()].map(([course, sessions]) => {
+      const existing = preferences.courses.find((item) => item.course === course);
+      return { course, sessions: existing ? [...existing.sessions] : [...sessions] };
+    });
+    setDraftPreferences(draft);
+    setManualOpen(true);
+  };
+
+  const saveManual = async () => {
+    try {
+      const saved = await saveAttendancePreferences({ courses: draftPreferences.filter((item) => item.sessions.length > 0) });
+      setPreferences(saved);
+      setManualOpen(false);
+      message.success("签到班次已保存，后续只显示这些班次的 code");
+    } catch (cause) {
+      message.error(cause instanceof Error ? cause.message : "保存失败");
+    }
+  };
+
+  const preferred = (course: string, session: string) => {
+    if (preferences.courses.length === 0) return true;
+    const item = preferences.courses.find((entry) => entry.course === courseKey(course));
+    if (!item || item.sessions.length === 0) return true;
+    return item.sessions.some((entry) => sessionKey(entry) === sessionKey(session));
+  };
   const latestWeek = useMemo(() => Math.max(0, ...allGroups.map((item) => item.week)), [allGroups]);
   const courses = useMemo(() => [...new Set(allGroups.map((item) => item.course))].sort(), [allGroups]);
   const groups = useMemo(
     () => allGroups.filter((item) => {
+      if (!preferred(item.course, item.session)) return false;
       if (courseFilter !== "all" && item.course !== courseFilter) return false;
       if (weekFilter === "latest" && item.week !== latestWeek) return false;
       if (weekFilter !== "latest" && item.week !== Number(weekFilter)) return false;
       return true;
     }),
-    [allGroups, courseFilter, latestWeek, weekFilter],
+    [allGroups, courseFilter, latestWeek, preferences, weekFilter],
   );
   const waiting = assistant.status === "waiting_login";
 
@@ -191,6 +276,35 @@ export default function AttendancePage() {
         </Space>
         {assistant.status === "error" ? <Alert className="page-alert" type="error" showIcon message={assistant.message} /> : null}
         {assistant.status === "connected" ? <Alert className="page-alert" type="success" showIcon message="Attendance session 已保存；过期后需要重新登录。" /> : null}
+      </Card>
+
+      <Card
+        className="attendance-connect-card"
+        title="我的签到班次"
+        extra={(
+          <Space wrap>
+            <Button size="small" loading={detecting} onClick={() => void detect()}>重新识别</Button>
+            <Button size="small" onClick={openManual}>手动调整</Button>
+          </Space>
+        )}
+      >
+        {detecting ? <Alert type="info" showIcon message="正在从 Attendance 页面识别你的 Workshop / Applied / Tutorial 班次…" /> : null}
+        {preferences.courses.length > 0 ? (
+          <Space wrap>
+            {preferences.courses.map((item) => (
+              <Tag key={item.course} color="green">
+                {item.course} · {item.sessions.join(" / ")}
+              </Tag>
+            ))}
+          </Space>
+        ) : (
+          <Typography.Text type="secondary">
+            首次连接后会自动从 Attendance 页面识别你的班次；识别失败时点“手动调整”。
+          </Typography.Text>
+        )}
+        <Typography.Paragraph type="secondary" className="attendance-source-note">
+          后续只显示你实际参加的班次对应的 attendance code；不同学生会看到不同的 Workshop / Applied。
+        </Typography.Paragraph>
       </Card>
 
       {!connected ? (
@@ -270,6 +384,33 @@ export default function AttendancePage() {
         自动填写只会操作 attendance.monash.edu.my；如果当前没有 active code 表单，会提示而不是伪造提交。需要重新登录时，回到本页连接 Attendance。
         <Link to="/settings"> 设置</Link>
       </Typography.Paragraph>
+      <Modal
+        title="调整我的签到班次"
+        open={manualOpen}
+        onCancel={() => setManualOpen(false)}
+        onOk={() => void saveManual()}
+        okText="保存班次"
+        cancelText="取消"
+      >
+        <Typography.Paragraph type="secondary">
+          只勾选你实际参加的 Workshop / Applied / Tutorial。之后签到页只显示这些班次的 code。
+        </Typography.Paragraph>
+        <div className="attendance-session-editor">
+          {draftPreferences.map((item) => (
+            <div key={item.course} className="attendance-session-row">
+              <Typography.Text strong>{item.course}</Typography.Text>
+              <Checkbox.Group
+                value={item.sessions}
+                options={[...(sessionOptions.get(item.course) ?? [])].map((session) => ({ label: session, value: session }))}
+                onChange={(values) => {
+                  setDraftPreferences((current) => current.map((entry) => entry.course === item.course ? { ...entry, sessions: values as string[] } : entry));
+                }}
+              />
+            </div>
+          ))}
+          {draftPreferences.length === 0 ? <Typography.Text type="secondary">还没有可选择的班次；请先在 Attendance 页面确认课程活动。</Typography.Text> : null}
+        </div>
+      </Modal>
     </>
   );
 }
