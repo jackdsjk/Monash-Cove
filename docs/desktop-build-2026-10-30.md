@@ -4,16 +4,16 @@
 
 | Target | File | Size | SHA-256 |
 |---|---|---:|---|
-| macOS Apple Silicon | `desktop/release/Cove-0.1.0-arm64.dmg` | ~125 MB | `3a1f...` |
-| macOS Intel | `desktop/release/Cove-0.1.0-x64.zip` | ~127 MB | `a8f8...` |
-| Windows x64 | `desktop/release/Cove-0.1.0-win-x64.zip` | ~158 MB | `945c...` |
+| macOS Apple Silicon | `desktop/release/Cove-0.1.0-arm64.dmg` | ~125 MB | `5845f6...` |
+| macOS Intel | `desktop/release/Cove-0.1.0-x64.zip` | ~127 MB | `fd1db3...` |
+| Windows x64 | `desktop/release/Cove-0.1.0-win-x64.zip` | ~158 MB | `802081...` |
 
 Full hashes:
 
 ```text
-3a1f723c670ca624a0774ab33741d4e1db8dd915c5092342f3bf7f63edb392f0  desktop/release/Cove-0.1.0-arm64.dmg
-a8f86ed2632264f15c760c5b7949bd601081e116e817b092b4b6859975ef79dd  desktop/release/Cove-0.1.0-x64.zip
-945c97701766af554a450cbfd3604126efa3926fafd834ee8ff264a9247b9ad7  desktop/release/Cove-0.1.0-win-x64.zip
+5845f632c447a7e50f27919e7473354ff4f696b476e47ee1792b37b954ff1e8d  desktop/release/Cove-0.1.0-arm64.dmg
+fd1db3d72d464e76534352f8673cd05067a74c15e6800933712811b53152ce56  desktop/release/Cove-0.1.0-x64.zip
+80208175f4eda10ecd9a5924c02ca0f6ab5012f95421be21d53fbfcc813ddc6b  desktop/release/Cove-0.1.0-win-x64.zip
 ```
 
 ## Verification
@@ -25,7 +25,7 @@ a8f86ed2632264f15c760c5b7949bd601081e116e817b092b4b6859975ef79dd  desktop/releas
 - `desktop/e2e/desktop-smoke.mjs` passed.
 - Packaged backend from `Cove.app/Contents/Resources/local-service` started and served `/api/health` and `/` under Electron's Node.
 - Webapp: `npm run check` and Playwright E2E passed.
-- Service: 32 tests passed.
+- Service: 33 tests passed.
 
 ## Blocking findings
 

@@ -46,6 +46,8 @@ npm run retriage
 
 ## API
 
+- `POST/GET/DELETE /mcp`（Streamable HTTP MCP；只读）
+- `npm run mcp`（stdio MCP bridge，需要本地服务已启动）
 - `GET /api/health`
 - `GET /api/brief?since=&source=&q=`（Moodle 条目包含 `dueAt` / `deadlineKind`）
 - `GET /api/items/:id`

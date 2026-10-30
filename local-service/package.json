@@ -13,10 +13,13 @@
     "test": "vitest run",
     "check": "npm test && npm run build",
     "eval": "node ../scripts/evaluation/replay-triage.test.mjs",
-    "retriage": "tsx src/scripts/retriage.ts"
+    "retriage": "tsx src/scripts/retriage.ts",
+    "mcp": "node dist/mcp-stdio.js",
+    "mcp:dev": "tsx src/mcp-stdio.ts"
   },
   "dependencies": {
     "@fastify/static": "^10.1.8",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "fastify": "^5.12.7",
     "jszip": "^3.10.2",
     "node-html-parser": "^9.0.5",

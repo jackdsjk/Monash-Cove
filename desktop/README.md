@@ -74,6 +74,24 @@ GOOGLE_REDIRECT_URI=http://127.0.0.1:4317/oauth/google/callback
 
 依赖本机安装的 Google Chrome。App 没有内嵌 Chromium。
 
+## MCP
+
+桌面 App 也包含本地 MCP bridge。外部 Agent 建议使用 stdio：
+
+```json
+{
+  "mcpServers": {
+    "cove": {
+      "command": "node",
+      "args": ["/absolute/path/to/local-service/dist/mcp-stdio.js"],
+      "env": { "COVE_API_URL": "http://127.0.0.1:4317" }
+    }
+  }
+}
+```
+
+完整说明见 [docs/mcp.md](../docs/mcp.md)。
+
 ## 数据位置
 
 - macOS：`~/Library/Application Support/Cove/`

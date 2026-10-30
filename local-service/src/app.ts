@@ -5,6 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { createDatabase, type CoveDatabase } from "./db.js";
+import { randomUUID } from "node:crypto";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createCoveMcpServer } from "./mcp.js";
 import { GoogleOAuth, OAuthError, type GoogleOAuthConfig } from "./oauth/google.js";
 import { defaultSecretStore, type SecretStore } from "./secrets.js";
 import { SyncOrchestrator } from "./sync/orchestrator.js";
@@ -70,6 +73,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const orchestrator = new SyncOrchestrator(db, secrets, google, options.fetcher ?? fetch);
   const fullSyncJobs = new FullSyncJobs();
   const moodleAssistant = new MoodleLoginAssistant(secrets, db);
+  const mcpSessions = new Map<string, StreamableHTTPServerTransport>();
   if (options.autoSync) {
     const timer = setInterval(() => void orchestrator.syncAll(), 60 * 60 * 1000);
     timer.unref();
@@ -96,6 +100,45 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
 
   app.get("/api/health", async () => ({ ok: true }));
+
+  app.post<{ Body: unknown }>("/mcp", async (request, reply) => {
+    const requestedSession = request.headers["mcp-session-id"];
+    let transport = typeof requestedSession === "string" ? mcpSessions.get(requestedSession) : undefined;
+    if (!transport) {
+      const mcp = createCoveMcpServer();
+      transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (sessionId) => {
+          if (transport) mcpSessions.set(sessionId, transport);
+        },
+      });
+      transport.onclose = () => {
+        if (transport?.sessionId) mcpSessions.delete(transport.sessionId);
+      };
+      await mcp.connect(transport);
+    }
+    reply.hijack();
+    await transport.handleRequest(request.raw, reply.raw, request.body);
+    return reply;
+  });
+
+  app.get("/mcp", async (request, reply) => {
+    const sessionId = request.headers["mcp-session-id"];
+    const transport = typeof sessionId === "string" ? mcpSessions.get(sessionId) : undefined;
+    if (!transport) return reply.code(400).send({ error: { code: "mcp_session", message: "Missing or unknown MCP session.", retryable: false } });
+    reply.hijack();
+    await transport.handleRequest(request.raw, reply.raw);
+    return reply;
+  });
+
+  app.delete("/mcp", async (request, reply) => {
+    const sessionId = request.headers["mcp-session-id"];
+    const transport = typeof sessionId === "string" ? mcpSessions.get(sessionId) : undefined;
+    if (!transport) return reply.code(400).send({ error: { code: "mcp_session", message: "Missing or unknown MCP session.", retryable: false } });
+    reply.hijack();
+    await transport.handleRequest(request.raw, reply.raw);
+    return reply;
+  });
 
   app.get("/api/sources", async () => ({ sources: db.listSources() }));
 

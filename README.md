@@ -16,6 +16,26 @@ Cove 是一个本地优先的校园信息分诊应用：把 Gmail、Ed 和 Moodl
 
 当前 macOS 包未签名，正式分发需要 Developer ID 和 notarization；Windows 包未在真实 Windows 机器测试。
 
+## MCP
+
+Cove 暴露一个本地只读 MCP 接口，外部 Agent 可以通过 stdio 或 Streamable HTTP 使用简报、截止时间、来源状态和课程资料。
+
+完整接入说明：[docs/mcp.md](docs/mcp.md)。
+
+快速配置：
+
+```json
+{
+  "mcpServers": {
+    "cove": {
+      "command": "node",
+      "args": ["/absolute/path/to/Monash Agent/local-service/dist/mcp-stdio.js"],
+      "env": { "COVE_API_URL": "http://127.0.0.1:4317" }
+    }
+  }
+}
+```
+
 ## 本地运行
 
 ```bash

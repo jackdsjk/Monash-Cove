@@ -158,6 +158,13 @@ Marks items read and stores `last_checked_at`. Response `{ "ok": true, "lastChec
 
 Returns the updated item. `404` when missing; values are persisted in SQLite.
 
+## MCP
+
+- `POST/GET/DELETE /mcp`: Streamable HTTP transport.
+- `local-service/dist/mcp-stdio.js`: stdio bridge.
+- Read-only tools: `cove_brief`, `cove_get_item`, `cove_deadlines`, `cove_sources`, `cove_sync_status`, `cove_courses`, `cove_materials`.
+- No sync, download, credential, correction, or submit tools.
+
 ## GET /api/runtime/status
 
 Returns platform/arch, Node version, data directory, and checks for Node, Google Chrome, Google OAuth, and credential storage.
