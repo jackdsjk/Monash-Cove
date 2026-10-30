@@ -12,6 +12,7 @@ export interface GmailMessage {
 
 export interface GmailSyncClient {
   listMessageIds(maxResults?: number): Promise<string[]>;
+  listAllMessageIds?(onProgress?: (processed: number) => void): Promise<string[]>;
   listHistoryMessageIds?(startHistoryId: string): Promise<string[]>;
   getMessage(id: string): Promise<GmailMessage>;
   getHistoryId(): Promise<string>;
@@ -48,10 +49,16 @@ export class GmailClient implements GmailSyncClient {
     private readonly fetcher: typeof fetch = fetch,
   ) {}
 
-  private async request<T>(path: string): Promise<T> {
+  private async request<T>(path: string, attempt = 0): Promise<T> {
     const response = await this.fetcher(`https://gmail.googleapis.com/gmail/v1${path}`, {
       headers: { authorization: `Bearer ${this.accessToken}` },
     });
+    if ((response.status === 429 || response.status === 403) && attempt < 5) {
+      const retryAfter = Number(response.headers.get("retry-after") ?? 0);
+      const waitMs = retryAfter > 0 ? retryAfter * 1_000 : Math.min(30_000, 1_000 * 2 ** attempt);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      return this.request<T>(path, attempt + 1);
+    }
     if (!response.ok) throw new GmailError(response.status, `Gmail API returned HTTP ${response.status}.`);
     return (await response.json()) as T;
   }
@@ -60,6 +67,22 @@ export class GmailClient implements GmailSyncClient {
     const profile = await this.request<{ historyId?: string }>("/users/me/profile");
     if (!profile.historyId) throw new GmailError(502, "Gmail profile did not include historyId.");
     return profile.historyId;
+  }
+
+  async listAllMessageIds(onProgress?: (processed: number) => void): Promise<string[]> {
+    const ids: string[] = [];
+    let pageToken: string | undefined;
+    do {
+      const params = new URLSearchParams({ maxResults: "100", includeSpamTrash: "true" });
+      if (pageToken) params.set("pageToken", pageToken);
+      const data = await this.request<{ messages?: Array<{ id?: string }>; nextPageToken?: string }>(
+        `/users/me/messages?${params.toString()}`,
+      );
+      ids.push(...(data.messages ?? []).map((message) => message.id).filter((id): id is string => Boolean(id)));
+      onProgress?.(ids.length);
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+    return ids;
   }
 
   async listMessageIds(maxResults = 20): Promise<string[]> {

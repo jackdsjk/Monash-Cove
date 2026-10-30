@@ -57,9 +57,18 @@ async function persist(db: CoveDatabase, source: Source, raw: RawSourceItem[], m
   return { synced: raw.length };
 }
 
-export async function syncEd(db: CoveDatabase, token: string, region: EdRegion = "us", fetcher?: typeof fetch) {
+export async function syncEd(
+  db: CoveDatabase,
+  token: string,
+  region: EdRegion = "us",
+  fetcher?: typeof fetch,
+  options: { full?: boolean; onProgress?: (processed: number, total: number | null) => void } = {},
+) {
   const client = new EdClient(token, region, fetcher ?? fetch);
-  const raw = await client.pull();
+  const raw = options.full
+    ? await client.pullAll(options.onProgress)
+    : await client.pull();
+  if (options.full) db.setSetting("ed_full_synced_at", new Date().toISOString());
   return persist(db, "ed", raw);
 }
 

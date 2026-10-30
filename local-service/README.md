@@ -52,6 +52,7 @@ npm run retriage
 - `GET /api/moodle/courses` / `POST /api/moodle/content-sync` / `GET /api/moodle/content?courseId=`
 - `GET /api/moodle/download?url=`（仅 `mod/resource`，服务端用本机 session 代理文件）
 - `POST /api/moodle/download-batch`（1–100 个 resource，返回 ZIP）
+- `POST /api/sync/full` / `GET /api/sync/status`（首次全量后台任务与进度）
 - `GET /api/sources`
 - `POST /api/check`
 - `PATCH /api/items/:id/correction`

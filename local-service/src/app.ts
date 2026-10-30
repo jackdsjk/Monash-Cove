@@ -6,6 +6,10 @@ import { createDatabase, type CoveDatabase } from "./db.js";
 import { GoogleOAuth, OAuthError, type GoogleOAuthConfig } from "./oauth/google.js";
 import { defaultSecretStore, type SecretStore } from "./secrets.js";
 import { SyncOrchestrator } from "./sync/orchestrator.js";
+import { syncGmail } from "./sync/gmail.js";
+import { syncEd, syncMoodle, syncMoodleForum } from "./sync/sources.js";
+import { syncAllMoodleContent } from "./sync/moodle-content.js";
+import { FullSyncJobs } from "./sync/jobs.js";
 import { MoodleClient } from "./sources/moodle.js";
 import { syncMoodleContent } from "./sync/moodle-content.js";
 import { downloadMoodleResource, MoodleDownloadError } from "./moodle-download.js";
@@ -60,6 +64,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const secrets = options.secretStore ?? defaultSecretStore();
   const google = new GoogleOAuth(options.google ?? null, secrets, options.fetcher ?? fetch);
   const orchestrator = new SyncOrchestrator(db, secrets, google, options.fetcher ?? fetch);
+  const fullSyncJobs = new FullSyncJobs();
   if (options.autoSync) {
     const timer = setInterval(() => void orchestrator.syncAll(), 60 * 60 * 1000);
     timer.unref();
@@ -289,6 +294,72 @@ export function buildApp(options: AppOptions): FastifyInstance {
       return reply.code(400).send({ error: { code: "invalid_course", message: "courseId is required.", retryable: false } } satisfies ApiError);
     }
     return { courseId, items: db.listMoodleContent(courseId) };
+  });
+
+  app.get("/api/sync/status", async () => ({
+    fullSyncCompleted: Boolean(db.getSetting("full_sync_completed_at")),
+    job: fullSyncJobs.get(),
+  }));
+
+  app.post("/api/sync/full", async (_request, reply) => {
+    const job = fullSyncJobs.begin();
+    if (!job) return reply.code(409).send({ error: { code: "sync_running", message: "A full sync is already running.", retryable: false } } satisfies ApiError);
+
+    void (async () => {
+      const errors: string[] = [];
+      fullSyncJobs.update("gmail", { status: "running" });
+      try {
+        await syncGmail(db, await google.client(), {
+          full: true,
+          onProgress: (processed, total) => fullSyncJobs.update("gmail", { processed, total }),
+        });
+        fullSyncJobs.update("gmail", { status: "done" });
+      } catch (error) {
+        errors.push(`Gmail: ${error instanceof Error ? error.message : "failed"}`);
+        fullSyncJobs.update("gmail", { status: "error", message: errors.at(-1) });
+      }
+
+      fullSyncJobs.update("ed", { status: "running" });
+      try {
+        const raw = await secrets.get("ed-credentials");
+        if (!raw) throw new Error("Ed token is not configured.");
+        const credentials = edCredentials.parse(JSON.parse(raw));
+        await syncEd(db, credentials.token, credentials.region, options.fetcher, {
+          full: true,
+          onProgress: (processed, total) => fullSyncJobs.update("ed", { processed, total }),
+        });
+        fullSyncJobs.update("ed", { status: "done" });
+      } catch (error) {
+        errors.push(`Ed: ${error instanceof Error ? error.message : "failed"}`);
+        fullSyncJobs.update("ed", { status: "error", message: errors.at(-1) });
+      }
+
+      fullSyncJobs.update("moodle", { status: "running" });
+      try {
+        const raw = await secrets.get("moodle-credentials");
+        if (!raw) throw new Error("Moodle session is not configured.");
+        const credentials = moodleCredentials.parse(JSON.parse(raw));
+        const assessments = await syncMoodle(db, credentials.baseUrl, credentials.session, options.fetcher);
+        const forum = await syncMoodleForum(db, credentials.baseUrl, credentials.session, options.fetcher);
+        const content = await syncAllMoodleContent(db, credentials.baseUrl, credentials.session, options.fetcher, (processed, total) => {
+          fullSyncJobs.update("moodle", { processed, total });
+        });
+        fullSyncJobs.update("moodle", { status: "done", processed: content.courses, total: content.courses, message: `${assessments.synced + forum.synced} 条简报，${content.items} 条资料` });
+        db.setSetting("moodle_full_synced_at", new Date().toISOString());
+      } catch (error) {
+        errors.push(`Moodle: ${error instanceof Error ? error.message : "failed"}`);
+        fullSyncJobs.update("moodle", { status: "error", message: errors.at(-1) });
+      }
+
+      if (errors.length === 0) {
+        db.setSetting("full_sync_completed_at", new Date().toISOString());
+        fullSyncJobs.complete();
+      } else {
+        fullSyncJobs.fail(errors.join(" | "));
+      }
+    })();
+
+    return reply.code(202).send({ job });
   });
 
   app.post<{ Body: { source?: string } }>("/api/sync", async (request, reply) => {

@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ApiOutlined, BookOutlined, ClockCircleOutlined, InboxOutlined, SettingOutlined } from "@ant-design/icons";
 import { Badge, Layout, Menu, Space, Typography } from "antd";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { fetchSources } from "../data/repository";
+import { fetchSources, fetchSyncStatus } from "../data/repository";
 import CommandPalette from "./CommandPalette";
 import { SOURCE_LABELS } from "../lib/triage";
 import type { Source } from "../types";
@@ -22,6 +22,33 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [counts, setCounts] = useState<Record<Source, number>>({ gmail: 0, ed: 0, moodle: 0 });
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const status = await fetchSyncStatus();
+        if (!status.fullSyncCompleted || status.job?.status === "running") return;
+        const key = "cove-last-open-sync";
+        const last = Number(window.sessionStorage.getItem(key) ?? 0);
+        if (Date.now() - last < 5 * 60_000) return;
+        window.sessionStorage.setItem(key, String(Date.now()));
+        for (const source of ["gmail", "ed", "moodle"] as const) {
+          await fetch("/api/sync", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ source }),
+          }).catch(() => undefined);
+        }
+        if (active) await fetchSources();
+      } catch {
+        // Opening the app should still work when sync is unavailable.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;

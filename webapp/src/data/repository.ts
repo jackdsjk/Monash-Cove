@@ -1,4 +1,4 @@
-import type { BriefItem, MoodleContentItem, MoodleCourse, SourceStatus } from "../types";
+import type { BriefItem, MoodleContentItem, MoodleCourse, SourceStatus, SyncStatus } from "../types";
 
 export interface BriefData {
   items: BriefItem[];
@@ -26,6 +26,17 @@ export async function fetchBrief(): Promise<BriefData> {
 export async function fetchSources(): Promise<SourceStatus[]> {
   const data = await getJson<{ sources: SourceStatus[] }>("/sources");
   return data.sources;
+}
+
+export async function fetchSyncStatus(): Promise<SyncStatus> {
+  return getJson<SyncStatus>("/sync/status");
+}
+
+export async function startFullSync(): Promise<SyncStatus["job"]> {
+  const response = await fetch("/api/sync/full", { method: "POST" });
+  const body = (await response.json().catch(() => null)) as { job?: SyncStatus["job"]; error?: { message?: string } } | null;
+  if (!response.ok) throw new Error(body?.error?.message ?? `Full sync returned ${response.status}`);
+  return body?.job ?? null;
 }
 
 export async function fetchMoodleCourses(): Promise<MoodleCourse[]> {

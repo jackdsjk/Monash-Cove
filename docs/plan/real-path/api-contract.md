@@ -136,6 +136,26 @@ Marks items read and stores `last_checked_at`. Response `{ "ok": true, "lastChec
 
 Returns the updated item. `404` when missing; values are persisted in SQLite.
 
+## POST /api/sync/full
+
+Starts a background full sync (`202`) and returns `{ job }`. All three sources are attempted; `full_sync_completed_at` is set only when every source succeeds.
+
+## GET /api/sync/status
+
+```json
+{
+  "fullSyncCompleted": false,
+  "job": {
+    "status": "running",
+    "sources": {
+      "gmail": { "status": "running", "processed": 134, "total": 678 },
+      "ed": { "status": "pending", "processed": 0, "total": null },
+      "moodle": { "status": "pending", "processed": 0, "total": null }
+    }
+  }
+}
+```
+
 ## POST /api/sync
 
 ```json

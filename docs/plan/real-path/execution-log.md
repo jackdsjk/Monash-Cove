@@ -25,3 +25,4 @@
 | 2026-10-30 | S9 (assignment resources) | browser; batch API | 作业筛选下显示 4 个 Specification、3 个可下载 Reflection 模板；4 个 Specification 批量 ZIP 200 | URL 模块若 Moodle 端 404 会跳过 |
 | 2026-10-30 | S9 (countdown UI) | browser; 390px check | 深绿 hero + 分组行；HH:MM:SS 每秒更新；390px 无横向溢出 | 桌面/移动截图检查通过 |
 | 2026-10-30 | S9 (brief filters) | browser; 390px | 类型/课程/未读/来源/搜索组合筛选；清除筛选；390px 无横向溢出 | 25 条当前视图、100 条过去内容 |
+| 2026-10-30 | Full sync | `POST /api/sync/full`; status polling | Gmail 678/678；Ed 1586 threads；Moodle 10/10 courses, 535 资料；`full_sync_completed_at` 已写入；Gmail 全量按 100ms 节流避免 403 | 全量约 8–10 分钟 |

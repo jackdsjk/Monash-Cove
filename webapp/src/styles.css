@@ -1343,6 +1343,75 @@ a {
   width: 260px !important;
 }
 
+.full-sync-card {
+  margin-bottom: 20px;
+}
+
+.full-sync-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.full-sync-header h3 {
+  font-size: 18px;
+  margin: 0 0 4px;
+}
+
+.full-sync-header .ant-typography {
+  margin-bottom: 0;
+}
+
+.full-sync-progress {
+  border-top: 1px solid #f0f0f0;
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+}
+
+.full-sync-row {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 64px minmax(0, 1fr) 150px;
+}
+
+.full-sync-source {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.full-sync-count {
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 11px;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .full-sync-header {
+    display: block;
+  }
+
+  .full-sync-header .ant-btn {
+    margin-top: 10px;
+    width: 100%;
+  }
+
+  .full-sync-row {
+    grid-template-columns: 52px minmax(0, 1fr);
+  }
+
+  .full-sync-count {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+}
+
 .source-actions {
   margin-top: 16px;
 }

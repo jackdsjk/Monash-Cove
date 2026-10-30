@@ -16,6 +16,26 @@ export type Importance = "critical" | "important" | "reference" | "skip";
 export type ActionRequired = "yes" | "no" | "uncertain";
 export type OpenOriginal = "required" | "optional" | "no";
 
+export interface SyncSourceProgress {
+  status: "pending" | "running" | "done" | "error";
+  processed: number;
+  total: number | null;
+  message?: string;
+}
+
+export interface FullSyncJob {
+  id: string;
+  status: "running" | "done" | "error";
+  startedAt: string;
+  finishedAt?: string;
+  sources: Record<Source, SyncSourceProgress>;
+}
+
+export interface SyncStatus {
+  fullSyncCompleted: boolean;
+  job: FullSyncJob | null;
+}
+
 export interface SourceStatus {
   id: Source;
   label: string;

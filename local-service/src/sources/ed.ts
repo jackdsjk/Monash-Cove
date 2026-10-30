@@ -42,6 +42,31 @@ export class EdClient {
     return (await response.json()) as T;
   }
 
+  async pullAll(onProgress?: (processed: number, total: number | null) => void): Promise<EdRawItem[]> {
+    const identity = await this.get<{ courses?: Array<{ course?: { id?: number; name?: string; code?: string; status?: string } }> }>("user");
+    const courses = (identity.courses ?? [])
+      .map((entry) => entry.course)
+      .filter((course): course is { id: number; name?: string; code?: string; status?: string } => Boolean(course?.id));
+    const result: EdRawItem[] = [];
+    for (const course of courses) {
+      let offset = 0;
+      const limit = 100;
+      while (true) {
+        const data = await this.get<{ threads?: EdThread[] }>(`courses/${course.id}/threads`, {
+          limit: String(limit),
+          offset: String(offset),
+          sort: "new",
+        });
+        const threads = data.threads ?? [];
+        result.push(...threads.map((thread) => this.mapThread(thread, course)));
+        onProgress?.(result.length, null);
+        offset += threads.length;
+        if (threads.length < limit) break;
+      }
+    }
+    return result;
+  }
+
   async pull(threadLimit = 30): Promise<EdRawItem[]> {
     const identity = await this.get<{ courses?: Array<{ course?: { id?: number; name?: string; code?: string; status?: string } }> }>("user");
     const courses = (identity.courses ?? [])

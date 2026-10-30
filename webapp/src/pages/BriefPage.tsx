@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { HistoryOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { Alert, App as AntApp, Button, Card, Col, Collapse, Empty, Input, Row, Segmented, Select, Skeleton, Space, Statistic, Switch, Tag, Typography } from "antd";
-import { fetchBrief } from "../data/repository";
+import { fetchBrief, fetchSyncStatus, startFullSync } from "../data/repository";
 import ItemCard from "../components/ItemCard";
 import ItemDrawer from "../components/ItemDrawer";
 import FeedbackModal from "../components/FeedbackModal";
@@ -154,30 +154,56 @@ export default function BriefPage() {
 
   const handleSync = async () => {
     setSyncing(true);
-    const failures: string[] = [];
-    for (const itemSource of ["gmail", "ed", "moodle"] as const) {
-      try {
-        const response = await fetch("/api/sync", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ source: itemSource }),
-        });
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-          failures.push(`${itemSource}: ${body?.error?.message ?? response.statusText}`);
+    try {
+      const status = await fetchSyncStatus();
+      if (!status.fullSyncCompleted) {
+        message.info("首次使用：先执行全量同步，完成后会切到增量");
+        try {
+          await startFullSync();
+        } catch (cause) {
+          // A job may already be running (for example from the Sources page).
+          if (!(cause instanceof Error) || !cause.message.includes("already running")) throw cause;
         }
-      } catch (cause) {
-        failures.push(`${itemSource}: ${cause instanceof Error ? cause.message : "network error"}`);
+        for (let attempt = 0; attempt < 900; attempt += 1) {
+          const current = await fetchSyncStatus();
+          if (current.fullSyncCompleted) break;
+          if (current.job?.status === "error") throw new Error("全量同步失败，请到数据源页查看失败来源");
+          await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+        }
+        await load();
+        setView("since");
+        message.success("首次全量同步完成");
+        return;
       }
+
+      const failures: string[] = [];
+      for (const itemSource of ["gmail", "ed", "moodle"] as const) {
+        try {
+          const response = await fetch("/api/sync", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ source: itemSource }),
+          });
+          if (!response.ok) {
+            const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+            failures.push(`${itemSource}: ${body?.error?.message ?? response.statusText}`);
+          }
+        } catch (cause) {
+          failures.push(`${itemSource}: ${cause instanceof Error ? cause.message : "network error"}`);
+        }
+      }
+      await load();
+      setView("since");
+      if (failures.length > 0) {
+        message.warning(`部分来源未同步：${failures.join("；")}`);
+      } else {
+        message.success("Gmail / Ed / Moodle 增量同步完成");
+      }
+    } catch (cause) {
+      message.error(cause instanceof Error ? cause.message : "同步失败");
+    } finally {
+      setSyncing(false);
     }
-    await load();
-    setView("since");
-    if (failures.length > 0) {
-      message.warning(`部分来源未同步：${failures.join("；")}`);
-    } else {
-      message.success("Gmail / Ed / Moodle 同步完成");
-    }
-    setSyncing(false);
   };
 
   const handleFeedback = (feedback: Feedback) => {

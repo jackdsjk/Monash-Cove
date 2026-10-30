@@ -27,3 +27,23 @@ export async function syncMoodleContent(
   const sections = new Set(rows.map((row) => row.sectionNumber)).size;
   return { courseId: String(courseId), courseName: course.shortname || course.fullname, sections, items: rows.length };
 }
+
+export async function syncAllMoodleContent(
+  db: CoveDatabase,
+  baseUrl: string,
+  session: string,
+  fetcher?: typeof fetch,
+  onProgress?: (processed: number, total: number | null) => void,
+): Promise<{ courses: number; items: number }> {
+  const moodle = new MoodleClient(baseUrl, session, fetcher ?? fetch);
+  const courses = await moodle.listCourses();
+  const scraper = new MoodleContentClient(baseUrl, session, fetcher ?? fetch);
+  let items = 0;
+  for (const [index, course] of courses.entries()) {
+    const rows = await scraper.scrapeCourse(course.id, course.shortname || course.fullname);
+    db.replaceMoodleContent(String(course.id), rows);
+    items += rows.length;
+    onProgress?.(index + 1, courses.length);
+  }
+  return { courses: courses.length, items };
+}
