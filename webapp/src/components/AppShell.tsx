@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ApiOutlined, BookOutlined, ClockCircleOutlined, InboxOutlined, SettingOutlined } from "@ant-design/icons";
-import { Badge, Layout, Menu, Typography } from "antd";
+import { Badge, Layout, Menu, Space, Typography } from "antd";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { fetchSources } from "../data/repository";
+import CommandPalette from "./CommandPalette";
 import { SOURCE_LABELS } from "../lib/triage";
 import type { Source } from "../types";
 
@@ -105,7 +106,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
         <Content className="app-content">
           <header className="content-topbar">
             <Typography.Text type="secondary">{title}</Typography.Text>
-            <Typography.Text type="secondary">本地模式 · 仅本机存储</Typography.Text>
+            <Space size={12} align="center">
+              <CommandPalette />
+              <Typography.Text type="secondary">本地模式 · 仅本机存储</Typography.Text>
+            </Space>
           </header>
           <div className="page-container">{children}</div>
         </Content>

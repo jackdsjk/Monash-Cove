@@ -9,6 +9,7 @@ docs/.miaoyan-conflicts/
 
 # 通用
 node_modules/
+.npm-cache/
 .DS_Store
 *.log
 

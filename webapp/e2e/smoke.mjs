@@ -48,6 +48,13 @@ try {
   await page.locator(".item-card").first().waitFor();
   assert.ok((await page.locator(".item-card").count()) > 0, "brief should show items");
 
+  await page.locator(".command-trigger").click();
+  await page.locator(".command-palette").waitFor();
+  await page.getByRole("option", { name: /数据源/ }).click();
+  await page.getByRole("heading", { name: "数据源" }).waitFor();
+  await page.getByRole("menuitem", { name: "简报" }).click();
+  await page.locator(".item-card").first().waitFor();
+
   await page.locator(".item-title").first().click();
   await page.locator(".ant-drawer-open").waitFor();
   await page.getByRole("button", { name: "反馈判断" }).click();

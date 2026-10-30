@@ -12,6 +12,7 @@
 | [webapp-design.md](webapp-design.md) | 本地 Web App 的信息架构、布局、token、组件映射和状态设计 | **设计已落地为 v0.1 骨架** |
 | [../webapp/README.md](../webapp/README.md) | 本地 Web App 的运行、范围和边界 | **S1–S8 完成；三源 live；Moodle 论坛当前无内容** |
 | [../local-service/README.md](../local-service/README.md) | 本地 Node/SQLite/API 服务、运行方式、安全边界 | **S1–S8 完成；三源 live；Moodle 论坛当前无内容** |
+| [ui-component-audit-2026-10-30.md](ui-component-audit-2026-10-30.md) | 前端组件现状、第三方 UI 仓库索引、替换表和本次小幅改造 | **Command palette 已落地** |
 | [plan/real-path/plan.md](plan/real-path/plan.md) | Agent 执行计划：S1–S8、连续执行规则、阶段验收和阻塞处理 | **S1 ready；未开始实现** |
 | [information-triage-labeling-guide.md](information-triage-labeling-guide.md) | 真实样本的匿名化、人工标注口径与第一版评测指标 | **当前评测规范** |
 | [value-replay-2026-10-28.md](value-replay-2026-10-28.md) | 第一轮真实数据统计、价值判断及继续/停止标准 | **当前验证记录** |
