@@ -21,3 +21,4 @@
 | 2026-10-30 | S9 (materials) | browser; `POST /api/moodle/content-sync` | FIT1047 17 个板块、173 条；资料/作业/公告/说明分组；独立侧栏页 | 公告为链接，未抓正文；文件下载未实现 |
 | 2026-10-30 | S9 (materials v2) | `POST /api/moodle/content-sync`; real download; API probe | 公告正文 `mod_forum_get_discussion_posts`；resource 下载返回 ZIP；每周资料页显示下载按钮 | assignment submissions 不下载 |
 | 2026-10-30 | S9 (materials filter) | browser | 搜索、类型、板块筛选；资料筛选 61 条；移动端 390px 无横向溢出 | 长列表问题已缓解 |
+| 2026-10-30 | S9 (batch download) | browser; `POST /api/moodle/download-batch` | 60 个可下载资料全选；批量 ZIP 实测 2 个文件 200；单选/全选/筛选后全选正常 | 单文件 50MB；批量总 100MB |

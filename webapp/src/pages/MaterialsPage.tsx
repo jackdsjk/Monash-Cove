@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, App as AntApp, Button, Card, Col, Empty, Input, Row, Segmented, Select, Skeleton, Space, Tag, Typography } from "antd";
-import { BookOutlined, FileTextOutlined, LinkOutlined, NotificationOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
+import { Alert, App as AntApp, Button, Card, Checkbox, Col, Empty, Input, Row, Segmented, Select, Skeleton, Space, Tag, Typography } from "antd";
+import { BookOutlined, DownloadOutlined, FileTextOutlined, LinkOutlined, NotificationOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { Link } from "react-router-dom";
 import { fetchMoodleContent, fetchMoodleCourses, syncMoodleContent } from "../data/repository";
 import type { MoodleContentItem, MoodleCourse } from "../types";
@@ -47,6 +47,8 @@ export default function MaterialsPage() {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "materials" | "work" | "forum" | "other">("all");
   const [sectionFilter, setSectionFilter] = useState("all");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -154,6 +156,56 @@ export default function MaterialsPage() {
 
   const materialCount = filteredItems.filter((item) => categoryOf(item) === "materials").length;
   const otherCount = filteredItems.filter((item) => categoryOf(item) === "other").length;
+  const downloadableItems = useMemo(() => filteredItems.filter((item) => item.module === "resource"), [filteredItems]);
+  const allSelected = downloadableItems.length > 0 && downloadableItems.every((item) => selected.includes(item.id));
+  const someSelected = downloadableItems.some((item) => selected.includes(item.id));
+
+  useEffect(() => {
+    setSelected([]);
+  }, [courseId, query, sectionFilter, typeFilter]);
+
+  const toggleAll = (checked: boolean) => {
+    setSelected(checked ? downloadableItems.map((item) => item.id) : []);
+  };
+
+  const toggleOne = (id: string, checked: boolean) => {
+    setSelected((current) => (checked ? [...new Set([...current, id])] : current.filter((value) => value !== id)));
+  };
+
+  const downloadSelected = async () => {
+    const urls = items
+      .filter((item) => item.module === "resource" && selected.includes(item.id))
+      .map((item) => item.url);
+    if (urls.length === 0) return;
+    setDownloading(true);
+    try {
+      const response = await fetch("/api/moodle/download-batch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ urls }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+        throw new Error(body?.error?.message ?? `下载失败：HTTP ${response.status}`);
+      }
+      const blob = await response.blob();
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = href;
+      anchor.download = "cove-moodle-materials.zip";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+      const count = response.headers.get("x-cove-batch-count") ?? String(urls.length);
+      const skipped = response.headers.get("x-cove-batch-skipped");
+      message.success(`已打包 ${count} 个资料${skipped && skipped !== "0" ? `，跳过 ${skipped} 个` : ""}`);
+    } catch (cause) {
+      message.error(cause instanceof Error ? cause.message : "批量下载失败");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const resetFilters = () => {
     setQuery("");
@@ -257,6 +309,24 @@ export default function MaterialsPage() {
                 optionFilterProp="label"
               />
               <Typography.Text type="secondary">{filteredItems.length} 条</Typography.Text>
+              <Checkbox
+                className="materials-select-all"
+                checked={allSelected}
+                indeterminate={someSelected && !allSelected}
+                disabled={downloadableItems.length === 0}
+                onChange={(event) => toggleAll(event.target.checked)}
+              >
+                全选可下载资料（{downloadableItems.length}）
+              </Checkbox>
+              <Button
+                type="primary"
+                icon={<DownloadOutlined />}
+                loading={downloading}
+                disabled={selected.length === 0}
+                onClick={() => void downloadSelected()}
+              >
+                下载选中{selected.length > 0 ? `（${selected.length}）` : ""}
+              </Button>
             </Space>
           </Card>
 
@@ -331,6 +401,13 @@ export default function MaterialsPage() {
                         {group.map((item) => (
                           <div key={item.id} className="material-item">
                             <div className="material-item-title">
+                              {item.module === "resource" ? (
+                                <Checkbox
+                                  checked={selected.includes(item.id)}
+                                  onChange={(event) => toggleOne(item.id, event.target.checked)}
+                                  aria-label={`选择 ${item.title}`}
+                                />
+                              ) : null}
                               <Tag>{MODULE_LABELS[item.module] ?? item.module}</Tag>
                               <a href={item.url} target="_blank" rel="noreferrer">
                                 {item.title} <LinkOutlined />

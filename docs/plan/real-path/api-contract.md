@@ -104,6 +104,14 @@ Returns cached weekly rows: `sectionNumber`, `sectionTitle`, `module`, `title`, 
 
 Server-side proxy for a Moodle **resource** page. Validates that `url` belongs to the configured Moodle origin and points at `/mod/resource/view.php`; follows the resource redirect to `pluginfile.php` and returns the file as an attachment. Not used for assignment submissions or arbitrary URLs.
 
+## POST /api/moodle/download-batch
+
+```json
+{ "urls": ["https://learning.monash.edu/mod/resource/view.php?id=..."] }
+```
+
+Validates 1–100 Moodle resource URLs, downloads each with the local session, and returns one ZIP. Total uncompressed limit is 100 MB; failed/oversized files are skipped and reported via `x-cove-batch-count` / `x-cove-batch-skipped` headers.
+
 ## GET /api/items/:id
 
 Returns one item in the same shape as `items[]`; `404` when missing.

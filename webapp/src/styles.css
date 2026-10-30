@@ -615,6 +615,14 @@ a {
   width: 280px;
 }
 
+.materials-select-all {
+  margin-left: 4px;
+}
+
+.material-item-title .ant-checkbox-wrapper {
+  flex: 0 0 auto;
+}
+
 .section-filter {
   min-width: 190px;
 }
@@ -623,6 +631,10 @@ a {
   .materials-search,
   .section-filter {
     width: 100%;
+  }
+
+  .materials-select-all {
+    margin-left: 0;
   }
 }
 
