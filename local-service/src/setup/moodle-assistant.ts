@@ -4,6 +4,7 @@ import path from "node:path";
 import { chromium, type BrowserContext } from "playwright";
 import type { CoveDatabase } from "../db.js";
 import type { SecretStore } from "../secrets.js";
+import { MoodleClient } from "../sources/moodle.js";
 
 export type AssistantStatus = "idle" | "waiting_login" | "connected" | "error" | "cancelled";
 
@@ -59,15 +60,22 @@ export class MoodleLoginAssistant {
         const cookies = await this.context.cookies(this.baseUrl).catch(() => []);
         const session = cookies.find((cookie) => cookie.name === "MoodleSession" && cookie.value);
         if (session) {
-          await this.secrets.set(
-            "moodle-credentials",
-            JSON.stringify({ baseUrl: this.baseUrl, session: session.value }),
-          );
-          this.db.setSourceStatus("moodle", "connected", null, null);
-          this.state = { status: "connected", message: "Moodle session 已捕获并保存到本机 Keychain" };
-          await this.context.close().catch(() => undefined);
-          this.context = null;
-          return;
+          // A profile can contain an expired MoodleSession before the user logs
+          // in again. Only save a session that actually reaches the dashboard.
+          const valid = await new MoodleClient(this.baseUrl, session.value)
+            .validateSession()
+            .catch(() => false);
+          if (valid) {
+            await this.secrets.set(
+              "moodle-credentials",
+              JSON.stringify({ baseUrl: this.baseUrl, session: session.value }),
+            );
+            this.db.setSourceStatus("moodle", "connected", null, null);
+            this.state = { status: "connected", message: "Moodle session 已捕获并保存到本机 Keychain" };
+            await this.context.close().catch(() => undefined);
+            this.context = null;
+            return;
+          }
         }
         if (this.context.pages().length === 0) break;
         await new Promise((resolve) => setTimeout(resolve, 1_000));
