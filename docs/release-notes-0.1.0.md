@@ -19,6 +19,10 @@
 
 见 [安装说明](https://github.com/jackdsjk/Monash-Agent/blob/main/docs/desktop-install.md)。
 
+## 修复
+
+- 首次设置门控只在第一次从根页面进入时触发；全量同步期间切换简报、倒计时、每周资料或数据源，不再被强制送回设置页。
+
 ## 已知限制
 
 - macOS Electron 包未签名；公开版提供 CoveLauncher 快速启动器；
