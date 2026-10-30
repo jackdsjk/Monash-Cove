@@ -1506,6 +1506,22 @@ a {
   width: 260px !important;
 }
 
+.settings-card {
+  margin-bottom: 16px;
+}
+
+.settings-profile-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-profile-row .ant-input {
+  flex: 1 1 200px;
+  min-width: 160px;
+}
+
 .setup-loading {
   align-items: center;
   color: rgba(0, 0, 0, 0.55);

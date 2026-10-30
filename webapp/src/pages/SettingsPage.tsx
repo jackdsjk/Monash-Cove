@@ -1,13 +1,17 @@
 import { DeleteOutlined } from "@ant-design/icons";
-import { Alert, App as AntApp, Button, Card, Descriptions, Popconfirm, Space, Tag, Typography } from "antd";
+import { Alert, App as AntApp, Button, Card, Descriptions, Input, Popconfirm, Select, Space, Tag, Typography } from "antd";
 import { useEffect, useState } from "react";
+import FullSyncCard from "../components/FullSyncCard";
 import { fetchSources } from "../data/repository";
 import { useDemoStore } from "../state/DemoStateContext";
+import { REGION_OPTIONS, loadRegion, saveRegion, type CampusRegion } from "../lib/region";
 
 export default function SettingsPage() {
   const { message } = AntApp.useApp();
   const { state, reset } = useDemoStore();
   const [itemsCount, setItemsCount] = useState(0);
+  const [profileName, setProfileName] = useState(() => window.localStorage.getItem("cove-profile-name") ?? "");
+  const [region, setRegion] = useState<CampusRegion>(() => loadRegion() ?? "malaysia");
 
   useEffect(() => {
     let active = true;
@@ -21,8 +25,16 @@ export default function SettingsPage() {
     };
   }, []);
 
+  const saveProfile = () => {
+    window.localStorage.setItem("cove-profile-name", profileName.trim());
+    saveRegion(region);
+    message.success("本地称呼和地区已保存");
+  };
+
   const clear = () => {
     reset();
+    window.localStorage.removeItem("cove-profile-name");
+    window.localStorage.removeItem("cove-campus-region");
     message.success("本地数据和凭据已清除");
   };
 
@@ -41,6 +53,30 @@ export default function SettingsPage() {
           </Typography.Paragraph>
         </div>
       </header>
+
+      <Card className="settings-card" title="个人与地区">
+        <div className="settings-profile-row">
+          <Input
+            value={profileName}
+            onChange={(event) => setProfileName(event.target.value)}
+            placeholder="Cove 在本机怎么称呼你"
+            maxLength={40}
+          />
+          <Select
+            value={region}
+            onChange={(value) => { setRegion(value); saveRegion(value); }}
+            options={REGION_OPTIONS}
+            style={{ width: 132 }}
+            aria-label="所在地区"
+          />
+          <Button onClick={saveProfile}>保存</Button>
+        </div>
+        <Typography.Paragraph type="secondary" className="settings-note">
+          地区用于过滤 Moodle 课程和资料；只保存在本机浏览器。
+        </Typography.Paragraph>
+      </Card>
+
+      <FullSyncCard />
 
       <Card title="本地数据">
         <Descriptions

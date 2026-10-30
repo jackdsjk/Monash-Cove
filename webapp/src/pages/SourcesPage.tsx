@@ -1,10 +1,11 @@
 import { ApiOutlined, CheckCircleOutlined } from "@ant-design/icons";
-import { Alert, App as AntApp, Badge, Button, Card, Col, Descriptions, Form, Input, Modal, Progress, Row, Select, Space, Tag, Typography } from "antd";
+import { Alert, App as AntApp, Badge, Button, Card, Col, Descriptions, Form, Input, Modal, Row, Select, Space, Tag, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import CoveLoader from "../components/CoveLoader";
-import { fetchSources, fetchSyncStatus, startFullSync } from "../data/repository";
+import { Link } from "react-router-dom";
+import { fetchSources } from "../data/repository";
 import { SOURCE_LABELS } from "../lib/triage";
-import type { Source, SourceStatus, SyncStatus } from "../types";
+import type { Source, SourceStatus } from "../types";
 
 const sources: Array<{ source: Source; status: "success" | "warning"; lastSync: string; scope: string }> = [
   { source: "gmail", status: "success", lastSync: "12 分钟前", scope: "只读邮件与线程" },
@@ -16,18 +17,8 @@ export default function SourcesPage() {
   const { message } = AntApp.useApp();
   const [statuses, setStatuses] = useState<SourceStatus[]>([]);
   const [connectSource, setConnectSource] = useState<Source | null>(null);
-  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
-  const [startingFull, setStartingFull] = useState(false);
   const [loading, setLoading] = useState(true);
   const [form] = Form.useForm();
-
-  const loadSyncStatus = useCallback(async () => {
-    try {
-      setSyncStatus(await fetchSyncStatus());
-    } catch {
-      // Leave the last known status; source status still renders.
-    }
-  }, []);
 
   const loadStatuses = useCallback(async () => {
     try {
@@ -39,34 +30,13 @@ export default function SourcesPage() {
 
   useEffect(() => {
     let active = true;
-    void Promise.all([loadStatuses(), loadSyncStatus()]).finally(() => {
+    void Promise.resolve(loadStatuses()).finally(() => {
       if (active) setLoading(false);
     });
     return () => {
       active = false;
     };
-  }, [loadStatuses, loadSyncStatus]);
-
-  useEffect(() => {
-    if (syncStatus?.job?.status !== "running") return;
-    const timer = window.setInterval(() => {
-      void loadSyncStatus();
-      void loadStatuses();
-    }, 2_000);
-    return () => window.clearInterval(timer);
-  }, [loadStatuses, loadSyncStatus, syncStatus?.job?.status]);
-
-  const startFull = async () => {
-    setStartingFull(true);
-    try {
-      const job = await startFullSync();
-      setSyncStatus((previous) => ({ fullSyncCompleted: previous?.fullSyncCompleted ?? false, job }));
-    } catch (cause) {
-      message.error(cause instanceof Error ? cause.message : "全量同步启动失败");
-    } finally {
-      setStartingFull(false);
-    }
-  };
+  }, [loadStatuses]);
 
   const syncSource = async (source: Source) => {
     const response = await fetch("/api/sync", {
@@ -143,62 +113,8 @@ export default function SourcesPage() {
         type="info"
         showIcon
         message="本地数据源"
-        description="真实凭据只写入本机 Keychain；当前三个来源均已连接并显示真实同步结果。未连接时才使用匿名样本。"
+        description={<span>真实凭据只写入本机 Keychain；未连接时才使用匿名样本。全量同步和校区设置在 <Link to="/settings">设置</Link>。</span>}
       />
-
-      <Card className="full-sync-card" size="small">
-        <div className="full-sync-header">
-          <div>
-            <Typography.Title level={3}>
-              {syncStatus?.job?.status === "running"
-                ? "正在全量同步"
-                : syncStatus?.job?.status === "error"
-                  ? "全量同步未完成"
-                  : syncStatus?.fullSyncCompleted
-                    ? "全量同步已完成"
-                    : "首次全量同步"}
-            </Typography.Title>
-            <Typography.Paragraph type="secondary">
-              {syncStatus?.fullSyncCompleted
-                ? "Gmail、Ed、Moodle 已全量入库；日常打开 App 会自动做增量同步。"
-                : "新用户建议先跑一次全量：Gmail 全部邮件、Ed 全部课程帖子、Moodle 全部课程与资料。之后日常使用增量同步。"}
-            </Typography.Paragraph>
-          </div>
-          <Button type="primary" loading={startingFull || syncStatus?.job?.status === "running"} onClick={() => void startFull()}>
-            {syncStatus?.job?.status === "running"
-              ? "全量同步中…"
-              : syncStatus?.fullSyncCompleted
-                ? "重新全量同步"
-                : "首次全量同步"}
-          </Button>
-        </div>
-
-        {syncStatus?.job ? (
-          <div className="full-sync-progress">
-            {(["gmail", "ed", "moodle"] as Source[]).map((source) => {
-              const progress = syncStatus.job?.sources[source];
-              if (!progress) return null;
-              const percent = progress.total ? Math.round((progress.processed / progress.total) * 100) : progress.status === "done" ? 100 : 0;
-              return (
-                <div className="full-sync-row" key={source}>
-                  <span className="full-sync-source">{SOURCE_LABELS[source]}</span>
-                  <Progress
-                    percent={percent}
-                    size="small"
-                    showInfo={false}
-                    status={progress.status === "error" ? "exception" : progress.status === "running" ? "active" : "normal"}
-                  />
-                  <span className="full-sync-count">
-                    {progress.status === "pending" ? "等待" : progress.status === "error" ? progress.message ?? "失败" : progress.total ? `${progress.processed}/${progress.total}` : `${progress.processed} 条`}
-                  </span>
-                </div>
-              );
-            })}
-            {syncStatus.job.status === "done" ? <Typography.Text type="success">全量同步完成，后续会自动走增量。</Typography.Text> : null}
-            {syncStatus.job.status === "error" ? <Typography.Text type="danger">部分来源失败；修复后可以重新全量同步。</Typography.Text> : null}
-          </div>
-        ) : null}
-      </Card>
 
       <Row gutter={[16, 16]}>
         {sources.map((config) => {
