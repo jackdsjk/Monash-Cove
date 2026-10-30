@@ -52,6 +52,15 @@ export class MoodleClient {
     return { cookie: `MoodleSession=${this.session}` };
   }
 
+  async validateSession(): Promise<boolean> {
+    const response = await this.fetcher(`${this.baseUrl}/my/`, {
+      headers: this.headers(),
+      redirect: "manual",
+      signal: AbortSignal.timeout(15_000),
+    });
+    return response.ok;
+  }
+
   async listCourses(): Promise<MoodleCourseSummary[]> {
     const dashboard = await this.fetcher(`${this.baseUrl}/my/`, { headers: this.headers(), redirect: "manual" });
     if (!dashboard.ok) throw new Error(`Moodle dashboard returned HTTP ${dashboard.status}.`);

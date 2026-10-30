@@ -299,18 +299,26 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
 
   app.get("/api/setup/status", async () => {
-    const [gmail, ed, moodle] = await Promise.all([
-      google.connected(),
-      secrets.get("ed-credentials"),
-      secrets.get("moodle-credentials"),
-    ]);
+    const rawEd = await secrets.get("ed-credentials");
+    const rawMoodle = await secrets.get("moodle-credentials");
+    let moodle = false;
+    if (rawMoodle) {
+      try {
+        const credentials = moodleCredentials.parse(JSON.parse(rawMoodle));
+        moodle = await new MoodleClient(credentials.baseUrl, credentials.session, options.fetcher ?? fetch).validateSession();
+        if (!moodle) db.setSourceStatus("moodle", "degraded", null, "Moodle session expired; reconnect");
+      } catch {
+        moodle = false;
+      }
+    }
+    const gmail = await google.connected();
     const fullSyncCompleted = Boolean(db.getSetting("full_sync_completed_at"));
     return {
       gmailConnected: gmail,
-      edConnected: Boolean(ed),
-      moodleConnected: Boolean(moodle),
+      edConnected: Boolean(rawEd),
+      moodleConnected: moodle,
       fullSyncCompleted,
-      setupRequired: !gmail || !ed || !moodle || !fullSyncCompleted,
+      setupRequired: !gmail || !rawEd || !moodle || !fullSyncCompleted,
     };
   });
 
