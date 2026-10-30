@@ -10,7 +10,7 @@
 | desktop Electron smoke | passed |
 | packaged backend health/static | passed |
 
-Desktop smoke launches Electron in development, starts the bundled local-service path, and verifies the local URL and Cove UI.
+Desktop smoke launches Electron in development, starts the bundled local-service path, verifies the local URL and Cove UI, then completes the setup flow via “先使用匿名样例” and confirms `/api/health` from the renderer.
 
 ## Manual user test
 
