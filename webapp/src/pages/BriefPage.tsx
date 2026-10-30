@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { HistoryOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
-import { Alert, App as AntApp, Button, Card, Col, Collapse, Empty, Input, Row, Segmented, Skeleton, Space, Statistic, Switch, Tag, Typography } from "antd";
+import { Alert, App as AntApp, Button, Card, Col, Collapse, Empty, Input, Row, Segmented, Select, Skeleton, Space, Statistic, Switch, Tag, Typography } from "antd";
 import { fetchBrief } from "../data/repository";
 import ItemCard from "../components/ItemCard";
 import ItemDrawer from "../components/ItemDrawer";
@@ -12,12 +12,23 @@ import type { BriefItem, Feedback, Source } from "../types";
 
 type ViewMode = "since" | "all";
 type SourceFilter = "all" | Source;
+type TypeFilter = "all" | "critical" | "important" | "staff" | "material" | "admin" | "folded";
 
 const sourceOptions = [
   { label: "全部", value: "all" },
   { label: "Gmail", value: "gmail" },
   { label: "Ed", value: "ed" },
   { label: "Moodle", value: "moodle" },
+];
+
+const typeOptions = [
+  { label: "全部类型", value: "all" },
+  { label: "必须处理", value: "critical" },
+  { label: "重要", value: "important" },
+  { label: "教师答复", value: "staff" },
+  { label: "学习资料", value: "material" },
+  { label: "行政通知", value: "admin" },
+  { label: "已折叠", value: "folded" },
 ];
 
 export default function BriefPage() {
@@ -31,7 +42,10 @@ export default function BriefPage() {
   const [view, setView] = useState<ViewMode>("since");
   const [source, setSource] = useState<SourceFilter>("all");
   const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [courseFilter, setCourseFilter] = useState("all");
   const [onlyAction, setOnlyAction] = useState(false);
+  const [onlyUnread, setOnlyUnread] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [feedbackItem, setFeedbackItem] = useState<BriefItem | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -63,6 +77,26 @@ export default function BriefPage() {
     setSelectedId(requestedId);
   }, [items, markRead, requestedId]);
 
+  const courseOptions = useMemo(() => {
+    const courses = new Set(items.map((item) => item.course || "未归属课程"));
+    return [{ label: "全部课程", value: "all" }, ...[...courses].sort().map((course) => ({ label: course, value: course }))];
+  }, [items]);
+
+  const matchesExtraFilters = useCallback(
+    (item: BriefItem) => {
+      if (courseFilter !== "all" && (item.course || "未归属课程") !== courseFilter) return false;
+      if (onlyUnread && state.read[item.id]) return false;
+      if (typeFilter === "critical" && item.importance !== "critical") return false;
+      if (typeFilter === "important" && item.importance !== "important") return false;
+      if (typeFilter === "staff" && item.contentType !== "staff_answer") return false;
+      if (typeFilter === "material" && item.contentType !== "learning_material") return false;
+      if (typeFilter === "admin" && item.contentType !== "administrative") return false;
+      if (typeFilter === "folded" && !(item.importance === "skip" || item.importance === "reference" || state.corrections[item.id]?.dismissed)) return false;
+      return true;
+    },
+    [courseFilter, onlyUnread, state.corrections, state.read, typeFilter],
+  );
+
   const filtered = useMemo(
     () =>
       filterItems(items, {
@@ -70,20 +104,36 @@ export default function BriefPage() {
         query,
         onlyAction,
         sinceHours: view === "since" ? state.windowHours : null,
-      }),
-    [items, onlyAction, query, source, state.windowHours, view],
+      }).filter(matchesExtraFilters),
+    [items, matchesExtraFilters, onlyAction, query, source, state.windowHours, view],
   );
   const pastItems = useMemo(() => {
     if (view !== "since") return [];
-    return filterItems(items, { source, query, onlyAction, sinceHours: null }).filter(
-      (item) => item.ageHours > state.windowHours,
-    );
-  }, [items, onlyAction, query, source, state.windowHours, view]);
+    return filterItems(items, { source, query, onlyAction, sinceHours: null })
+      .filter((item) => item.ageHours > state.windowHours)
+      .filter(matchesExtraFilters);
+  }, [items, matchesExtraFilters, onlyAction, query, source, state.windowHours, view]);
   const groups = useMemo(() => groupBySection(filtered, state.corrections), [filtered, state.corrections]);
   const summary = useMemo(() => summarize(filtered, state.corrections), [filtered, state.corrections]);
   const selectedItem = selectedId ? items.find((item) => item.id === selectedId) ?? null : null;
   const selectedCorrection = selectedId ? state.corrections[selectedId] : undefined;
   const uncertainCount = filtered.filter((item) => item.actionRequired === "uncertain").length;
+  const activeFilterCount =
+    (source !== "all" ? 1 : 0) +
+    (query.trim() ? 1 : 0) +
+    (typeFilter !== "all" ? 1 : 0) +
+    (courseFilter !== "all" ? 1 : 0) +
+    (onlyAction ? 1 : 0) +
+    (onlyUnread ? 1 : 0);
+
+  const clearFilters = () => {
+    setSource("all");
+    setQuery("");
+    setTypeFilter("all");
+    setCourseFilter("all");
+    setOnlyAction(false);
+    setOnlyUnread(false);
+  };
 
   const subtitle =
     view === "all"
@@ -207,7 +257,7 @@ export default function BriefPage() {
         </Col>
       </Row>
 
-      <div className="toolbar">
+      <div className="toolbar brief-filter-bar">
         <Segmented
           className="source-filter"
           value={source}
@@ -222,10 +272,35 @@ export default function BriefPage() {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
+        <Select
+          className="brief-select"
+          value={typeFilter}
+          options={typeOptions}
+          onChange={(value) => setTypeFilter(value as TypeFilter)}
+          aria-label="按类型筛选"
+        />
+        <Select
+          className="brief-select brief-select--course"
+          value={courseFilter}
+          options={courseOptions}
+          onChange={setCourseFilter}
+          showSearch
+          optionFilterProp="label"
+          aria-label="按课程筛选"
+        />
         <label className="switch-label">
           <Switch checked={onlyAction} onChange={setOnlyAction} />
           只看需要行动
         </label>
+        <label className="switch-label">
+          <Switch checked={onlyUnread} onChange={setOnlyUnread} />
+          只看未读
+        </label>
+        {activeFilterCount > 0 ? (
+          <Button type="link" size="small" className="clear-filter" onClick={clearFilters}>
+            清除筛选（{activeFilterCount}）
+          </Button>
+        ) : null}
       </div>
 
       {filtered.length === 0 ? (

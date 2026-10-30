@@ -380,6 +380,34 @@ a {
   padding: 10px 0 16px;
 }
 
+.brief-filter-bar {
+  background: #fff;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  padding: 12px 14px;
+}
+
+.brief-filter-bar .search-input {
+  flex: 1 1 220px;
+  margin-left: 0;
+  max-width: none;
+}
+
+.brief-select {
+  min-width: 142px;
+}
+
+.brief-select--course {
+  min-width: 180px;
+}
+
+.clear-filter {
+  font-size: 12px;
+  height: 28px;
+  padding-inline: 4px;
+}
+
 .search-input {
   flex: 1;
   margin-left: auto;
@@ -1587,6 +1615,16 @@ a {
 
   .switch-label {
     margin-left: auto;
+  }
+
+  .brief-filter-bar .switch-label {
+    margin-left: 0;
+  }
+
+  .brief-select,
+  .brief-select--course {
+    flex: 1 1 100%;
+    width: 100%;
   }
 
   .item-card .ant-card-body {
