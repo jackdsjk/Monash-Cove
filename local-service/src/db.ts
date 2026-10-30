@@ -187,6 +187,9 @@ export class CoveDatabase {
     return rows.map((row) => {
       const id = String(row.id) as Source;
       const count = this.db.prepare("SELECT COUNT(*) AS n FROM items WHERE source = ? AND deleted_at IS NULL").get(id) as { n: number };
+      const contentCount = id === "moodle"
+        ? (this.db.prepare("SELECT COUNT(*) AS n FROM moodle_content").get() as { n: number }).n
+        : 0;
       return {
         id,
         label: String(row.label),
@@ -194,6 +197,7 @@ export class CoveDatabase {
         lastSyncAt: row.last_sync_at ? String(row.last_sync_at) : null,
         lastError: row.last_error ? String(row.last_error) : null,
         itemCount: count.n,
+        contentCount,
       };
     });
   }

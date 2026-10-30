@@ -22,6 +22,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [counts, setCounts] = useState<Record<Source, number>>({ gmail: 0, ed: 0, moodle: 0 });
+  const [moodleContentCount, setMoodleContentCount] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -56,7 +57,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
       .then((sources) => {
         if (!active) return;
         const next: Record<Source, number> = { gmail: 0, ed: 0, moodle: 0 };
-        for (const source of sources) next[source.id] = source.itemCount;
+        for (const source of sources) {
+          next[source.id] = source.itemCount;
+          if (source.id === "moodle") setMoodleContentCount(source.contentCount ?? 0);
+        }
         setCounts(next);
       })
       .catch(() => undefined);
@@ -117,6 +121,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 <span className={`source-dot source-dot--${source}`} />
                 <span>{SOURCE_LABELS[source]}</span>
                 <span className="sider-source-count">{counts[source]}</span>
+                {source === "moodle" && moodleContentCount > 0 ? (
+                  <span className="sider-source-extra">资料 {moodleContentCount}</span>
+                ) : null}
               </div>
             ))}
             <Badge className="sider-sync" status="success" text="本地数据" />

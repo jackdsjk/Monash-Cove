@@ -89,6 +89,7 @@ export interface SourceStatus {
   lastSyncAt: string | null;
   lastError: string | null;
   itemCount: number;
+  contentCount?: number;
 }
 
 export interface BriefResponse {

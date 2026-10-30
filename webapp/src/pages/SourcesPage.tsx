@@ -211,7 +211,14 @@ export default function SourcesPage() {
                   colon={false}
                   items={[
                     { key: "last", label: "最近同步", children: apiStatus?.lastSyncAt ? new Date(apiStatus.lastSyncAt).toLocaleString("zh-CN") : config.lastSync },
-                    { key: "scope", label: "读取范围", children: config.scope },
+                    {
+                      key: "scope",
+                      label: "读取范围",
+                      children:
+                        config.source === "moodle" && apiStatus?.contentCount
+                          ? `简报 ${count} 条 · 资料 ${apiStatus.contentCount} 条`
+                          : config.scope,
+                    },
                     { key: "count", label: "样本数", children: `${count} 条` },
                   ]}
                 />
