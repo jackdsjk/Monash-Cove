@@ -27,3 +27,4 @@
 | 2026-10-30 | S9 (brief filters) | browser; 390px | 类型/课程/未读/来源/搜索组合筛选；清除筛选；390px 无横向溢出 | 25 条当前视图、100 条过去内容 |
 | 2026-10-30 | Full sync | `POST /api/sync/full`; status polling | Gmail 678/678；Ed 1586 threads；Moodle 10/10 courses, 535 资料；`full_sync_completed_at` 已写入；Gmail 全量按 100ms 节流避免 403 | 全量约 8–10 分钟 |
 | 2026-10-30 | UI loader | browser; Playwright delayed API route | 简报/倒计时/每周资料/数据源页面使用 Cove 动态 loader；延迟 API 截图验证 | 加载结束自动切回内容 |
+| 2026-10-30 | Setup wizard | clean temp service 4318; browser | 无凭据时 `/` 自动跳 `/setup`；Gmail/Ed/Moodle 连接卡；Moodle 助手 start/cancel；全量按钮 | 真实 Moodle 登录需用户手动完成 |

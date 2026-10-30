@@ -31,6 +31,20 @@ export interface FullSyncJob {
   sources: Record<Source, SyncSourceProgress>;
 }
 
+export interface SetupStatus {
+  gmailConnected: boolean;
+  edConnected: boolean;
+  moodleConnected: boolean;
+  fullSyncCompleted: boolean;
+  setupRequired: boolean;
+}
+
+export interface MoodleAssistantState {
+  status: "idle" | "waiting_login" | "connected" | "error" | "cancelled";
+  message: string;
+  startedAt?: string;
+}
+
 export interface SyncStatus {
   fullSyncCompleted: boolean;
   job: FullSyncJob | null;

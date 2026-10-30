@@ -14,6 +14,7 @@ import { MoodleClient } from "./sources/moodle.js";
 import { syncMoodleContent } from "./sync/moodle-content.js";
 import { downloadMoodleResource, MoodleDownloadError } from "./moodle-download.js";
 import type { ApiError, Source } from "./domain.js";
+import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
 
 const sourceSchema = z.enum(["gmail", "ed", "moodle"]);
 
@@ -65,6 +66,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const google = new GoogleOAuth(options.google ?? null, secrets, options.fetcher ?? fetch);
   const orchestrator = new SyncOrchestrator(db, secrets, google, options.fetcher ?? fetch);
   const fullSyncJobs = new FullSyncJobs();
+  const moodleAssistant = new MoodleLoginAssistant(secrets, db);
   if (options.autoSync) {
     const timer = setInterval(() => void orchestrator.syncAll(), 60 * 60 * 1000);
     timer.unref();
@@ -295,6 +297,30 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
     return { courseId, items: db.listMoodleContent(courseId) };
   });
+
+  app.get("/api/setup/status", async () => {
+    const [gmail, ed, moodle] = await Promise.all([
+      google.connected(),
+      secrets.get("ed-credentials"),
+      secrets.get("moodle-credentials"),
+    ]);
+    const fullSyncCompleted = Boolean(db.getSetting("full_sync_completed_at"));
+    return {
+      gmailConnected: gmail,
+      edConnected: Boolean(ed),
+      moodleConnected: Boolean(moodle),
+      fullSyncCompleted,
+      setupRequired: !gmail || !ed || !moodle || !fullSyncCompleted,
+    };
+  });
+
+  app.post("/api/setup/moodle/start", async () => {
+    return { assistant: await moodleAssistant.start() };
+  });
+
+  app.get("/api/setup/moodle/status", async () => ({ assistant: moodleAssistant.get() }));
+
+  app.post("/api/setup/moodle/cancel", async () => ({ assistant: await moodleAssistant.cancel() }));
 
   app.get("/api/sync/status", async () => ({
     fullSyncCompleted: Boolean(db.getSetting("full_sync_completed_at")),

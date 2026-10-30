@@ -70,7 +70,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   const selectedKey = location.pathname === "/" ? "/" : location.pathname;
-  const title = location.pathname === "/sources" ? "数据源" : location.pathname === "/settings" ? "设置" : location.pathname === "/deadlines" ? "倒计时" : location.pathname === "/materials" ? "每周资料" : "简报";
+  const title = location.pathname === "/sources" ? "数据源" : location.pathname === "/settings" ? "设置" : location.pathname === "/deadlines" ? "倒计时" : location.pathname === "/materials" ? "每周资料" : location.pathname === "/setup" ? "首次设置" : "简报";
 
   useEffect(() => {
     document.title = `Cove · ${title}`;

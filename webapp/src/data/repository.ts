@@ -1,4 +1,4 @@
-import type { BriefItem, MoodleContentItem, MoodleCourse, SourceStatus, SyncStatus } from "../types";
+import type { BriefItem, MoodleAssistantState, MoodleContentItem, MoodleCourse, SetupStatus, SourceStatus, SyncStatus } from "../types";
 
 export interface BriefData {
   items: BriefItem[];
@@ -26,6 +26,28 @@ export async function fetchBrief(): Promise<BriefData> {
 export async function fetchSources(): Promise<SourceStatus[]> {
   const data = await getJson<{ sources: SourceStatus[] }>("/sources");
   return data.sources;
+}
+
+export async function fetchSetupStatus(): Promise<SetupStatus> {
+  return getJson<SetupStatus>("/setup/status");
+}
+
+export async function startMoodleAssistant(): Promise<MoodleAssistantState> {
+  const response = await fetch("/api/setup/moodle/start", { method: "POST" });
+  const body = (await response.json().catch(() => null)) as { assistant?: MoodleAssistantState; error?: { message?: string } } | null;
+  if (!response.ok) throw new Error(body?.error?.message ?? `Moodle assistant returned ${response.status}`);
+  return body?.assistant ?? { status: "error", message: "Moodle assistant did not start" };
+}
+
+export async function fetchMoodleAssistant(): Promise<MoodleAssistantState> {
+  const data = await getJson<{ assistant: MoodleAssistantState }>("/setup/moodle/status");
+  return data.assistant;
+}
+
+export async function cancelMoodleAssistant(): Promise<MoodleAssistantState> {
+  const response = await fetch("/api/setup/moodle/cancel", { method: "POST" });
+  const data = (await response.json()) as { assistant: MoodleAssistantState };
+  return data.assistant;
 }
 
 export async function fetchSyncStatus(): Promise<SyncStatus> {

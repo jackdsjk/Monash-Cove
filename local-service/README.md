@@ -53,6 +53,7 @@ npm run retriage
 - `GET /api/moodle/download?url=`（仅 `mod/resource`，服务端用本机 session 代理文件）
 - `POST /api/moodle/download-batch`（1–100 个 resource，返回 ZIP）
 - `POST /api/sync/full` / `GET /api/sync/status`（首次全量后台任务与进度）
+- `GET /api/setup/status` / `POST /api/setup/moodle/start` / `GET /api/setup/moodle/status`（首次设置与 Moodle 登录助手）
 - `GET /api/sources`
 - `POST /api/check`
 - `PATCH /api/items/:id/correction`

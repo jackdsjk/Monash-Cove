@@ -44,6 +44,7 @@ try {
   await waitForServer();
   browser = await chromium.launch({ channel: "chrome", headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.addInitScript(() => window.localStorage.setItem("cove-setup-skipped", "1"));
   await page.goto(base, { waitUntil: "networkidle" });
   await page.locator(".item-card").first().waitFor();
   assert.ok((await page.locator(".item-card").count()) > 0, "brief should show items");

@@ -1486,6 +1486,85 @@ a {
   width: 260px !important;
 }
 
+.setup-loading {
+  align-items: center;
+  color: rgba(0, 0, 0, 0.55);
+  display: flex;
+  justify-content: center;
+  min-height: 240px;
+}
+
+.setup-profile-card {
+  margin-bottom: 16px;
+}
+
+.setup-note {
+  display: block;
+  font-size: 12px;
+  margin: 8px 0 0 !important;
+}
+
+.setup-grid {
+  margin-bottom: 16px;
+}
+
+.setup-card {
+  height: 100%;
+}
+
+.setup-card .ant-card-body {
+  min-height: 170px;
+}
+
+.setup-card .ant-typography {
+  font-size: 13px;
+}
+
+.setup-link {
+  display: block;
+  font-size: 12px;
+  margin-top: 8px;
+  padding: 0;
+}
+
+.setup-sync-card {
+  margin-bottom: 24px;
+}
+
+.setup-sync-card .ant-btn {
+  margin-top: 12px;
+}
+
+.setup-sync-progress {
+  border-top: 1px solid #f0f0f0;
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.setup-sync-row {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 64px minmax(0, 1fr) 130px;
+}
+
+.setup-sync-row > span:first-child {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.setup-sync-row > span:last-child {
+  color: rgba(0, 0, 0, 0.5);
+  font-size: 11px;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .full-sync-card {
   margin-bottom: 20px;
 }

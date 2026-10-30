@@ -136,6 +136,14 @@ Marks items read and stores `last_checked_at`. Response `{ "ok": true, "lastChec
 
 Returns the updated item. `404` when missing; values are persisted in SQLite.
 
+## GET /api/setup/status
+
+Returns `gmailConnected`, `edConnected`, `moodleConnected`, `fullSyncCompleted`, `setupRequired`.
+
+## POST /api/setup/moodle/start
+
+Starts the local headed-Chrome login assistant. `GET /api/setup/moodle/status` returns `idle | waiting_login | connected | error | cancelled`; `POST /api/setup/moodle/cancel` closes it. On success the assistant captures `MoodleSession` into the local Keychain.
+
 ## POST /api/sync/full
 
 Starts a background full sync (`202`) and returns `{ job }`. All three sources are attempted; `full_sync_completed_at` is set only when every source succeeds.
