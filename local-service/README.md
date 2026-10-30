@@ -42,7 +42,7 @@ COVE_STATIC_DIR=../webapp/dist npm start
 npm run retriage
 ```
 
-按当前 `rules-v2` 重跑 SQLite 里已有条目的分诊，不重新抓取来源。2026-10-30 的真实数据校准结果见 `docs/plan/real-path/calibration-2026-10-30.md`。
+按当前 `rules-v2` 重跑 SQLite 里已有条目的分诊，不重新抓取来源。
 
 ## API
 
