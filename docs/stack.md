@@ -39,9 +39,9 @@ moodle --version       # 0.11.0
 
 | 通道 | 状态 | 凭据 / 配置 | 验证命令与结果 |
 |---|---|---|---|
-| Moodle | ✅ 可读 | CDP 从 Chrome 捕获会话；`~/.config/moodle-cli/config.yaml` | `moodle user --json` → 266335 · `units` → 10 门 |
-| Ed | ✅ 可读可写 | `~/.config/edstem-cli/token` | `edstem user --json` → yjia0308@student.monash.edu，3 门 active |
-| OnTrack | ✅ 可读 | `~/.config/ontrack-cli/config.yaml` | `ontrack units --json` → FIT1045，用户 5709 |
+| Moodle | ✅ 可读 | CDP 从 Chrome 捕获会话；`~/.config/moodle-cli/config.yaml` | `moodle user --json` → [redacted local user id] · `units` → 10 门 |
+| Ed | ✅ 可读可写 | `~/.config/edstem-cli/token` | `edstem user --json` → [redacted local account]，3 门 active |
+| OnTrack | ✅ 可读 | `~/.config/ontrack-cli/config.yaml` | `ontrack units --json` → FIT1045，用户 [redacted local user id] |
 
 **站点信息**：`https://learning.monash.edu`，theme `monash`，时区 `Asia/Kuala_Lumpur`。
 `moodle coverage` 结果：**ok 17 / skip 1 / untested 1**；校方禁用 5 个 web service
@@ -280,10 +280,10 @@ state.changed  grade.changed  content.changed  notice.posted
 1. **重启 DeepSeek Harness**，确认 `mcp__edstem__*` 工具出现；失败则回滚
    `~/.dsh/profiles/web/cordis.patch.yml`（备份 `cordis.patch.yml.bak-20261026-135653`）。
 2. 决定是否把 `edstem-cli@0.8.2` 全局安装，替掉 0.5.0，消除 MCP 的路径依赖。
-3. **unicorn 已部署**（2026-10-26）到 https://unicorn.yjia0308.workers.dev，D1 `0945fdc2-d993-4f77-aac6-b59ad4a6fdb9`，
+3. **unicorn 已部署**（2026-10-26）到 https://unicorn.example.workers.dev，D1 `[redacted D1 id]`，
    调度器已启动、每小时一轮。凭据在 `~/.config/unicorn/tokens.env`（600）。
 4. 待办：Moodle 会话 4 小时过期，unicorn 不会自动续；需要一个本地 LaunchAgent 定时
    `sweet-cookie` 抓 `MoodleSession` 再推回去，否则每轮同步都会 `session_expired`。
-5. 待办：把 `https://unicorn.yjia0308.workers.dev/mcp` 注册成 Codex/DSH 的 MCP（bearer `MCP_TOKEN`），
+5. 待办：把 `https://unicorn.example.workers.dev/mcp` 注册成 Codex/DSH 的 MCP（bearer `MCP_TOKEN`），
    否则这些数据 agent 还看不到。
 6. 待办：Workspace Developer Preview 申请（表单已填，等 Google 审批，几天）；批下来后可切回 MCP 路径。
