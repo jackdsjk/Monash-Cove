@@ -17,7 +17,7 @@
 
 ## 安装
 
-见 [desktop-install.md](desktop-install.md)。
+见 [安装说明](https://github.com/jackdsjk/Monash-Agent/blob/main/docs/desktop-install.md)。
 
 ## 已知限制
 
