@@ -996,6 +996,117 @@ a {
   margin: 4px 0;
 }
 
+.countdown-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: minmax(190px, auto);
+  min-width: 0;
+}
+
+.countdown-tile {
+  background: #fff;
+  border: 1px solid #e8eee9;
+  border-top: 3px solid #b7d8c7;
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 16px 18px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.countdown-tile:hover {
+  border-color: #b7d8c7;
+  box-shadow: 0 10px 24px rgba(31, 90, 70, 0.1);
+  transform: translateY(-1px);
+}
+
+.countdown-tile--today {
+  border-top-color: #d46b08;
+}
+
+.countdown-tile--overdue {
+  border-top-color: #cf1322;
+}
+
+.countdown-tile--later {
+  border-top-color: #bfbfbf;
+}
+
+.countdown-tile--hero {
+  grid-column: span 2;
+  grid-row: span 2;
+  padding: 24px 26px 20px;
+}
+
+.countdown-tile-top {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.countdown-tile-top .ant-tag {
+  font-size: 10px;
+  line-height: 17px;
+  margin-inline-end: 0;
+}
+
+.countdown-tile-title {
+  color: #1f3d32;
+  font-size: 16px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.countdown-tile-clock {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 18px 0 14px;
+}
+
+.countdown-tile-state {
+  color: #1f5a46;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.countdown-tile-state--today {
+  color: #d46b08;
+}
+
+.countdown-tile-state--overdue {
+  color: #cf1322;
+}
+
+.countdown-tile .countdown-compact-clock {
+  color: #1f5a46;
+  font-size: 22px;
+}
+
+.countdown-tile--today .countdown-compact-clock {
+  color: #d46b08;
+}
+
+.countdown-tile--overdue .countdown-compact-clock {
+  color: #cf1322;
+}
+
+.countdown-tile-foot {
+  align-items: center;
+  border-top: 1px solid #f2f5f2;
+  color: rgba(0, 0, 0, 0.45);
+  display: flex;
+  font-size: 11px;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 10px;
+}
+
 .countdown-hero {
   min-width: 0;
   background:
@@ -1281,6 +1392,15 @@ a {
 }
 
 @media (max-width: 900px) {
+  .countdown-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .countdown-tile--hero {
+    grid-column: span 2;
+    grid-row: span 1;
+  }
+
   .countdown-hero-body {
     align-items: start;
     grid-template-columns: 1fr;
@@ -1293,6 +1413,15 @@ a {
 }
 
 @media (max-width: 640px) {
+  .countdown-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .countdown-tile--hero {
+    grid-column: span 1;
+    grid-row: span 1;
+  }
+
   .countdown-hero {
     padding: 20px 18px;
   }

@@ -10,20 +10,6 @@ interface DeadlineCountdownProps {
   showHeading?: boolean;
 }
 
-interface DeadlineBlock {
-  id: "overdue" | "today" | "week" | "later";
-  title: string;
-  note: string;
-  tone: "overdue" | "today" | "week" | "later";
-}
-
-const BLOCKS: DeadlineBlock[] = [
-  { id: "today", title: "24 小时内", note: "现在最需要处理", tone: "today" },
-  { id: "week", title: "7 天内", note: "接下来几天要安排", tone: "week" },
-  { id: "later", title: "更晚", note: "先知道，不着急", tone: "later" },
-  { id: "overdue", title: "已截止", note: "保留供你回看", tone: "overdue" },
-];
-
 export default function DeadlineCountdown({ items, corrections, onOpen, showHeading = true }: DeadlineCountdownProps) {
   const [now, setNow] = useState(() => Date.now());
 
@@ -43,18 +29,6 @@ export default function DeadlineCountdown({ items, corrections, onOpen, showHead
 
   const hero = deadlines[0];
   const rest = deadlines.slice(1);
-  const groups = useMemo(() => {
-    const buckets = new Map<DeadlineBlock["id"], BriefItem[]>();
-    for (const item of rest) {
-      const remaining = Date.parse(item.dueAt ?? "") - now;
-      const id: DeadlineBlock["id"] =
-        remaining <= 0 ? "overdue" : remaining <= 24 * 3_600_000 ? "today" : remaining <= 7 * 24 * 3_600_000 ? "week" : "later";
-      const list = buckets.get(id) ?? [];
-      list.push(item);
-      buckets.set(id, list);
-    }
-    return BLOCKS.map((block) => ({ ...block, items: buckets.get(block.id) ?? [] })).filter((block) => block.items.length > 0);
-  }, [now, rest]);
 
   if (!hero) return null;
 
@@ -81,8 +55,9 @@ export default function DeadlineCountdown({ items, corrections, onOpen, showHead
         </div>
       ) : null}
 
+      <div className="countdown-grid">
       <article
-        className={`countdown-hero countdown-hero--${heroTone}`}
+        className={`countdown-tile countdown-tile--hero countdown-hero countdown-hero--${heroTone}`}
         role="button"
         tabIndex={0}
         onClick={() => onOpen(hero.id)}
@@ -117,55 +92,41 @@ export default function DeadlineCountdown({ items, corrections, onOpen, showHead
         </div>
       </article>
 
-      {groups.length > 0 ? (
-        <div className="countdown-groups">
-          {groups.map((group) => (
-            <section className={`countdown-group countdown-group--${group.tone}`} key={group.id}>
-              <div className="countdown-group-heading">
-                <Typography.Title level={3}>{group.title}</Typography.Title>
-                <Typography.Text type="secondary">{group.note}</Typography.Text>
-                <Tag>{group.items.length}</Tag>
-              </div>
-              <div className="countdown-list">
-                {group.items.map((item) => {
-                  const remaining = Date.parse(item.dueAt ?? "") - now;
-                  return (
-                    <article
-                      className="countdown-row"
-                      key={item.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => onOpen(item.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") onOpen(item.id);
-                      }}
-                    >
-                      <div className="countdown-row-main">
-                        <div className="countdown-row-meta">
-                          <Tag>{item.course || "未归属课程"}</Tag>
-                          <Tag>{item.deadlineKind === "quiz" ? "Quiz" : "作业"}</Tag>
-                        </div>
-                        <Typography.Text strong className="countdown-row-title">
-                          {item.title}
-                        </Typography.Text>
-                        <Typography.Text type="secondary" className="countdown-row-due">
-                          截止 {formatDue(item.dueAt)}
-                        </Typography.Text>
-                      </div>
-                      <div className="countdown-row-clock">
-                        <span className={`countdown-row-state countdown-row-state--${toneFor(remaining)}`}>
-                          {remaining <= 0 ? "已截止" : "还剩"}
-                        </span>
-                        <CompactClock remaining={remaining} />
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
-        </div>
-      ) : null}
+      {rest.map((item) => {
+        const remaining = Date.parse(item.dueAt ?? "") - now;
+        const tone = toneFor(remaining);
+        return (
+          <article
+            className={`countdown-tile countdown-tile--${tone}`}
+            key={item.id}
+            role="button"
+            tabIndex={0}
+            onClick={() => onOpen(item.id)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") onOpen(item.id);
+            }}
+          >
+            <div className="countdown-tile-top">
+              <Tag>{item.course || "未归属课程"}</Tag>
+              <Tag>{item.deadlineKind === "quiz" ? "Quiz" : "作业"}</Tag>
+            </div>
+            <Typography.Text strong className="countdown-tile-title">
+              {item.title}
+            </Typography.Text>
+            <div className="countdown-tile-clock">
+              <span className={`countdown-tile-state countdown-tile-state--${tone}`}>
+                {remaining <= 0 ? "已截止" : "还剩"}
+              </span>
+              <CompactClock remaining={remaining} />
+            </div>
+            <div className="countdown-tile-foot">
+              <span>截止 {formatDue(item.dueAt)}</span>
+              <RightOutlined />
+            </div>
+          </article>
+        );
+      })}
+      </div>
     </section>
   );
 }
@@ -221,7 +182,7 @@ function pad(value: number) {
   return String(value).padStart(2, "0");
 }
 
-function toneFor(remaining: number): DeadlineBlock["tone"] {
+function toneFor(remaining: number): "overdue" | "today" | "week" | "later" {
   if (remaining <= 0) return "overdue";
   if (remaining <= 24 * 3_600_000) return "today";
   if (remaining <= 7 * 24 * 3_600_000) return "week";
