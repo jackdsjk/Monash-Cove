@@ -1853,6 +1853,32 @@ a {
   line-height: 1.8;
   margin-bottom: 0 !important;
   padding: 16px;
+  white-space: pre-wrap;
+}
+
+.drawer-source-actions {
+  margin-top: 10px;
+}
+
+.source-replies {
+  display: grid;
+  gap: 10px;
+}
+
+.source-reply {
+  border-left: 2px solid #dcebe2;
+  padding-left: 12px;
+}
+
+.source-reply-text {
+  font-size: 13px;
+  line-height: 1.75;
+  margin: 6px 0 0 !important;
+  white-space: pre-wrap;
+}
+
+.source-reply-date {
+  font-size: 11px;
 }
 
 .drawer-caption {

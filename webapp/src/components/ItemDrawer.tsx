@@ -1,4 +1,6 @@
 import { Alert, Badge, Button, Descriptions, Drawer, Grid, Space, Tag, Typography } from "antd";
+import { useEffect, useState } from "react";
+import { fetchItemDetail } from "../data/repository";
 import {
   ACTION_LABELS,
   CONTENT_TYPE_LABELS,
@@ -7,7 +9,7 @@ import {
   SOURCE_LABELS,
   formatAge,
 } from "../lib/triage";
-import type { BriefItem, Correction, Importance } from "../types";
+import type { BriefItem, Correction, Importance, ItemSourceDetail } from "../types";
 
 interface ItemDrawerProps {
   item: BriefItem | null;
@@ -17,6 +19,14 @@ interface ItemDrawerProps {
   onTogglePin: (id: string) => void;
   onDismiss: (id: string) => void;
   onFeedback: (item: BriefItem) => void;
+}
+
+function roleLabel(role: "staff" | "student" | "unknown") {
+  return role === "staff" ? "老师" : role === "student" ? "学生" : "未知角色";
+}
+
+function roleColor(role: "staff" | "student" | "unknown") {
+  return role === "staff" ? "gold" : role === "student" ? "blue" : "default";
 }
 
 function statusOf(importance: Importance): "error" | "warning" | "default" {
@@ -39,6 +49,33 @@ function highlighted(text: string, quote: string) {
 
 export default function ItemDrawer({ item, open, correction = {}, onClose, onTogglePin, onDismiss, onFeedback }: ItemDrawerProps) {
   const screens = Grid.useBreakpoint();
+  const [detail, setDetail] = useState<ItemSourceDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open || !item) {
+      setDetail(null);
+      return;
+    }
+    let active = true;
+    setDetailLoading(true);
+    void fetchItemDetail(item.id)
+      .then((next) => {
+        if (active) setDetail(next);
+      })
+      .catch(() => {
+        if (active) setDetail(null);
+      })
+      .finally(() => {
+        if (active) setDetailLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, item?.id]);
+
+  const sourceText = detail?.text || item?.text || "";
+  const authorRole = detail?.authorRole ?? (["staff", "student", "unknown"].includes(item?.authorRole ?? "") ? item?.authorRole as "staff" | "student" | "unknown" : "unknown");
 
   return (
     <Drawer
@@ -70,11 +107,41 @@ export default function ItemDrawer({ item, open, correction = {}, onClose, onTog
           </Space>
 
           <section className="drawer-section">
-            <Typography.Title level={3}>原文</Typography.Title>
-            <Typography.Paragraph className="source-text">{highlighted(item.text, item.evidenceQuote)}</Typography.Paragraph>
-            <Typography.Text type="secondary" className="drawer-caption">
-              高亮句是模型引用作为判断依据的原文片段。
-            </Typography.Text>
+            <Space wrap>
+              <Typography.Title level={3}>原文与回复</Typography.Title>
+              <Tag color={roleColor(authorRole)}>{roleLabel(authorRole)}</Tag>
+              <Typography.Text>{detail?.authorName || "作者未提供姓名"}</Typography.Text>
+            </Space>
+            {detailLoading ? <Typography.Text type="secondary">正在读取来源回复…</Typography.Text> : null}
+            <Typography.Paragraph className="source-text">{highlighted(sourceText, item.evidenceQuote)}</Typography.Paragraph>
+            <Space wrap className="drawer-source-actions">
+              <Button type="primary" href={detail?.url || item.url} target="_blank" rel="noreferrer">
+                查看原文
+              </Button>
+              <Typography.Text type="secondary" className="drawer-caption">
+                高亮句是模型判断引用的原文片段。
+              </Typography.Text>
+            </Space>
+          </section>
+
+          <section className="drawer-section">
+            <Typography.Title level={3}>回复</Typography.Title>
+            {detail?.replies?.length ? (
+              <div className="source-replies">
+                {detail.replies.map((reply) => (
+                  <div className="source-reply" key={reply.id} style={{ marginLeft: Math.min(reply.depth, 3) * 18 }}>
+                    <Space wrap>
+                      <Typography.Text strong>{reply.authorName || "未知作者"}</Typography.Text>
+                      <Tag color={roleColor(reply.authorRole)}>{roleLabel(reply.authorRole)}</Tag>
+                      {reply.createdAt ? <Typography.Text type="secondary" className="source-reply-date">{new Date(reply.createdAt).toLocaleString("zh-CN")}</Typography.Text> : null}
+                    </Space>
+                    <Typography.Paragraph className="source-reply-text">{reply.text}</Typography.Paragraph>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Typography.Text type="secondary">来源没有返回回复，或该内容本身是公告。</Typography.Text>
+            )}
           </section>
 
           <Alert

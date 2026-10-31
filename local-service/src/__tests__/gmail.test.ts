@@ -70,6 +70,7 @@ describe("Gmail sync", () => {
       threadId: "t-1",
       subject: "Deadline updated",
       from: "staff@example.edu",
+      fromName: "Staff Member",
       publishedAt: "2026-10-29T10:00:00.000Z",
       text: "The submission deadline has changed to Friday.",
       url: "https://mail.google.com/mail/u/0/#inbox/m-1",

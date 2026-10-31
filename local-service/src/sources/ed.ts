@@ -20,8 +20,48 @@ interface EdThread {
   number?: number;
   title?: string;
   document?: string;
+  content?: string;
   created_at?: string;
-  user?: { role?: string; course_role?: string };
+  user_id?: number;
+  user?: { id?: number; name?: string; role?: string; course_role?: string };
+}
+
+interface EdUser {
+  id?: number;
+  name?: string;
+  role?: string;
+  course_role?: string;
+}
+
+interface EdComment {
+  id?: number;
+  user_id?: number;
+  document?: string;
+  content?: string;
+  created_at?: string;
+  type?: string;
+  comments?: EdComment[];
+}
+
+interface EdThreadDetail {
+  thread: EdThread & { user_id?: number; content?: string; answers?: EdComment[]; comments?: EdComment[] };
+  users?: EdUser[];
+}
+
+export interface EdReply {
+  id: string;
+  authorName: string;
+  authorRole: "staff" | "student" | "unknown";
+  text: string;
+  createdAt: string;
+  depth: number;
+}
+
+export interface EdThreadDetailResult {
+  authorName: string;
+  authorRole: "staff" | "student" | "unknown";
+  text: string;
+  replies: EdReply[];
 }
 
 export class EdClient {
@@ -83,6 +123,48 @@ export class EdClient {
       }),
     );
     return groups.flat();
+  }
+
+  async getThreadDetail(threadId: number): Promise<EdThreadDetailResult> {
+    const data = await this.get<EdThreadDetail>(`threads/${threadId}`);
+    const users = new Map<number, EdUser>((data.users ?? []).map((user) => [Number(user.id), user]));
+    const roleOf = (user?: EdUser): "staff" | "student" | "unknown" => {
+      const role = `${user?.course_role ?? ""} ${user?.role ?? ""}`.toLowerCase();
+      if (/staff|admin|tutor|teacher|instructor|lecturer/.test(role)) return "staff";
+      if (/student|learner/.test(role)) return "student";
+      return "unknown";
+    };
+    const anonymous = !data.thread.user_id;
+    const author = data.thread.user ?? users.get(Number(data.thread.user_id));
+    const nameOf = (id?: number) => users.get(Number(id))?.name ?? (Number(id) === 0 ? "匿名学生" : "未知作者");
+    const textOf = (comment: EdComment) => {
+      const raw = comment.document ?? comment.content ?? "";
+      return raw.includes("<") ? parse(raw).text.replace(/\s+/g, " ").trim() : raw.trim();
+    };
+    const replies: EdReply[] = [];
+    const add = (comment: EdComment, depth: number) => {
+      const text = textOf(comment);
+      if (text) {
+        const user = users.get(Number(comment.user_id));
+        replies.push({
+          id: String(comment.id),
+          authorName: user?.name ?? nameOf(comment.user_id),
+          authorRole: roleOf(user),
+          text,
+          createdAt: comment.created_at ?? "",
+          depth,
+        });
+      }
+      for (const nested of comment.comments ?? []) add(nested, depth + 1);
+    };
+    for (const answer of data.thread.answers ?? []) add(answer, 0);
+    for (const comment of data.thread.comments ?? []) add(comment, 0);
+    return {
+      authorName: anonymous ? "匿名学生" : author?.name ?? nameOf(data.thread.user_id),
+      authorRole: anonymous ? "student" : roleOf(author),
+      text: data.thread.document ?? (data.thread.content ? parse(data.thread.content).text : ""),
+      replies,
+    };
   }
 
   private mapThread(thread: EdThread, course: { id: number; name?: string; code?: string }): EdRawItem {

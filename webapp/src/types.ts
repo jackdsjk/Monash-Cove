@@ -31,6 +31,24 @@ export interface FullSyncJob {
   sources: Record<Source, SyncSourceProgress>;
 }
 
+export interface ItemReply {
+  id: string;
+  authorName: string;
+  authorRole: "staff" | "student" | "unknown";
+  text: string;
+  createdAt: string;
+  depth: number;
+}
+
+export interface ItemSourceDetail {
+  authorName: string;
+  authorRole: "staff" | "student" | "unknown";
+  text: string;
+  replies: ItemReply[];
+  url: string;
+  warning: string | null;
+}
+
 export interface AttendanceCode {
   id: string;
   source: "gmail" | "moodle" | "ed";

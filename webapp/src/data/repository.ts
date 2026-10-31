@@ -1,4 +1,4 @@
-import type { AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus } from "../types";
+import type { AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus } from "../types";
 
 export interface BriefData {
   items: BriefItem[];
@@ -21,6 +21,10 @@ async function getJson<T>(path: string): Promise<T> {
 /** The UI contract is a list of normalized items; the service owns source access. */
 export async function fetchBrief(): Promise<BriefData> {
   return getJson<BriefData>("/brief");
+}
+
+export async function fetchItemDetail(id: string): Promise<ItemSourceDetail> {
+  return getJson<ItemSourceDetail>(`/items/${encodeURIComponent(id)}/detail`);
 }
 
 export async function fetchSources(): Promise<SourceStatus[]> {

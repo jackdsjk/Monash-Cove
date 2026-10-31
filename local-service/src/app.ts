@@ -16,6 +16,7 @@ import { syncEd, syncMoodle, syncMoodleForum } from "./sync/sources.js";
 import { syncAllMoodleContent } from "./sync/moodle-content.js";
 import { FullSyncJobs } from "./sync/jobs.js";
 import { MoodleClient } from "./sources/moodle.js";
+import { EdClient } from "./sources/ed.js";
 import { syncMoodleContent } from "./sync/moodle-content.js";
 import { downloadMoodleResource, MoodleDownloadError, safeDownloadName } from "./moodle-download.js";
 import type { ApiError, Source } from "./domain.js";
@@ -335,6 +336,48 @@ export function buildApp(options: AppOptions): FastifyInstance {
       return reply.code(404).send({ error: { code: "not_found", message: "Item not found", retryable: false } } satisfies ApiError);
     }
     return item;
+  });
+
+  app.get<{ Params: { id: string } }>("/api/items/:id/detail", async (request, reply) => {
+    const item = db.getItem(request.params.id);
+    if (!item) return reply.code(404).send({ error: { code: "not_found", message: "Item not found", retryable: false } } satisfies ApiError);
+    const fallback = {
+      authorName: "",
+      authorRole: item.authorRole,
+      text: item.text,
+      replies: [],
+      url: item.url,
+      warning: "无法读取来源的实时回复，已显示本地缓存。",
+    };
+    try {
+      if (item.source === "ed") {
+        const raw = await secrets.get("ed-credentials");
+        if (!raw) return fallback;
+        const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
+        const threadId = Number(item.sourceItemId.replace(/^thread:/, ""));
+        if (!Number.isFinite(threadId)) return fallback;
+        const detail = await new EdClient(credentials.token, credentials.region, options.fetcher ?? fetch).getThreadDetail(threadId);
+        return { ...detail, url: item.url, warning: null };
+      }
+      if (item.source === "gmail") {
+        try {
+          const message = await (await google.client()).getMessage(item.sourceItemId);
+          return {
+            authorName: message.fromName,
+            authorRole: "unknown",
+            text: message.text,
+            replies: [],
+            url: item.url,
+            warning: null,
+          };
+        } catch {
+          return fallback;
+        }
+      }
+      return { ...fallback, warning: null };
+    } catch {
+      return fallback;
+    }
   });
 
   app.post("/api/check", async (request, reply) => {

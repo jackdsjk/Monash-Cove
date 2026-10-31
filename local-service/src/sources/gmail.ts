@@ -5,6 +5,7 @@ export interface GmailMessage {
   threadId: string;
   subject: string;
   from: string;
+  fromName: string;
   publishedAt: string;
   text: string;
   url: string;
@@ -107,11 +108,14 @@ export class GmailClient implements GmailSyncClient {
     const publishedAt = message.internalDate
       ? new Date(Number(message.internalDate)).toISOString()
       : new Date().toISOString();
+    const from = headers.get("from") ?? "unknown";
+    const fromName = from.match(/^\s*"?([^"<]+)"?\s*</)?.[1]?.trim() || from.replace(/<[^>]+>/g, "").trim() || "unknown";
     return {
       id: message.id ?? id,
       threadId: message.threadId ?? "",
       subject: headers.get("subject") ?? "(no subject)",
-      from: headers.get("from") ?? "unknown",
+      from,
+      fromName,
       publishedAt,
       text,
       url: `https://mail.google.com/mail/u/0/#inbox/${message.id ?? id}`,
