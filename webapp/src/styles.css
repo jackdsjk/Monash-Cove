@@ -1037,8 +1037,60 @@ a {
 
 .countdown-tile--hero {
   grid-column: span 2;
-  grid-row: span 2;
+  grid-row: span 1;
+  justify-content: space-between;
+  min-height: 300px;
   padding: 24px 26px 20px;
+}
+
+.countdown-hero-excerpt {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  color: rgba(255, 255, 255, 0.66) !important;
+  display: -webkit-box;
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 12px 0 0 !important;
+  max-width: 620px;
+  overflow: hidden;
+}
+
+.countdown-hero-progress {
+  margin: 22px 0 18px;
+}
+
+.countdown-progress-head,
+.countdown-progress-labels {
+  align-items: center;
+  color: rgba(255, 255, 255, 0.58);
+  display: flex;
+  font-size: 10px;
+  justify-content: space-between;
+}
+
+.countdown-progress-head span:last-child {
+  color: rgba(255, 255, 255, 0.82);
+  font-variant-numeric: tabular-nums;
+}
+
+.countdown-progress-track {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 99px;
+  height: 5px;
+  margin: 8px 0 5px;
+  overflow: hidden;
+}
+
+.countdown-progress-track span {
+  background: #9be3bd;
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.countdown-hero--overdue .countdown-progress-track span {
+  background: #ffb4b4;
 }
 
 .countdown-tile-top {
