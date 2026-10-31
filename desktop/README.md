@@ -46,8 +46,8 @@ npm run build:launcher
 产物：
 
 ```text
-desktop/release/CoveLauncher-0.1.0-arm64.dmg
-desktop/release/CoveLauncher-0.1.0-arm64.zip
+desktop/release/CoveLauncher-0.1.1-arm64.dmg
+desktop/release/CoveLauncher-0.1.1-arm64.zip
 ```
 
 用户解压后双击 `CoveLauncher.app`，它会：
@@ -60,9 +60,9 @@ desktop/release/CoveLauncher-0.1.0-arm64.zip
 
 ## 产物
 
-- macOS arm64：`release/Cove-0.1.0-arm64.dmg`、`release/Cove-0.1.0-arm64.zip`
-- macOS Intel：`release/Cove-0.1.0-x64.zip`
-- Windows x64：`release/Cove-0.1.0-win-x64.zip`
+- macOS arm64：`release/Cove-0.1.1-arm64.dmg`、`release/Cove-0.1.1-arm64.zip`
+- macOS Intel：`release/Cove-0.1.1-x64.zip`
+- Windows x64：`release/Cove-0.1.1-win-x64.zip`
 
 ## 重要限制
 

@@ -74,7 +74,7 @@ export function createCoveMcpServer(options: McpOptions = {}) {
   }
 
   const server = new McpServer(
-    { name: "cove", version: "0.1.0" },
+    { name: "cove", version: "0.1.1" },
     {
       instructions:
         "Cove is a local, read-only campus triage service. Use cove_brief for the current brief, cove_deadlines for due dates, and cove_get_item for source text and evidence. Data is user-local; never assume a shared account.",

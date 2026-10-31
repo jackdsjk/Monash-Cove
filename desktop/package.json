@@ -1,6 +1,6 @@
 {
   "name": "cove-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Cove local-first campus triage desktop app",
   "main": "main.cjs",
   "type": "commonjs",

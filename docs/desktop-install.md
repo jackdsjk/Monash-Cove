@@ -1,24 +1,24 @@
-# Cove 0.1.0 桌面版安装说明
+# Cove 0.1.1 桌面版安装说明
 
 公开发布页：
 
 ```text
-https://github.com/jackdsjk/Monash-Agent/releases/tag/v0.1.0
+https://github.com/jackdsjk/Monash-Agent/releases/tag/v0.1.1
 ```
 
 ## 下载哪个文件
 
 | 平台 | 文件 |
 |---|---|
-| Apple Silicon Mac（M1/M2/M3/M4） | `CoveLauncher-0.1.0-arm64.dmg` |
-| Apple Silicon Mac，备用 | `CoveLauncher-0.1.0-arm64.zip` |
-| Windows x64 | `Cove-0.1.0-win-x64.zip` |
+| Apple Silicon Mac（M1/M2/M3/M4） | `CoveLauncher-0.1.1-arm64.dmg` |
+| Apple Silicon Mac，备用 | `CoveLauncher-0.1.1-arm64.zip` |
+| Windows x64 | `Cove-0.1.1-win-x64.zip` |
 
-不要下载 `Cove-0.1.0-arm64.dmg` 作为普通安装包：那是 Electron 原生包，当前没有 Developer ID 签名，macOS 26 会拒绝启动。
+不要下载 `Cove-0.1.1-arm64.dmg` 作为普通安装包：那是 Electron 原生包，当前没有 Developer ID 签名，macOS 26 会拒绝启动。
 
 ## macOS 安装
 
-1. 双击 `CoveLauncher-0.1.0-arm64.dmg`
+1. 双击 `CoveLauncher-0.1.1-arm64.dmg`
 2. 把 `CoveLauncher.app` 拖进 `Applications`
 3. 等复制完成
 4. 在 Finder 推出 DMG
@@ -71,7 +71,7 @@ cat ~/Library/Logs/CoveLauncher.log
 
 ## Windows 安装
 
-1. 解压 `Cove-0.1.0-win-x64.zip`
+1. 解压 `Cove-0.1.1-win-x64.zip`
 2. 运行 `Cove.exe`
 3. 如果出现 SmartScreen，选择“更多信息 → 仍要运行”
 4. 首次启动进入设置向导
@@ -103,5 +103,5 @@ stdio 快捷配置：
 ## 版本
 
 ```text
-Cove 0.1.0
+Cove 0.1.1
 ```

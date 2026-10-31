@@ -10,6 +10,7 @@ if (process.platform !== "darwin") {
 const desktopDir = path.resolve(__dirname, "..");
 const workspace = path.resolve(desktopDir, "..");
 const resources = path.join(desktopDir, "resources");
+const packageVersion = require(path.join(desktopDir, "package.json")).version;
 const service = path.join(resources, "local-service");
 if (!existsSync(path.join(service, "dist", "index.js"))) {
   console.error("Run npm run prepare:resources first.");
@@ -31,7 +32,7 @@ if (!existsSync(nodeBinary)) {
 }
 
 const output = path.join(desktopDir, "release");
-const app = path.join(output, `CoveLauncher-0.1.0-${arch}.app`);
+const app = path.join(output, `CoveLauncher-${packageVersion}-${arch}.app`);
 rmSync(app, { recursive: true, force: true });
 mkdirSync(output, { recursive: true });
 const script = path.join(cache, "launcher.applescript");
@@ -65,10 +66,10 @@ cpSync(nodeBinary, path.join(app, "Contents", "Resources", "runtime", "node"));
 chmodSync(path.join(app, "Contents", "Resources", "runtime", "node"), 0o755);
 cpSync(service, path.join(app, "Contents", "Resources", "local-service"), { recursive: true });
 cpSync(path.join(workspace, "webapp", "dist"), path.join(app, "Contents", "Resources", "webapp"), { recursive: true });
-const archive = path.join(output, `CoveLauncher-0.1.0-${arch}.zip`);
+const archive = path.join(output, `CoveLauncher-${packageVersion}-${arch}.zip`);
 rmSync(archive, { force: true });
 execFileSync("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", app, archive], { stdio: "inherit" });
-const dmg = path.join(output, `CoveLauncher-0.1.0-${arch}.dmg`);
+const dmg = path.join(output, `CoveLauncher-${packageVersion}-${arch}.dmg`);
 rmSync(dmg, { force: true });
 execFileSync("hdiutil", ["create", "-volname", "Cove", "-srcfolder", app, "-ov", "-format", "UDZO", dmg], { stdio: "inherit" });
 console.log(`Built ${app}`);
