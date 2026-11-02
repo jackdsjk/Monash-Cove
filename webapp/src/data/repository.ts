@@ -1,4 +1,4 @@
-import type { AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus } from "../types";
+import type { AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus } from "../types";
 
 export interface BriefData {
   items: BriefItem[];
@@ -21,6 +21,20 @@ async function getJson<T>(path: string): Promise<T> {
 /** The UI contract is a list of normalized items; the service owns source access. */
 export async function fetchBrief(): Promise<BriefData> {
   return getJson<BriefData>("/brief");
+}
+
+export async function fetchEdCourses(): Promise<EdCourse[]> {
+  const data = await getJson<{ courses: EdCourse[] }>("/ed/courses");
+  return data.courses;
+}
+
+export async function fetchEdLessons(courseId: number): Promise<EdLessonSummary[]> {
+  const data = await getJson<{ lessons: EdLessonSummary[] }>(`/ed/lessons?courseId=${courseId}`);
+  return data.lessons;
+}
+
+export async function fetchEdLesson(lessonId: number): Promise<EdLessonDetail> {
+  return getJson<EdLessonDetail>(`/ed/lesson?lessonId=${lessonId}`);
 }
 
 export async function fetchItemDetail(id: string): Promise<ItemSourceDetail> {

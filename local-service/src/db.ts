@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS moodle_content (
   title TEXT NOT NULL,
   url TEXT NOT NULL,
   text TEXT NOT NULL DEFAULT '',
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  campus TEXT NOT NULL DEFAULT 'shared'
 );
 CREATE INDEX IF NOT EXISTS moodle_content_course ON moodle_content(course_id, section_number);
 CREATE TABLE IF NOT EXISTS settings (
@@ -115,6 +116,10 @@ export class CoveDatabase {
     );
     if (!columns.has("due_at")) this.db.exec("ALTER TABLE items ADD COLUMN due_at TEXT");
     if (!columns.has("deadline_kind")) this.db.exec("ALTER TABLE items ADD COLUMN deadline_kind TEXT");
+    const contentColumns = new Set(
+      (this.db.prepare("PRAGMA table_info(moodle_content)").all() as Array<{ name?: string }>).map((column) => column.name),
+    );
+    if (!contentColumns.has("campus")) this.db.exec("ALTER TABLE moodle_content ADD COLUMN campus TEXT NOT NULL DEFAULT 'shared'");
   }
 
   private ensureSources() {
@@ -373,11 +378,11 @@ export class CoveDatabase {
   replaceMoodleContent(courseId: string, rows: MoodleContentRow[]) {
     this.db.prepare("DELETE FROM moodle_content WHERE course_id = ?").run(courseId);
     const insert = this.db.prepare(`
-      INSERT INTO moodle_content (id, course_id, course_name, section_number, section_title, module, title, url, text, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO moodle_content (id, course_id, course_name, section_number, section_title, module, title, url, text, updated_at, campus)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const row of rows) {
-      insert.run(row.id, row.courseId, row.courseName, row.sectionNumber, row.sectionTitle, row.module, row.title, row.url, row.text, row.updatedAt);
+      insert.run(row.id, row.courseId, row.courseName, row.sectionNumber, row.sectionTitle, row.module, row.title, row.url, row.text, row.updatedAt, row.campus ?? "shared");
     }
   }
 
@@ -416,6 +421,7 @@ export class CoveDatabase {
       url: String(row.url),
       text: String(row.text ?? ""),
       updatedAt: String(row.updated_at),
+      campus: (String(row.campus ?? "shared") as "malaysia" | "australia" | "indonesia" | "shared"),
     }));
   }
 
@@ -434,6 +440,7 @@ export class CoveDatabase {
       url: String(row.url),
       text: String(row.text ?? ""),
       updatedAt: String(row.updated_at),
+      campus: (String(row.campus ?? "shared") as "malaysia" | "australia" | "indonesia" | "shared"),
     }));
   }
 

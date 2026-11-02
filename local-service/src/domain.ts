@@ -116,6 +116,7 @@ export interface MoodleContentRow {
   url: string;
   text: string;
   updatedAt: string;
+  campus?: "malaysia" | "australia" | "indonesia" | "shared";
 }
 
 export interface ApiError {

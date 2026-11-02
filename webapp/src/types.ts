@@ -49,6 +49,42 @@ export interface ItemSourceDetail {
   warning: string | null;
 }
 
+export interface EdCourse {
+  id: number;
+  code: string;
+  name: string;
+}
+
+export interface EdLessonSummary {
+  id: number;
+  title: string;
+  slideCount: number;
+}
+
+export interface EdMaterialFile {
+  name: string;
+  url: string;
+  kind: "slides" | "pdf" | "file";
+}
+
+export interface EdMaterialSlide {
+  id: number;
+  title: string;
+  type: "video" | "text" | "slides" | "quiz" | "file";
+  url: string;
+  text: string;
+  markdown: string;
+  videoUrls: string[];
+  files: EdMaterialFile[];
+}
+
+export interface EdLessonDetail {
+  id: number;
+  courseId: number;
+  title: string;
+  slides: EdMaterialSlide[];
+}
+
 export interface AttendanceCode {
   id: string;
   source: "gmail" | "moodle" | "ed";
@@ -143,6 +179,7 @@ export interface MoodleContentItem {
   url: string;
   text: string;
   updatedAt: string;
+  campus?: "malaysia" | "australia" | "indonesia" | "shared";
 }
 
 export interface BriefItem extends DemoItem {
