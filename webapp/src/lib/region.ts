@@ -1,4 +1,4 @@
-import type { MoodleCourse } from "../types";
+import type { MoodleContentItem, MoodleCourse } from "../types";
 
 export type CampusRegion = "malaysia" | "australia" | "indonesia";
 export type CourseRegion = CampusRegion | "shared";
@@ -45,6 +45,11 @@ export function inferCourseRegion(course: MoodleCourse): CourseRegion {
   if (/indonesia|\bid\b/.test(name)) return "indonesia";
   if (/australia|clayton|caulfield|peninsula/.test(name)) return "australia";
   return "shared";
+}
+
+export function contentMatchesRegion(item: MoodleContentItem, region: CampusRegion) {
+  if (item.campus && item.campus !== "shared") return item.campus === region;
+  return textMatchesRegion(`${item.sectionTitle} ${item.title}`, region);
 }
 
 export function courseMatchesRegion(course: MoodleCourse, region: CampusRegion) {

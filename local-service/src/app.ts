@@ -19,6 +19,7 @@ import { MoodleClient } from "./sources/moodle.js";
 import { EdClient } from "./sources/ed.js";
 import { syncMoodleContent } from "./sync/moodle-content.js";
 import { downloadMoodleResource, MoodleDownloadError, safeDownloadName } from "./moodle-download.js";
+import { captureMoodlePage } from "./moodle-snapshot.js";
 import type { ApiError, Source } from "./domain.js";
 import { getRuntimeStatus } from "./runtime.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
@@ -520,6 +521,22 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
   });
 
+  app.get<{ Querystring: { url?: string; name?: string } }>("/api/moodle/page", async (request, reply) => {
+    if (!request.query.url) return reply.code(400).send({ error: { code: "invalid_url", message: "url is required.", retryable: false } } satisfies ApiError);
+    const raw = await secrets.get("moodle-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
+    try {
+      const credentials = moodleCredentials.parse(JSON.parse(raw));
+      const image = await captureMoodlePage(credentials, request.query.url);
+      const name = `${safeDownloadName(request.query.name || "moodle-page") || "moodle-page"}.png`;
+      reply.header("content-type", "image/png");
+      reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+      return reply.send(image);
+    } catch (error) {
+      return reply.code(502).send({ error: { code: "moodle_page_failed", message: error instanceof Error ? error.message : "Moodle page capture failed.", retryable: true } } satisfies ApiError);
+    }
+  });
+
   app.post<{ Body: { urls?: string[]; items?: Array<{ url?: string; name?: string }>; archiveName?: string } }>("/api/moodle/download-batch", async (request, reply) => {
     const rawItems: Array<{ url?: string; name?: string }> = request.body?.items?.length
       ? request.body.items
@@ -575,6 +592,92 @@ export function buildApp(options: AppOptions): FastifyInstance {
     reply.header("x-cove-batch-count", String(added));
     reply.header("x-cove-batch-skipped", String(skipped));
     return reply.send(archive);
+  });
+
+  app.get("/api/ed/courses", async (_request, reply) => {
+    const raw = await secrets.get("ed-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
+    try {
+      const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
+      return { courses: await new EdClient(credentials.token, credentials.region, options.fetcher ?? fetch).listCourses() };
+    } catch (error) {
+      return reply.code(502).send({ error: { code: "ed_courses_failed", message: error instanceof Error ? error.message : "Ed courses failed.", retryable: true } } satisfies ApiError);
+    }
+  });
+
+  app.get<{ Querystring: { courseId?: string } }>("/api/ed/lessons", async (request, reply) => {
+    const courseId = Number(request.query.courseId);
+    if (!Number.isFinite(courseId)) return reply.code(400).send({ error: { code: "invalid_course", message: "courseId is required.", retryable: false } } satisfies ApiError);
+    const raw = await secrets.get("ed-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
+    try {
+      const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
+      return { lessons: await new EdClient(credentials.token, credentials.region, options.fetcher ?? fetch).listLessons(courseId) };
+    } catch (error) {
+      return reply.code(502).send({ error: { code: "ed_lessons_failed", message: error instanceof Error ? error.message : "Ed lessons failed.", retryable: true } } satisfies ApiError);
+    }
+  });
+
+  app.get<{ Querystring: { lessonId?: string } }>("/api/ed/lesson", async (request, reply) => {
+    const lessonId = Number(request.query.lessonId);
+    if (!Number.isFinite(lessonId)) return reply.code(400).send({ error: { code: "invalid_lesson", message: "lessonId is required.", retryable: false } } satisfies ApiError);
+    const raw = await secrets.get("ed-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
+    try {
+      const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
+      return await new EdClient(credentials.token, credentials.region, options.fetcher ?? fetch).getLesson(lessonId);
+    } catch (error) {
+      return reply.code(502).send({ error: { code: "ed_lesson_failed", message: error instanceof Error ? error.message : "Ed lesson failed.", retryable: true } } satisfies ApiError);
+    }
+  });
+
+  app.get<{ Querystring: { url?: string; name?: string } }>("/api/ed/download", async (request, reply) => {
+    if (!request.query.url) return reply.code(400).send({ error: { code: "invalid_url", message: "url is required.", retryable: false } } satisfies ApiError);
+    try {
+      const response = await fetch(request.query.url, { signal: AbortSignal.timeout(30_000) });
+      if (!response.ok) return reply.code(502).send({ error: { code: "ed_download_failed", message: `Ed file returned HTTP ${response.status}.`, retryable: true } } satisfies ApiError);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const name = safeDownloadName(request.query.name || "ed-material") || "ed-material";
+      reply.header("content-type", response.headers.get("content-type") ?? "application/octet-stream");
+      reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+      return reply.send(buffer);
+    } catch (error) {
+      return reply.code(502).send({ error: { code: "ed_download_failed", message: error instanceof Error ? error.message : "Ed download failed.", retryable: true } } satisfies ApiError);
+    }
+  });
+
+  app.post<{ Body: { lessonTitle?: string; markdown?: string; files?: Array<{ name?: string; url?: string }> } }>("/api/ed/download-batch", async (request, reply) => {
+    const files = (request.body?.files ?? []).filter((file): file is { name: string; url: string } => Boolean(file.url));
+    if (files.length > 100) return reply.code(400).send({ error: { code: "too_many_files", message: "Too many files.", retryable: false } } satisfies ApiError);
+    const zip = new JSZip();
+    let added = 0;
+    if (request.body?.markdown) {
+      zip.file("lesson.md", request.body.markdown);
+      added += 1;
+    }
+    for (const file of files) {
+      try {
+        const response = await fetch(file.url!, { signal: AbortSignal.timeout(30_000) });
+        if (!response.ok) continue;
+        const buffer = Buffer.from(await response.arrayBuffer());
+        let name = safeDownloadName(file.name || "file") || "file";
+        let suffix = 2;
+        while (zip.file(name)) {
+          const dot = name.lastIndexOf(".");
+          name = dot > 0 ? `${name.slice(0, dot)} (${suffix})${name.slice(dot)}` : `${name} (${suffix})`;
+          suffix += 1;
+        }
+        zip.file(name, buffer);
+        added += 1;
+      } catch {
+        // Best-effort archive: omit files that Ed's static host cannot serve.
+      }
+    }
+    if (added === 0) return reply.code(404).send({ error: { code: "no_files", message: "No Ed files could be downloaded.", retryable: false } } satisfies ApiError);
+    const archiveName = `${safeDownloadName(request.body?.lessonTitle || "ed-lesson") || "ed-lesson"}.zip`;
+    reply.header("content-type", "application/zip");
+    reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(archiveName)}`);
+    return reply.send(await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
   });
 
   app.get<{ Querystring: { courseId?: string } }>("/api/moodle/content", async (request, reply) => {

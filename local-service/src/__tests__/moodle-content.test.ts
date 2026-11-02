@@ -19,6 +19,10 @@ const weekHtml = `
 <li class="activity activity-wrapper label modtype_label">
   <div>Select activity Read this before class</div>
 </li>
+<li class="activity activity-wrapper label modtype_label">
+  <div>Select activity [Malaysia Campus] Resources</div>
+  <a href="https://learning.monash.edu/mod/resource/view.php?id=10">[pdf] Malaysia Week 1</a>
+</li>
 </body></html>`;
 
 describe("Moodle weekly content", () => {
@@ -33,6 +37,8 @@ describe("Moodle weekly content", () => {
     expect(rows.some((row) => row.module === "assign")).toBe(true);
     expect(rows.some((row) => row.module === "forum" && row.title.includes("announcement"))).toBe(true);
     expect(rows.some((row) => row.module === "label" && row.text.includes("before class"))).toBe(true);
+    expect(rows.some((row) => row.title === "[pdf] Malaysia Week 1" && row.campus === "malaysia")).toBe(true);
+    expect(rows.some((row) => row.module === "resource" && row.campus === "australia")).toBe(true);
     expect(rows.some((row) => row.sectionTitle === "Week 2 - Next")).toBe(false);
   });
 });

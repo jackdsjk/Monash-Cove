@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 import CoveLoader from "../components/CoveLoader";
 import { fetchMoodleContent, fetchMoodleCourses, syncMoodleContent } from "../data/repository";
 import type { MoodleContentItem, MoodleCourse } from "../types";
-import { REGION_LABELS, REGION_OPTIONS, courseMatchesRegion, defaultRegionForCourses, loadRegion, saveRegion, textMatchesRegion, type CampusRegion } from "../lib/region";
+import { REGION_LABELS, REGION_OPTIONS, contentMatchesRegion, courseMatchesRegion, defaultRegionForCourses, loadRegion, saveRegion, type CampusRegion } from "../lib/region";
 
 const MODULE_LABELS: Record<string, string> = {
   resource: "资料",
@@ -147,7 +147,7 @@ export default function MaterialsPage() {
     () =>
       [...new Map(
         items
-          .filter((item) => textMatchesRegion(`${item.sectionTitle} ${item.title}`, region))
+          .filter((item) => contentMatchesRegion(item, region))
           .map((item) => [item.sectionNumber, item.sectionTitle]),
       ).entries()]
         .sort(([a], [b]) => a - b)
@@ -158,7 +158,7 @@ export default function MaterialsPage() {
   const filteredItems = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return items.filter((item) => {
-      if (!textMatchesRegion(`${item.sectionTitle} ${item.title}`, region)) return false;
+      if (!contentMatchesRegion(item, region)) return false;
       if (typeFilter === "forum") {
         if (item.module !== "forum") return false;
       } else if (typeFilter !== "all" && categoryOf(item) !== typeFilter) {
@@ -270,7 +270,7 @@ export default function MaterialsPage() {
             每周资料
           </Typography.Title>
           <Typography.Paragraph className="page-subtitle" type="secondary">
-            按 Moodle 课程板块列出每周资料、公告和其他说明；内容来自课程页，不把资料正文改写成结论。
+            按 Moodle 课程板块列出每周资料、公告和其他说明；资料会按马来西亚 / 澳大利亚 / 印尼校区标记过滤。
           </Typography.Paragraph>
         </div>
         <Space wrap className="materials-actions">
@@ -465,8 +465,18 @@ export default function MaterialsPage() {
                                 >
                                   下载
                                 </a>
+                              ) : item.module === "label" || item.module === "page" ? (
+                                <a
+                                  className="material-download"
+                                  href={`/api/moodle/page?url=${encodeURIComponent(item.url)}&name=${encodeURIComponent(item.title)}`}
+                                  download
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  下载页面
+                                </a>
                               ) : null}
                             </div>
+                            {item.campus && item.campus !== "shared" ? <Tag color={item.campus === "malaysia" ? "green" : "default"}>{item.campus === "malaysia" ? "马来西亚" : item.campus === "australia" ? "澳大利亚" : "印度尼西亚"}</Tag> : null}
                             {item.text ? <Typography.Paragraph type="secondary" className="material-excerpt">{item.text}</Typography.Paragraph> : null}
                           </div>
                         ))}

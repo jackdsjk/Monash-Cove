@@ -4,6 +4,7 @@ import SetupGate from "./components/SetupGate";
 import BriefPage from "./pages/BriefPage";
 import DeadlinesPage from "./pages/DeadlinesPage";
 import MaterialsPage from "./pages/MaterialsPage";
+import EdMaterialsPage from "./pages/EdMaterialsPage";
 import SourcesPage from "./pages/SourcesPage";
 import SettingsPage from "./pages/SettingsPage";
 import SetupPage from "./pages/SetupPage";
@@ -17,6 +18,7 @@ export default function App() {
         <Route path="/" element={<BriefPage />} />
         <Route path="/deadlines" element={<DeadlinesPage />} />
         <Route path="/materials" element={<MaterialsPage />} />
+        <Route path="/ed" element={<EdMaterialsPage />} />
         <Route path="/sources" element={<SourcesPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/setup" element={<SetupPage />} />

@@ -89,6 +89,8 @@ export class MoodleContentClient {
 
     for (const [sectionNumber, sectionTitle] of sections) {
       const page = await this.html(`/course/view.php?id=${courseId}&section=${sectionNumber}`);
+      const sectionText = page.text;
+      const sectionHasMalaysia = /\[?Malaysia Campus|\bMUM\b/i.test(sectionText);
       for (const forumLink of page.querySelectorAll("a[href*='/mod/forum/']")) {
         const href = forumLink.getAttribute("href");
         const title = forumLink.text.replace(/\s+/g, " ").trim();
@@ -134,6 +136,15 @@ export class MoodleContentClient {
         const href = link?.getAttribute("href");
         const url = href ? new URL(href, this.baseUrl).toString() : `${this.baseUrl}/course/view.php?id=${courseId}&section=${sectionNumber}`;
         const text = module === "label" ? cleanText.slice(0, 2000) : "";
+        const explicitCampus = detectCampus(`${title} ${text}`);
+        const courseCampus = detectCampus(courseName);
+        let campus = explicitCampus === "shared" ? courseCampus : explicitCampus;
+        // In a combined MUM/Australia course, an unmarked weekly resource is
+        // normally the Australian copy. Malaysia-specific versions live in the
+        // "[Malaysia Campus] Resources" label and are extracted below.
+        if (campus === "shared" && sectionHasMalaysia && ["resource", "url", "folder", "page", "book"].includes(module)) {
+          campus = "australia";
+        }
         rows.push({
           id: createHash("sha1").update(`${courseId}:${sectionNumber}:${module}:${url}:${title}`).digest("hex"),
           courseId: String(courseId),
@@ -145,11 +156,45 @@ export class MoodleContentClient {
           url,
           text,
           updatedAt,
+          campus,
         });
+        if (module === "label") {
+          for (const nested of activity.querySelectorAll("a[href]")) {
+            const nestedHref = nested.getAttribute("href");
+            if (!nestedHref || !/\/mod\/(resource|folder|url)\//.test(nestedHref)) continue;
+            const nestedTitle = nested.text.replace(/\s+/g, " ").trim();
+            if (!nestedTitle) continue;
+            const nestedUrl = new URL(nestedHref, this.baseUrl).toString();
+            const nestedModule = /\/mod\/(resource|folder|url)\//.exec(nestedHref)?.[1] ?? "resource";
+            const nestedCampus = detectCampus(`${nestedTitle} ${nested.text}`) === "shared"
+              ? (campus === "shared" ? "malaysia" : campus)
+              : detectCampus(`${nestedTitle} ${nested.text}`);
+            rows.push({
+              id: createHash("sha1").update(`${courseId}:${sectionNumber}:${nestedModule}:${nestedUrl}:${nestedTitle}`).digest("hex"),
+              courseId: String(courseId),
+              courseName,
+              sectionNumber,
+              sectionTitle,
+              module: nestedModule,
+              title: nestedTitle,
+              url: nestedUrl,
+              text: "",
+              updatedAt,
+              campus: nestedCampus,
+            });
+          }
+        }
       }
     }
     return dedupe(rows);
   }
+}
+
+function detectCampus(value: string): "malaysia" | "australia" | "indonesia" | "shared" {
+  if (/\[?Malaysia Campus|\bMUM\b|\bMalaysia\b/i.test(value)) return "malaysia";
+  if (/\bIndonesia\b|\bID\b/i.test(value)) return "indonesia";
+  if (/\bClayton\b|\bAustralia\b|Caulfield|Peninsula/i.test(value)) return "australia";
+  return "shared";
 }
 
 function decode(value: string) {

@@ -64,6 +64,42 @@ export interface EdThreadDetailResult {
   replies: EdReply[];
 }
 
+export interface EdCourse {
+  id: number;
+  code: string;
+  name: string;
+}
+
+export interface EdLessonSummary {
+  id: number;
+  title: string;
+  slideCount: number;
+}
+
+export interface EdMaterialFile {
+  name: string;
+  url: string;
+  kind: "slides" | "pdf" | "file";
+}
+
+export interface EdMaterialSlide {
+  id: number;
+  title: string;
+  type: "video" | "text" | "slides" | "quiz" | "file";
+  url: string;
+  text: string;
+  markdown: string;
+  videoUrls: string[];
+  files: EdMaterialFile[];
+}
+
+export interface EdLessonDetail {
+  id: number;
+  courseId: number;
+  title: string;
+  slides: EdMaterialSlide[];
+}
+
 export class EdClient {
   constructor(
     private readonly token: string,
@@ -123,6 +159,67 @@ export class EdClient {
       }),
     );
     return groups.flat();
+  }
+
+  async listCourses(): Promise<EdCourse[]> {
+    const identity = await this.get<{ courses?: Array<{ course?: { id?: number; name?: string; code?: string; status?: string } }> }>("user");
+    return (identity.courses ?? [])
+      .map((entry) => entry.course)
+      .filter((course): course is { id: number; name?: string; code?: string } => Boolean(course?.id))
+      .map((course) => ({ id: course.id, code: course.code ?? course.name ?? String(course.id), name: course.name ?? course.code ?? String(course.id) }));
+  }
+
+  async listLessons(courseId: number): Promise<EdLessonSummary[]> {
+    const data = await this.get<{ lessons?: Array<{ id?: number; title?: string; slide_count?: number }> }>(`courses/${courseId}/lessons`);
+    return (data.lessons ?? [])
+      .filter((lesson): lesson is { id: number; title?: string; slide_count?: number } => Boolean(lesson.id))
+      .map((lesson) => ({ id: lesson.id, title: lesson.title ?? `Lesson ${lesson.id}`, slideCount: Number(lesson.slide_count ?? 0) }));
+  }
+
+  async getLesson(lessonId: number): Promise<EdLessonDetail> {
+    const data = await this.get<{ lesson?: { id?: number; course_id?: number; title?: string; slides?: Array<{ id?: number; title?: string; type?: string; content?: string; document?: string }> } }>(`lessons/${lessonId}`);
+    const lesson = data.lesson;
+    if (!lesson?.id) throw new Error("Ed lesson response did not include an id.");
+    const courseId = Number(lesson.course_id ?? 0);
+    const slides = (lesson.slides ?? [])
+      .filter((slide): slide is { id: number; title?: string; type?: string; content?: string; document?: string } => Boolean(slide.id))
+      .map((slide) => this.mapLessonSlide(slide, { id: Number(lesson.id) }, courseId));
+    return { id: lesson.id, courseId, title: lesson.title ?? `Lesson ${lesson.id}`, slides };
+  }
+
+  private mapLessonSlide(
+    slide: { id: number; title?: string; type?: string; content?: string; document?: string },
+    lesson: { id: number },
+    courseId: number,
+  ): EdMaterialSlide {
+    const raw = slide.content ?? slide.document ?? "";
+    const root = raw.includes("<") ? parse(raw) : null;
+    const videoUrls = root ? [...root.querySelectorAll("video")].map((node) => node.getAttribute("src") ?? "").filter(Boolean) : [];
+    const files = root
+      ? [...root.querySelectorAll("file")].map((node) => {
+          const url = node.getAttribute("url") ?? "";
+          const name = node.getAttribute("filename") ?? url.split("/").pop() ?? "file";
+          const kind = /\.pptx?$/i.test(name) ? "slides" : /\.pdf$/i.test(name) ? "pdf" : "file";
+          return { name, url, kind } as EdMaterialFile;
+        }).filter((file) => Boolean(file.url))
+      : [];
+    const paragraphs = root
+      ? root.querySelectorAll("paragraph").map((node) => node.text.replace(/\s+/g, " ").trim()).filter(Boolean)
+      : [];
+    const text = (paragraphs.join("\n\n") || (root ? root.text.replace(/\s+/g, " ").trim() : raw)).replace(/\n{3,}/g, "\n\n");
+    const type: EdMaterialSlide["type"] = videoUrls.length > 0
+      ? "video"
+      : files.some((file) => file.kind === "slides")
+        ? "slides"
+        : files.length > 0
+          ? "file"
+          : slide.type === "quiz" || !text
+            ? "quiz"
+            : "text";
+    const url = `https://edstem.org/${this.region}/courses/${courseId}/lessons/${lesson.id}/slides/${slide.id}`;
+    const fileLines = files.map((file) => `- [${file.name}](${file.url})`).join("\n");
+    const markdown = `# ${slide.title ?? "Ed material"}\n\n${text}${fileLines ? `\n\n## Files\n${fileLines}` : ""}`.trim();
+    return { id: slide.id, title: slide.title ?? `Slide ${slide.id}`, type, url, text, markdown, videoUrls, files };
   }
 
   async getThreadDetail(threadId: number): Promise<EdThreadDetailResult> {
