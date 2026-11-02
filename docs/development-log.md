@@ -241,3 +241,5 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 
 - 新增 Ed 学习页：live 读取 Ed lessons/slides，解析视频、文字、附件；支持文字 MD 下载、文件直下和整课 ZIP 打包。
 - Moodle 内容新增 campus 字段；抓取 `[Malaysia Campus] Resources` 标签内的资源链接，FIT1047 的马来西亚资料不再混入澳大利亚资源。
+
+- Moodle 复杂 label/page 增加页面布局 PNG 快照下载，作为无法直接提取文件时的 fallback。

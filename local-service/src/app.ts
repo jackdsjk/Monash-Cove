@@ -19,6 +19,7 @@ import { MoodleClient } from "./sources/moodle.js";
 import { EdClient } from "./sources/ed.js";
 import { syncMoodleContent } from "./sync/moodle-content.js";
 import { downloadMoodleResource, MoodleDownloadError, safeDownloadName } from "./moodle-download.js";
+import { captureMoodlePage } from "./moodle-snapshot.js";
 import type { ApiError, Source } from "./domain.js";
 import { getRuntimeStatus } from "./runtime.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
@@ -517,6 +518,22 @@ export function buildApp(options: AppOptions): FastifyInstance {
         return reply.code(error.status).send({ error: { code: error.code, message: error.message, retryable: error.status >= 500 } } satisfies ApiError);
       }
       return reply.code(502).send({ error: { code: "download_failed", message: "Moodle download failed.", retryable: true } } satisfies ApiError);
+    }
+  });
+
+  app.get<{ Querystring: { url?: string; name?: string } }>("/api/moodle/page", async (request, reply) => {
+    if (!request.query.url) return reply.code(400).send({ error: { code: "invalid_url", message: "url is required.", retryable: false } } satisfies ApiError);
+    const raw = await secrets.get("moodle-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
+    try {
+      const credentials = moodleCredentials.parse(JSON.parse(raw));
+      const image = await captureMoodlePage(credentials, request.query.url);
+      const name = `${safeDownloadName(request.query.name || "moodle-page") || "moodle-page"}.png`;
+      reply.header("content-type", "image/png");
+      reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+      return reply.send(image);
+    } catch (error) {
+      return reply.code(502).send({ error: { code: "moodle_page_failed", message: error instanceof Error ? error.message : "Moodle page capture failed.", retryable: true } } satisfies ApiError);
     }
   });
 

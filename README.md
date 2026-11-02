@@ -8,6 +8,7 @@ Cove 是一个本地优先的校园信息分诊应用：把 Gmail、Ed 和 Moodl
 - `local-service/`：Node + Fastify + SQLite 本地服务，负责来源凭据、同步、分诊、资料索引和下载；
 - `desktop/`：Electron 桌面壳与打包配置（macOS / Windows）；
 - `Ed 学习`：按 lesson 浏览 Ed 视频、文字和附件；视频跳转，文字下载 Markdown，PPT/PDF 下载，并支持整课打包。
+- Moodle 资料按马来西亚 / 澳大利亚 / 印尼校区标记；复杂标签可下载页面布局快照。
 - `签到`：从 Gmail / Moodle 汇总 attendance code，Moodle 图片使用内置 Tesseract.js / WASM OCR；
 - `docs/`：安装说明、MCP 接入和 release notes；
 - `demo/`：匿名静态原型。

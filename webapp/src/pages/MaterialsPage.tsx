@@ -465,6 +465,15 @@ export default function MaterialsPage() {
                                 >
                                   下载
                                 </a>
+                              ) : item.module === "label" || item.module === "page" ? (
+                                <a
+                                  className="material-download"
+                                  href={`/api/moodle/page?url=${encodeURIComponent(item.url)}&name=${encodeURIComponent(item.title)}`}
+                                  download
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  下载页面
+                                </a>
                               ) : null}
                             </div>
                             {item.campus && item.campus !== "shared" ? <Tag color={item.campus === "malaysia" ? "green" : "default"}>{item.campus === "malaysia" ? "马来西亚" : item.campus === "australia" ? "澳大利亚" : "印度尼西亚"}</Tag> : null}
