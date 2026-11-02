@@ -11,6 +11,7 @@ Cove 是一个本地优先的校园信息分诊应用：把 Gmail、Ed 和 Moodl
 - Moodle 资料按马来西亚 / 澳大利亚 / 印尼校区标记；复杂标签可下载页面布局快照。
 - `签到`：从 Gmail / Moodle 汇总 attendance code，Moodle 图片使用内置 Tesseract.js / WASM OCR；
 - `docs/`：安装说明、MCP 接入和 release notes；
+- `更新提醒`：启动、窗口聚焦或每 15 分钟检查 GitHub Release，有新版本时显示轻量横幅；不会自动下载或替换 App。
 - `demo/`：匿名静态原型。
 
 ## 桌面安装

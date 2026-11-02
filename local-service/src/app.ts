@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import JSZip from "jszip";
 import Fastify, { type FastifyInstance } from "fastify";
 import staticPlugin from "@fastify/static";
@@ -28,6 +29,16 @@ import { discoverAttendanceSessions, fillAttendance, validateAttendance, type At
 import { parseAttendanceRows } from "./attendance/parser.js";
 import { scanMoodleAttendanceImages } from "./attendance/moodle-ocr.js";
 import { parseAttendanceSessionPreference, detectedToPreferences, matchesPreferredSession, type AttendancePreferences } from "./attendance/preferences.js";
+import { buildUpdateStatus, fetchLatestRelease, type UpdateStatus } from "./update.js";
+
+const CURRENT_VERSION = (() => {
+  try {
+    return String((JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version?: string }).version ?? "0.0.0");
+  } catch {
+    return "0.0.0";
+  }
+})();
+let updateCache: { at: number; value: UpdateStatus } | null = null;
 
 const sourceSchema = z.enum(["gmail", "ed", "moodle"]);
 
@@ -592,6 +603,20 @@ export function buildApp(options: AppOptions): FastifyInstance {
     reply.header("x-cove-batch-count", String(added));
     reply.header("x-cove-batch-skipped", String(skipped));
     return reply.send(archive);
+  });
+
+  app.get<{ Querystring: { refresh?: string } }>("/api/update", async (request) => {
+    if (!request.query.refresh && updateCache && Date.now() - updateCache.at < 15 * 60_000) return updateCache.value;
+    try {
+      const latest = await fetchLatestRelease(options.fetcher ?? fetch);
+      const value = buildUpdateStatus(CURRENT_VERSION, latest);
+      updateCache = { at: Date.now(), value };
+      return value;
+    } catch (error) {
+      const value = buildUpdateStatus(CURRENT_VERSION, null, error instanceof Error ? error.message : "Update check failed.");
+      updateCache = { at: Date.now(), value };
+      return value;
+    }
   });
 
   app.get("/api/ed/courses", async (_request, reply) => {

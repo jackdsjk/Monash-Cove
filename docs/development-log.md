@@ -243,3 +243,5 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - Moodle 内容新增 campus 字段；抓取 `[Malaysia Campus] Resources` 标签内的资源链接，FIT1047 的马来西亚资料不再混入澳大利亚资源。
 
 - Moodle 复杂 label/page 增加页面布局 PNG 快照下载，作为无法直接提取文件时的 fallback。
+
+- 新增轻量更新提醒：本地后端检查 GitHub Releases（15 分钟缓存），前端启动/聚焦/每 15 分钟刷新，只提示并跳转 Release，不自动更新。

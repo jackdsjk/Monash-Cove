@@ -4,6 +4,7 @@ import { Badge, Layout, Menu, Space, Typography } from "antd";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { fetchSources, fetchSyncStatus } from "../data/repository";
 import CommandPalette from "./CommandPalette";
+import UpdateBanner from "./UpdateBanner";
 import { SOURCE_LABELS } from "../lib/triage";
 import type { Source } from "../types";
 
@@ -132,7 +133,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
 
           <div className="sider-footer">
-            <Typography.Text type="secondary">Cove v0.1</Typography.Text>
+            <Typography.Text type="secondary">Cove v0.1.2</Typography.Text>
             <Typography.Text type="secondary">本地 API · 来源可连接</Typography.Text>
           </div>
         </div>
@@ -147,7 +148,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
               <Typography.Text type="secondary">本地模式 · 仅本机存储</Typography.Text>
             </Space>
           </header>
-          <div className="page-container">{children}</div>
+          <div className="page-container">
+            <UpdateBanner />
+            {children}
+          </div>
         </Content>
       </Layout>
     </Layout>
