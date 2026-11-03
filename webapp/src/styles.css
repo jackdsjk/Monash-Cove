@@ -2304,3 +2304,12 @@ a {
     min-width: 220px;
   }
 }
+
+.update-banner {
+  margin-bottom: 16px;
+  border-radius: 10px;
+}
+
+.update-banner .ant-alert-action {
+  align-self: center;
+}

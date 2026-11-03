@@ -25,7 +25,7 @@ function failure(error: unknown) {
     content: [
       {
         type: "text" as const,
-        text: error instanceof Error ? error.message : "Cove MCP request failed.",
+        text: error instanceof Error ? error.message : "Monash Cove MCP request failed.",
       },
     ],
   };
@@ -38,7 +38,7 @@ export function createCoveMcpServer(options: McpOptions = {}) {
   async function api<T>(path: string): Promise<T> {
     const response = await fetcher(`${base}/api${path}`, { headers: { accept: "application/json" } });
     const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-    if (!response.ok) throw new Error(body?.error?.message ?? `Cove API returned HTTP ${response.status}.`);
+    if (!response.ok) throw new Error(body?.error?.message ?? `Monash Cove API returned HTTP ${response.status}.`);
     return body as T;
   }
 
@@ -77,14 +77,14 @@ export function createCoveMcpServer(options: McpOptions = {}) {
     { name: "cove", version: "0.1.2" },
     {
       instructions:
-        "Cove is a local, read-only campus triage service. Use cove_brief for the current brief, cove_deadlines for due dates, and cove_get_item for source text and evidence. Data is user-local; never assume a shared account.",
+        "Monash Cove is a local, read-only campus triage service. Use cove_brief for the current brief, cove_deadlines for due dates, and cove_get_item for source text and evidence. Data is user-local; never assume a shared account.",
     },
   );
 
   server.registerTool(
     "cove_brief",
     {
-      title: "Get Cove brief",
+      title: "Get Monash Cove brief",
       description: "Return the local campus brief. Read-only; items are normalized from Gmail, Ed, and Moodle.",
       inputSchema: z.object({
         source: z.enum(["gmail", "ed", "moodle"]).optional(),
@@ -120,8 +120,8 @@ export function createCoveMcpServer(options: McpOptions = {}) {
   server.registerTool(
     "cove_get_item",
     {
-      title: "Get Cove item",
-      description: "Return one Cove item including source text, evidence quote, course, URL, and triage fields.",
+      title: "Get Monash Cove item",
+      description: "Return one Monash Cove item including source text, evidence quote, course, URL, and triage fields.",
       inputSchema: z.object({ id: z.string().min(1) }),
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -137,7 +137,7 @@ export function createCoveMcpServer(options: McpOptions = {}) {
   server.registerTool(
     "cove_deadlines",
     {
-      title: "List Cove deadlines",
+      title: "List Monash Cove deadlines",
       description: "Return Moodle assessments with due dates, nearest first.",
       inputSchema: z.object({ days: z.number().int().min(1).max(365).default(30) }),
       annotations: { readOnlyHint: true, openWorldHint: false },
@@ -164,7 +164,7 @@ export function createCoveMcpServer(options: McpOptions = {}) {
   server.registerTool(
     "cove_sources",
     {
-      title: "List Cove sources",
+      title: "List Monash Cove sources",
       description: "Return local source connection status and item counts.",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true, openWorldHint: false },
@@ -181,7 +181,7 @@ export function createCoveMcpServer(options: McpOptions = {}) {
   server.registerTool(
     "cove_sync_status",
     {
-      title: "Get Cove sync status",
+      title: "Get Monash Cove sync status",
       description: "Return full-sync completion and current background sync progress.",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true, openWorldHint: false },
@@ -198,7 +198,7 @@ export function createCoveMcpServer(options: McpOptions = {}) {
   server.registerTool(
     "cove_courses",
     {
-      title: "List Cove Moodle courses",
+      title: "List Monash Cove Moodle courses",
       description: "List Moodle courses visible in the local account.",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true, openWorldHint: false },
@@ -215,7 +215,7 @@ export function createCoveMcpServer(options: McpOptions = {}) {
   server.registerTool(
     "cove_materials",
     {
-      title: "List Cove course materials",
+      title: "List Monash Cove course materials",
       description: "Return cached Moodle sections and materials for one course. Optionally filter explicitly labelled campus content.",
       inputSchema: z.object({
         courseId: z.number().int().positive(),

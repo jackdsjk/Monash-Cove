@@ -1,4 +1,4 @@
-# Cove 0.1.1
+# Monash Cove 0.1.1
 
 本版本集中完善签到和简报详情。
 
@@ -19,7 +19,7 @@
 
 ## 安装
 
-见 [安装说明](https://github.com/jackdsjk/Monash-Agent/blob/main/docs/desktop-install.md)。
+见 [安装说明](https://github.com/jackdsjk/Monash-Cove/blob/main/docs/desktop-install.md)。
 
 ## 已知限制
 

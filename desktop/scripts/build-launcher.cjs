@@ -32,14 +32,14 @@ if (!existsSync(nodeBinary)) {
 }
 
 const output = path.join(desktopDir, "release");
-const app = path.join(output, `CoveLauncher-${packageVersion}-${arch}.app`);
+const app = path.join(output, "Monash Cove.app");
 rmSync(app, { recursive: true, force: true });
 mkdirSync(output, { recursive: true });
 const script = path.join(cache, "launcher.applescript");
 writeFileSync(script, `on run
   set appPath to POSIX path of (path to me)
   if appPath starts with "/Volumes/" then
-    display dialog "请先把 CoveLauncher 拖进 Applications，再推出 DMG。不要在 DMG 里直接运行。" buttons {"好"} default button 1 with title "Cove Launcher"
+    display dialog "请先把 Monash Cove 拖进 Applications，再推出 DMG。不要在 DMG 里直接运行。" buttons {"好"} default button 1 with title "Monash Cove"
     return
   end if
   set nodePath to appPath & "Contents/Resources/runtime/node"
@@ -47,7 +47,7 @@ writeFileSync(script, `on run
   set webappPath to appPath & "Contents/Resources/webapp"
   set homePath to POSIX path of (path to home folder)
   set dataPath to homePath & "Library/Application Support/CoveLauncher"
-  set logPath to homePath & "Library/Logs/CoveLauncher.log"
+  set logPath to homePath & "Library/Logs/MonashCove.log"
   do shell script "mkdir -p " & quoted form of dataPath & " " & quoted form of (POSIX path of (path to home folder)) & "Library/Logs"
   try
     do shell script "/usr/bin/curl -fsS --max-time 2 http://127.0.0.1:4317/api/health >/dev/null 2>&1 || true"
@@ -56,7 +56,7 @@ writeFileSync(script, `on run
     do shell script "/usr/bin/curl -fsS --max-time 5 http://127.0.0.1:4317/api/health >/dev/null"
     open location "http://127.0.0.1:4317"
   on error errMsg number errNum
-    display dialog "Cove 启动失败：" & return & errMsg & return & return & "日志：" & logPath buttons {"好"} default button 1 with title "Cove Launcher"
+    display dialog "Monash Cove 启动失败：" & return & errMsg & return & return & "日志：" & logPath buttons {"好"} default button 1 with title "Monash Cove"
   end try
 end run
 `);
@@ -66,10 +66,10 @@ cpSync(nodeBinary, path.join(app, "Contents", "Resources", "runtime", "node"));
 chmodSync(path.join(app, "Contents", "Resources", "runtime", "node"), 0o755);
 cpSync(service, path.join(app, "Contents", "Resources", "local-service"), { recursive: true });
 cpSync(path.join(workspace, "webapp", "dist"), path.join(app, "Contents", "Resources", "webapp"), { recursive: true });
-const archive = path.join(output, `CoveLauncher-${packageVersion}-${arch}.zip`);
+const archive = path.join(output, `Monash-Cove-${packageVersion}-${arch}.zip`);
 rmSync(archive, { force: true });
 execFileSync("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", app, archive], { stdio: "inherit" });
-const dmg = path.join(output, `CoveLauncher-${packageVersion}-${arch}.dmg`);
+const dmg = path.join(output, `Monash-Cove-${packageVersion}-${arch}.dmg`);
 rmSync(dmg, { force: true });
 execFileSync("hdiutil", ["create", "-volname", "Cove", "-srcfolder", app, "-ov", "-format", "UDZO", dmg], { stdio: "inherit" });
 console.log(`Built ${app}`);

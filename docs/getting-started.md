@@ -1,8 +1,8 @@
-# Cove 新用户安装与使用说明
+# Monash Cove 新用户安装与使用说明
 
-## Cove 是什么
+## Monash Cove 是什么
 
-Cove 是一个本地优先的校园信息工具。它把 Monash 的 **Gmail、Ed、Moodle** 信息整理成：
+Monash Cove 是一个本地优先的校园信息工具。它把 Monash 的 **Gmail、Ed、Moodle** 信息整理成：
 
 - 今日简报；
 - 截止倒计时；
@@ -18,25 +18,25 @@ Cove 是一个本地优先的校园信息工具。它把 Monash 的 **Gmail、Ed
 
 打开 Release 页面：
 
-https://github.com/jackdsjk/Monash-Agent/releases
+https://github.com/jackdsjk/Monash-Cove/releases
 
 | 你的电脑 | 下载 |
 |---|---|
-| Mac M1 / M2 / M3 / M4 | `CoveLauncher-0.1.2-arm64.dmg` |
-| Mac 备用 | `CoveLauncher-0.1.2-arm64.zip` |
-| Windows 64 位 | `Cove-0.1.2-win-x64.zip` |
+| Mac M1 / M2 / M3 / M4 | `Monash-Cove-0.1.2-arm64.dmg` |
+| Mac 备用 | `Monash-Cove-0.1.2-arm64.zip` |
+| Windows 64 位 | `Monash-Cove-0.1.2-win-x64.zip` |
 
 ---
 
 ## 二、Windows 安装
 
-1. 下载 `Cove-0.1.2-win-x64.zip`；
+1. 下载 `Monash-Cove-0.1.2-win-x64.zip`；
 2. 右键解压到任意目录；
-3. 双击 `Cove.exe`；
+3. 双击 `Monash Cove.exe`；
 4. 如果出现 **Windows 已保护你的电脑**：
    - 点“更多信息”；
    - 点“仍要运行”。
-5. Cove 会启动本地服务并打开浏览器。
+5. Monash Cove 会启动本地服务并打开浏览器。
 
 首次启动后先完成设置向导，再同步数据。
 
@@ -47,24 +47,24 @@ https://github.com/jackdsjk/Monash-Agent/releases
 
 ## 三、macOS 安装
 
-1. 下载 `CoveLauncher-0.1.2-arm64.dmg`；
+1. 下载 `Monash-Cove-0.1.2-arm64.dmg`；
 2. 双击打开 DMG；
-3. 把 `CoveLauncher.app` 拖到 **Applications**；
+3. 把 `Monash Cove.app` 拖到 **Applications**；
 4. 在 Finder 里推出 DMG；
-5. 到 Applications 双击 `CoveLauncher`。
+5. 到 Applications 双击 `Monash Cove`。
 
 ### 如果 macOS 阻止打开
 
 这是未签名 App 的 Gatekeeper 提示：
 
-- 右键 `CoveLauncher.app` → 打开 → 再点“打开”；
-- 或打开 **系统设置 → 隐私与安全性**，找到 CoveLauncher，点“仍要打开”。
+- 右键 `Monash Cove.app` → 打开 → 再点“打开”；
+- 或打开 **系统设置 → 隐私与安全性**，找到 Monash Cove，点“仍要打开”。
 
 如果提示“已损坏”，可在终端运行：
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/CoveLauncher.app"
-open "/Applications/CoveLauncher.app"
+xattr -dr com.apple.quarantine "/Applications/Monash Cove.app"
+open "/Applications/Monash Cove.app"
 ```
 
 Launcher 不会打开独立窗口，它会启动本地服务并打开：
@@ -104,7 +104,7 @@ http://127.0.0.1:4317
 - **Ed**：Ed API token；
 - **Moodle**：Chrome 登录助手，保存本地 session。
 
-Cove 不保存密码，只保存本机凭据 / session。
+Monash Cove 不保存密码，只保存本机凭据 / session。
 
 ### 3. 全量同步
 
@@ -114,7 +114,7 @@ Cove 不保存密码，只保存本机凭据 / session。
 设置 → 全量同步
 ```
 
-第一次同步可能需要几分钟。之后打开 Cove 会做增量同步。
+第一次同步可能需要几分钟。之后打开 Monash Cove 会做增量同步。
 
 ---
 
@@ -186,7 +186,7 @@ Cove 不保存密码，只保存本机凭据 / session。
 
 ## 六、当前限制
 
-- 公开版本不包含 Cove 的 Google OAuth client secret，Gmail 需要额外配置；
+- 公开版本不包含 Monash Cove 的 Google OAuth client secret，Gmail 需要额外配置；
 - macOS Launcher 未使用 Apple Developer ID 签名，可能出现 Gatekeeper 提示；
 - Windows 包没有代码签名，可能出现 SmartScreen 提示；
 - 没有 active attendance code 表单时，一键填写只会返回“未开始”，不会伪造提交；

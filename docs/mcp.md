@@ -1,8 +1,8 @@
-# Cove MCP
+# Monash Cove MCP
 
-Cove exposes a **local, read-only MCP interface** so another agent can use the same data the Cove Web App sees.
+Monash Cove exposes a **local, read-only MCP interface** so another agent can use the same data the Monash Cove Web App sees.
 
-The MCP server is a bridge over the local Cove API. It does not copy credentials, call source sites directly, or upload data.
+The MCP server is a bridge over the local Monash Cove API. It does not copy credentials, call source sites directly, or upload data.
 
 ## Transports
 
@@ -15,7 +15,7 @@ For desktop builds, prefer **stdio**: the desktop app chooses a random local por
 
 ## Prerequisites
 
-1. Start Cove local-service:
+1. Start Monash Cove local-service:
 
 ```bash
 cd local-service
@@ -151,10 +151,10 @@ Returns the full item text and evidence so the external agent can quote the sour
 A good system prompt for the external agent:
 
 ```text
-Cove is a local read-only campus triage source. Use cove_brief for the current
+Monash Cove is a local read-only campus triage source. Use cove_brief for the current
 brief, cove_deadlines for dates, and cove_get_item before making a claim about
-an item. Never invent a deadline, course, or source quote. If Cove returns
-`isError`, report that the local Cove service is unavailable instead of guessing.
+an item. Never invent a deadline, course, or source quote. If Monash Cove returns
+`isError`, report that the local Monash Cove service is unavailable instead of guessing.
 Cite the item's URL when giving the user advice.
 ```
 
@@ -165,7 +165,7 @@ Cite the item's URL when giving the user advice.
 - credentials stay in the local-service Keychain/secret store;
 - the HTTP endpoint is loopback-only and has no remote authentication;
 - do not expose `4317` to a LAN or the internet;
-- each user runs their own Cove and own MCP server.
+- each user runs their own Monash Cove and own MCP server.
 
 ## Limitations
 

@@ -171,10 +171,10 @@ export default function SetupPage() {
             FIRST RUN
           </Typography.Text>
           <Typography.Title level={1} className="page-title">
-            欢迎使用 Cove
+            欢迎使用 Monash Cove
           </Typography.Title>
           <Typography.Paragraph className="page-subtitle" type="secondary">
-            先连接你自己的校园账号。Cove 不保存密码；登录由 Gmail、Ed 和 Monash 官方页面完成，凭据只留在本机 Keychain。
+            先连接你自己的校园账号。Monash Cove 不保存密码；登录由 Gmail、Ed 和 Monash 官方页面完成，凭据只留在本机 Keychain。
           </Typography.Paragraph>
         </div>
         <Button type="text" onClick={skip}>
@@ -198,7 +198,7 @@ export default function SetupPage() {
           <Input
             value={profileName}
             onChange={(event) => setProfileName(event.target.value)}
-            placeholder="Cove 在本机怎么称呼你"
+            placeholder="Monash Cove 在本机怎么称呼你"
             maxLength={40}
           />
           <Select
@@ -236,7 +236,7 @@ export default function SetupPage() {
             extra={status.gmailConnected ? <Tag color="green" icon={<CheckCircleOutlined />}>已连接</Tag> : <Tag>未连接</Tag>}
           >
             <Typography.Paragraph type="secondary">
-              通过 Google 官方 OAuth 只读连接；Cove 不接触密码。授权后自动刷新 token。
+              通过 Google 官方 OAuth 只读连接；Monash Cove 不接触密码。授权后自动刷新 token。
             </Typography.Paragraph>
             <Button type="primary" disabled={status.gmailConnected} onClick={() => void connectGmail()}>
               {status.gmailConnected ? "已连接" : "连接 Gmail"}
@@ -255,7 +255,7 @@ export default function SetupPage() {
             ) : (
               <>
                 <Typography.Paragraph type="secondary">
-                  先打开 Ed 登录并创建 API token，然后粘贴一次。Cove 只保存 token，不保存密码。
+                  先打开 Ed 登录并创建 API token，然后粘贴一次。Monash Cove 只保存 token，不保存密码。
                 </Typography.Paragraph>
                 <Space.Compact style={{ width: "100%" }}>
                   <Input.Password

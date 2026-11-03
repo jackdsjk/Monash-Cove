@@ -49,6 +49,19 @@ export interface ItemSourceDetail {
   warning: string | null;
 }
 
+export interface UpdateStatus {
+  currentVersion: string;
+  latestVersion: string | null;
+  latestTag: string | null;
+  hasUpdate: boolean;
+  releaseName: string | null;
+  releaseUrl: string | null;
+  publishedAt: string | null;
+  notes: string | null;
+  checkedAt: string;
+  error: string | null;
+}
+
 export interface EdCourse {
   id: number;
   code: string;

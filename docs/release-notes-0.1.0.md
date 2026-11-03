@@ -1,6 +1,6 @@
-# Cove 0.1.0
+# Monash Cove 0.1.0
 
-首个本地优先的 Cove 桌面测试版。
+首个本地优先的 Monash Cove 桌面测试版。
 
 ## 包含
 
@@ -17,7 +17,7 @@
 
 ## 安装
 
-见 [安装说明](https://github.com/jackdsjk/Monash-Agent/blob/main/docs/desktop-install.md)。
+见 [安装说明](https://github.com/jackdsjk/Monash-Cove/blob/main/docs/desktop-install.md)。
 
 ## 修复
 
@@ -25,8 +25,8 @@
 
 ## 已知限制
 
-- macOS Electron 包未签名；公开版提供 CoveLauncher 快速启动器；
-- CoveLauncher 仍是未签名 AppleScript applet，陌生 Mac 可能需要右键打开或 Gatekeeper 允许；
+- macOS Electron 包未签名；公开版提供 Monash Cove Launcher 快速启动器；
+- Monash Cove Launcher 仍是未签名 AppleScript applet，陌生 Mac 可能需要右键打开或 Gatekeeper 允许；
 - 公开 Release 不包含 Google OAuth client secret；Gmail 需要额外配置；
 - Windows 包未在真实 Windows 机器验证；
 - 没有真实外部用户测试完成记录；

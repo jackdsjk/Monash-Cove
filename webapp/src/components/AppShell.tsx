@@ -4,6 +4,7 @@ import { Badge, Layout, Menu, Space, Typography } from "antd";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { fetchSources, fetchSyncStatus } from "../data/repository";
 import CommandPalette from "./CommandPalette";
+import UpdateBanner from "./UpdateBanner";
 import { SOURCE_LABELS } from "../lib/triage";
 import type { Source } from "../types";
 
@@ -75,7 +76,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const title = location.pathname === "/sources" ? "数据源" : location.pathname === "/settings" ? "设置" : location.pathname === "/deadlines" ? "倒计时" : location.pathname === "/materials" ? "每周资料" : location.pathname === "/ed" ? "Ed 学习" : location.pathname === "/attendance" ? "签到" : location.pathname === "/setup" ? "首次设置" : "简报";
 
   useEffect(() => {
-    document.title = `Cove · ${title}`;
+    document.title = `Monash Cove · ${title}`;
   }, [title]);
 
   useEffect(() => {
@@ -98,9 +99,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
         theme="light"
       >
         <div className="sider-inner">
-          <Link className="brand" to="/" aria-label="Cove 首页">
-            <span className="brand-word">cove</span>
-            <span className="brand-dot">.</span>
+          <Link className="brand" to="/" aria-label="Monash Cove 首页">
+            <span className="brand-word">Monash Cove</span>
           </Link>
           <Typography.Text className="sider-kicker" type="secondary">
             校园信息分诊
@@ -132,7 +132,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
 
           <div className="sider-footer">
-            <Typography.Text type="secondary">Cove v0.1</Typography.Text>
+            <Typography.Text type="secondary">Monash Cove v0.1.2</Typography.Text>
             <Typography.Text type="secondary">本地 API · 来源可连接</Typography.Text>
           </div>
         </div>
@@ -147,7 +147,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
               <Typography.Text type="secondary">本地模式 · 仅本机存储</Typography.Text>
             </Space>
           </header>
-          <div className="page-container">{children}</div>
+          <div className="page-container">
+            <UpdateBanner />
+            {children}
+          </div>
         </Content>
       </Layout>
     </Layout>

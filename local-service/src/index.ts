@@ -17,6 +17,8 @@ process.env.COVE_SECRET_FILE ??= path.join(dataDir, "secrets.json");
 
 const app = buildApp({
   dbPath: process.env.COVE_DB_PATH ?? path.join(dataDir, "cove.sqlite"),
+  // 可选：用独立数据集启动（展示/演示账号），默认仍读仓库内 fixtures/items.json。
+  fixturePath: process.env.COVE_FIXTURE_PATH || undefined,
   logger: true,
   autoSync: process.env.COVE_AUTO_SYNC !== "0",
   staticDir: process.env.COVE_STATIC_DIR ?? path.resolve(process.cwd(), "../webapp/dist"),
@@ -32,7 +34,7 @@ const app = buildApp({
 
 try {
   await app.listen({ host: "127.0.0.1", port });
-  app.log.info(`Cove local service listening on http://127.0.0.1:${port}`);
+  app.log.info(`Monash Cove local service listening on http://127.0.0.1:${port}`);
 } catch (error) {
   app.log.error(error);
   process.exit(1);
