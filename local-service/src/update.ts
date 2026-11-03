@@ -47,7 +47,7 @@ interface GitHubRelease {
 }
 
 export async function fetchLatestRelease(fetcher: typeof fetch = fetch): Promise<UpdateRelease> {
-  const response = await fetcher("https://api.github.com/repos/jackdsjk/Monash-Agent/releases?per_page=10", {
+  const response = await fetcher("https://api.github.com/repos/jackdsjk/Monash-Cove/releases?per_page=10", {
     headers: {
       accept: "application/vnd.github+json",
       "user-agent": "Cove-Update-Check",

@@ -1,4 +1,4 @@
-# Cove Desktop
+# Monash Cove Desktop
 
 Electron 外壳，把 `webapp/dist` 和本地 `local-service` 打包成一个桌面 App。
 
@@ -34,7 +34,7 @@ npm run prepare:resources
 npx electron-builder --win zip --arm64
 ```
 
-## 快速安装：CoveLauncher（无 Electron 签名）
+## 快速安装：Monash Cove（无 Electron 签名）
 
 macOS 26 会拒绝当前未签名的 Electron App。为了先给测试用户一个**无需 Apple Developer ID**的入口，可以构建轻量 launcher：
 
@@ -46,11 +46,11 @@ npm run build:launcher
 产物：
 
 ```text
-desktop/release/CoveLauncher-0.1.2-arm64.dmg
-desktop/release/CoveLauncher-0.1.2-arm64.zip
+desktop/release/Monash-Cove-0.1.2-arm64.dmg
+desktop/release/Monash-Cove-0.1.2-arm64.zip
 ```
 
-用户解压后双击 `CoveLauncher.app`，它会：
+用户解压后双击 `Monash Cove.app`，它会：
 
 1. 用包内的 Node 26 启动本地服务；
 2. 打开浏览器到 `http://127.0.0.1:4317`；
@@ -60,9 +60,9 @@ desktop/release/CoveLauncher-0.1.2-arm64.zip
 
 ## 产物
 
-- macOS arm64：`release/Cove-0.1.2-arm64.dmg`、`release/Cove-0.1.2-arm64.zip`
-- macOS Intel：`release/Cove-0.1.2-x64.zip`
-- Windows x64：`release/Cove-0.1.2-win-x64.zip`
+- macOS arm64：`release/Monash-Cove-0.1.2-arm64.dmg`、`release/Monash-Cove-0.1.2-arm64.zip`
+- macOS Intel：`release/Monash-Cove-0.1.2-x64.zip`
+- Windows x64：`release/Monash-Cove-0.1.2-win-x64.zip`
 
 ## 重要限制
 
@@ -85,12 +85,12 @@ Windows ZIP 未签名，首次运行会出现 SmartScreen 提示，需要用户�
 ### Google OAuth
 
 本地构建时，`prepare-resources` 会把 `local-service/.env.local` 复制到桌面包的
-`local-service/.env.local`，因此测试包可以使用 Cove 当前的 Google OAuth client。
+`local-service/.env.local`，因此测试包可以使用 Monash Cove 当前的 Google OAuth client。
 
 注意：
 
 - 该文件包含 client secret，**不要发布构建产物**；
-- 正式公开分发应改为 Cove 统一 OAuth client + 服务端交换，或经过 Google 验证的公开 client；
+- 正式公开分发应改为 Monash Cove 统一 OAuth client + 服务端交换，或经过 Google 验证的公开 client；
 - 桌面版默认固定使用 `4317`，以匹配 OAuth callback；`COVE_PORT=0` 仅用于自动化测试随机端口。
 
 ### Moodle 登录助手
@@ -117,7 +117,7 @@ Windows ZIP 未签名，首次运行会出现 SmartScreen 提示，需要用户�
 
 ## 数据位置
 
-- macOS：`~/Library/Application Support/Cove/`
+- macOS：`~/Library/Application Support/Cove/`（Electron）/ `CoveLauncher/`（Launcher）
 - Windows：Electron 的 `userData` 目录（通常是 `%APPDATA%/Cove/`）
 - 凭据：macOS Keychain；Windows 当前使用用户数据目录下 `secrets.json`（文件权限保护，不是系统 Keychain）
 

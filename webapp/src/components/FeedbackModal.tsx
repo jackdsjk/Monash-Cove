@@ -59,7 +59,7 @@ export default function FeedbackModal({ item, open, existing, onCancel, onSubmit
           </Radio.Group>
         </Form.Item>
         <Form.Item name="note" label="补充说明">
-          <Input.TextArea rows={3} placeholder="可选：告诉 Cove 你期望的判断" maxLength={300} showCount />
+          <Input.TextArea rows={3} placeholder="可选：告诉 Monash Cove 你期望的判断" maxLength={300} showCount />
         </Form.Item>
       </Form>
     </Modal>

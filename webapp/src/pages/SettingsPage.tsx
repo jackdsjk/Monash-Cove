@@ -66,7 +66,7 @@ export default function SettingsPage() {
           <Input
             value={profileName}
             onChange={(event) => setProfileName(event.target.value)}
-            placeholder="Cove 在本机怎么称呼你"
+            placeholder="Monash Cove 在本机怎么称呼你"
             maxLength={40}
           />
           <Select

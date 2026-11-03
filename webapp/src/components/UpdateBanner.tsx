@@ -44,7 +44,7 @@ export default function UpdateBanner() {
       type="info"
       showIcon
       icon={<RocketOutlined />}
-      message={`Cove ${status.latestVersion} 已发布`}
+      message={`Monash Cove ${status.latestVersion} 已发布`}
       description={(
         <Typography.Text type="secondary">
           当前版本 {status.currentVersion}。可以查看更新内容后手动下载；不会自动替换当前版本。

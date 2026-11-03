@@ -1,6 +1,6 @@
-# Cove
+# Monash Cove
 
-Cove 是一个本地优先的校园信息分诊应用：把 Gmail、Ed 和 Moodle 的只读信息整理成可核对的简报、截止倒计时和每周资料。
+Monash Cove 是一个本地优先的校园信息分诊应用：把 Gmail、Ed 和 Moodle 的只读信息整理成可核对的简报、截止倒计时和每周资料。
 
 ## 结构
 
@@ -22,11 +22,11 @@ Cove 是一个本地优先的校园信息分诊应用：把 Gmail、Ed 和 Moodl
 
 参见 [desktop/README.md](desktop/README.md)。
 
-当前 Cove 0.1.2 的 Electron macOS 包未签名，正式分发需要 Developer ID 和 notarization；测试可先用 `npm run build:launcher` 生成无需 Apple 签名的 CoveLauncher。Windows 包未在真实 Windows 机器测试。
+当前 Monash Cove 0.1.2 的 Electron macOS 包未签名，正式分发需要 Developer ID 和 notarization；测试可先用 `npm run build:launcher` 生成无需 Apple 签名的 Monash Cove Launcher。Windows 包未在真实 Windows 机器测试。
 
 ## MCP
 
-Cove 暴露一个本地只读 MCP 接口，外部 Agent 可以通过 stdio 或 Streamable HTTP 使用简报、截止时间、来源状态和课程资料。
+Monash Cove 暴露一个本地只读 MCP 接口，外部 Agent 可以通过 stdio 或 Streamable HTTP 使用简报、截止时间、来源状态和课程资料。
 
 完整接入说明：[docs/mcp.md](docs/mcp.md)。
 

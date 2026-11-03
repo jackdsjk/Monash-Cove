@@ -93,8 +93,8 @@ async function startService() {
   child.stderr.on("data", (chunk) => console.error(`[service] ${chunk}`));
   child.on("exit", (code, signal) => {
     if (!quitting) {
-      console.error(`Cove local service stopped: code=${code} signal=${signal}`);
-      dialog.showErrorBox("Cove 本地服务已停止", "请重新打开 Cove；如果问题持续存在，请查看日志。");
+      console.error(`Monash Cove local service stopped: code=${code} signal=${signal}`);
+      dialog.showErrorBox("Monash Cove 本地服务已停止", "请重新打开 Monash Cove；如果问题持续存在，请查看日志。");
       app.quit();
     }
   });
@@ -108,7 +108,7 @@ function createWindow(port) {
     height: 940,
     minWidth: 960,
     minHeight: 640,
-    title: "Cove",
+    title: "Monash Cove",
     backgroundColor: "#f5f5f5",
     webPreferences: {
       contextIsolation: true,
@@ -140,7 +140,7 @@ async function boot() {
     createWindow(port);
   } catch (error) {
     console.error(error);
-    dialog.showErrorBox("Cove 启动失败", error instanceof Error ? error.message : String(error));
+    dialog.showErrorBox("Monash Cove 启动失败", error instanceof Error ? error.message : String(error));
     app.quit();
   }
 }
@@ -155,6 +155,8 @@ if (!app.requestSingleInstanceLock()) {
     }
   });
   app.whenReady().then(() => {
+    // Keep the existing user data directory stable across the rebrand.
+    if (app.isPackaged) app.setPath("userData", path.join(app.getPath("appData"), "Cove"));
     app.setAppUserModelId("com.cove.local");
     if (process.platform !== "darwin") Menu.setApplicationMenu(null);
     void boot();
