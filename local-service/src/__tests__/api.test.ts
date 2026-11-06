@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { gunzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
@@ -122,5 +123,48 @@ describe("local API", () => {
     const response = await app.inject({ method: "GET", url: "/api/brief?source=canvas" });
     expect(response.statusCode).toBe(400);
     expect(response.json().error.code).toBe("invalid_source");
+  });
+
+  it("requires Ed credentials before proxying a download", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/ed/download?url=https%3A%2F%2Fstatic.edusercontent.com%2Ffile%2Fa.pdf",
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe("ed_not_connected");
+  });
+
+  it("refuses Ed downloads that leave the allowed hosts", async () => {
+    await app.inject({ method: "POST", url: "/api/sources/ed/credentials", payload: { token: "token", region: "us" } });
+
+    const internal = await app.inject({ method: "GET", url: "/api/ed/download?url=http%3A%2F%2F127.0.0.1%3A4317%2Fapi%2Fhealth" });
+    expect(internal.statusCode).toBe(400);
+    expect(internal.json().error.code).toBe("invalid_url");
+
+    const foreign = await app.inject({ method: "GET", url: "/api/ed/download?url=https%3A%2F%2Fexample.com%2Fa.pdf" });
+    expect(foreign.statusCode).toBe(403);
+    expect(foreign.json().error.code).toBe("blocked_host");
+
+    const sneaky = await app.inject({ method: "GET", url: "/api/ed/download?url=https%3A%2F%2Fedstem.org.evil.example%2Fa.pdf" });
+    expect(sneaky.statusCode).toBe(403);
+  });
+
+  it("gzips large JSON responses when the client accepts it", async () => {
+    const plain = await app.inject({ method: "GET", url: "/api/brief" });
+    const response = await app.inject({ method: "GET", url: "/api/brief", headers: { "accept-encoding": "gzip" } });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-encoding"]).toBe("gzip");
+    expect(JSON.parse(gunzipSync(response.rawPayload).toString()).items).toHaveLength(55);
+    expect(response.rawPayload.length).toBeLessThan(Buffer.byteLength(plain.body) / 2);
+  });
+
+  it("caps the brief payload and rejects a non-positive limit", async () => {
+    const limited = await app.inject({ method: "GET", url: "/api/brief?limit=10" });
+    expect(limited.statusCode).toBe(200);
+    expect(limited.json().items).toHaveLength(10);
+
+    const invalid = await app.inject({ method: "GET", url: "/api/brief?limit=0" });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json().error.code).toBe("invalid_limit");
   });
 });

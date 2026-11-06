@@ -6,6 +6,7 @@ import type { BriefResponse, FixtureItem, MoodleContentRow, NewItem, Source, Sou
 
 const SOURCE_LABELS: Record<Source, string> = { gmail: "Gmail", ed: "Ed", moodle: "Moodle" };
 const SOURCE_IDS: Source[] = ["gmail", "ed", "moodle"];
+const MAX_BRIEF_ITEMS = 5000;
 const DEFAULT_FIXTURE = fileURLToPath(new URL("../fixtures/items.json", import.meta.url));
 
 const SCHEMA = `
@@ -303,9 +304,9 @@ export class CoveDatabase {
     `;
   }
 
-  listItems(options: { since?: string; source?: Source; query?: string } = {}): StoredItem[] {
+  listItems(options: { since?: string; source?: Source; query?: string; limit?: number } = {}): StoredItem[] {
     const clauses: string[] = [];
-    const params: Array<string> = [];
+    const params: Array<string | number> = [];
     if (options.since) {
       clauses.push("i.published_at >= ?");
       params.push(options.since);
@@ -320,8 +321,9 @@ export class CoveDatabase {
       params.push(like, like, like);
     }
     const where = clauses.length > 0 ? ` AND ${clauses.join(" AND ")}` : "";
+    const limit = options.limit && options.limit > 0 ? ` LIMIT ${Math.min(Math.floor(options.limit), MAX_BRIEF_ITEMS)}` : ` LIMIT ${MAX_BRIEF_ITEMS}`;
     const rows = this.db
-      .prepare(`${this.baseQuery()}${where} ORDER BY i.published_at DESC`)
+      .prepare(`${this.baseQuery()}${where} ORDER BY i.published_at DESC${limit}`)
       .all(...params) as Array<Record<string, unknown>>;
     return rows.map(toStoredItem);
   }
@@ -331,7 +333,7 @@ export class CoveDatabase {
     return row ? toStoredItem(row) : null;
   }
 
-  brief(options: { since?: string; source?: Source; query?: string } = {}): BriefResponse {
+  brief(options: { since?: string; source?: Source; query?: string; limit?: number } = {}): BriefResponse {
     return {
       items: this.listItems(options),
       sources: this.listSources(),
@@ -375,14 +377,33 @@ export class CoveDatabase {
     return this.getItem(id);
   }
 
+  /**
+   * Replaces a course's material list atomically. Without the transaction a
+   * failure mid-insert leaves the course with the DELETE applied and only part
+   * of the new rows, i.e. an empty materials page.
+   */
   replaceMoodleContent(courseId: string, rows: MoodleContentRow[]) {
-    this.db.prepare("DELETE FROM moodle_content WHERE course_id = ?").run(courseId);
     const insert = this.db.prepare(`
       INSERT INTO moodle_content (id, course_id, course_name, section_number, section_title, module, title, url, text, updated_at, campus)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    for (const row of rows) {
-      insert.run(row.id, row.courseId, row.courseName, row.sectionNumber, row.sectionTitle, row.module, row.title, row.url, row.text, row.updatedAt, row.campus ?? "shared");
+    this.transaction(() => {
+      this.db.prepare("DELETE FROM moodle_content WHERE course_id = ?").run(courseId);
+      for (const row of rows) {
+        insert.run(row.id, row.courseId, row.courseName, row.sectionNumber, row.sectionTitle, row.module, row.title, row.url, row.text, row.updatedAt, row.campus ?? "shared");
+      }
+    });
+  }
+
+  private transaction<T>(work: () => T): T {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const result = work();
+      this.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
     }
   }
 

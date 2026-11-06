@@ -7,6 +7,8 @@ import path from "node:path";
 import { z } from "zod";
 import { createDatabase, type CoveDatabase } from "./db.js";
 import { randomUUID } from "node:crypto";
+import { gzip as gzipCallback } from "node:zlib";
+import { promisify } from "node:util";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createCoveMcpServer } from "./mcp.js";
 import { GoogleOAuth, OAuthError, type GoogleOAuthConfig } from "./oauth/google.js";
@@ -21,6 +23,7 @@ import { EdClient } from "./sources/ed.js";
 import { syncMoodleContent } from "./sync/moodle-content.js";
 import { downloadMoodleResource, MoodleDownloadError, safeDownloadName } from "./moodle-download.js";
 import { captureMoodlePage } from "./moodle-snapshot.js";
+import { AssetFetchError, fetchAsset } from "./safe-download.js";
 import type { ApiError, Source } from "./domain.js";
 import { getRuntimeStatus } from "./runtime.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
@@ -39,6 +42,8 @@ const CURRENT_VERSION = (() => {
   }
 })();
 let updateCache: { at: number; value: UpdateStatus } | null = null;
+
+const gzipAsync = promisify(gzipCallback);
 
 const sourceSchema = z.enum(["gmail", "ed", "moodle"]);
 
@@ -86,6 +91,16 @@ export function buildApp(options: AppOptions): FastifyInstance {
       return reply.code(403).send({ error: { code: "forbidden_origin", message: "Origin is not allowed.", retryable: false } } satisfies ApiError);
     }
   });
+  // 简报是一个数 MB 的 JSON，本地回环也值得压缩；hook 必须早于路由注册才生效。
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (typeof payload !== "string" || payload.length < 1024) return payload;
+    if (!/\bgzip\b/i.test(String(request.headers["accept-encoding"] ?? ""))) return payload;
+    reply.header("content-encoding", "gzip");
+    reply.header("vary", "accept-encoding");
+    reply.removeHeader("content-length");
+    return gzipAsync(payload);
+  });
+
   const secrets = options.secretStore ?? defaultSecretStore();
   const google = new GoogleOAuth(options.google ?? null, secrets, options.fetcher ?? fetch);
   const orchestrator = new SyncOrchestrator(db, secrets, google, options.fetcher ?? fetch);
@@ -334,12 +349,16 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
   });
 
-  app.get<{ Querystring: { since?: string; source?: string; q?: string } }>("/api/brief", async (request, reply) => {
-    const { since, source, q } = request.query;
+  app.get<{ Querystring: { since?: string; source?: string; q?: string; limit?: string } }>("/api/brief", async (request, reply) => {
+    const { since, source, q, limit } = request.query;
     if (source && !sourceSchema.safeParse(source).success) {
       return reply.code(400).send({ error: { code: "invalid_source", message: "Unknown source", retryable: false } } satisfies ApiError);
     }
-    return db.brief({ since, source: source as Source | undefined, query: q });
+    const parsedLimit = limit === undefined ? undefined : Number(limit);
+    if (parsedLimit !== undefined && (!Number.isInteger(parsedLimit) || parsedLimit <= 0)) {
+      return reply.code(400).send({ error: { code: "invalid_limit", message: "limit must be a positive integer.", retryable: false } } satisfies ApiError);
+    }
+    return db.brief({ since, source: source as Source | undefined, query: q, limit: parsedLimit });
   });
 
   app.get<{ Params: { id: string } }>("/api/items/:id", async (request, reply) => {
@@ -658,8 +677,10 @@ export function buildApp(options: AppOptions): FastifyInstance {
 
   app.get<{ Querystring: { url?: string; name?: string } }>("/api/ed/download", async (request, reply) => {
     if (!request.query.url) return reply.code(400).send({ error: { code: "invalid_url", message: "url is required.", retryable: false } } satisfies ApiError);
+    const raw = await secrets.get("ed-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
     try {
-      const response = await fetch(request.query.url, { signal: AbortSignal.timeout(30_000) });
+      const response = await fetchAsset(options.fetcher ?? fetch, request.query.url);
       if (!response.ok) return reply.code(502).send({ error: { code: "ed_download_failed", message: `Ed file returned HTTP ${response.status}.`, retryable: true } } satisfies ApiError);
       const buffer = Buffer.from(await response.arrayBuffer());
       const name = safeDownloadName(request.query.name || "ed-material") || "ed-material";
@@ -667,6 +688,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
       reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
       return reply.send(buffer);
     } catch (error) {
+      if (error instanceof AssetFetchError) {
+        return reply.code(error.status).send({ error: { code: error.code, message: error.message, retryable: error.status >= 500 } } satisfies ApiError);
+      }
       return reply.code(502).send({ error: { code: "ed_download_failed", message: error instanceof Error ? error.message : "Ed download failed.", retryable: true } } satisfies ApiError);
     }
   });
@@ -674,17 +698,23 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.post<{ Body: { lessonTitle?: string; markdown?: string; files?: Array<{ name?: string; url?: string }> } }>("/api/ed/download-batch", async (request, reply) => {
     const files = (request.body?.files ?? []).filter((file): file is { name: string; url: string } => Boolean(file.url));
     if (files.length > 100) return reply.code(400).send({ error: { code: "too_many_files", message: "Too many files.", retryable: false } } satisfies ApiError);
+    const raw = await secrets.get("ed-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
     const zip = new JSZip();
     let added = 0;
+    let blocked = 0;
+    let totalBytes = 0;
     if (request.body?.markdown) {
       zip.file("lesson.md", request.body.markdown);
       added += 1;
     }
     for (const file of files) {
       try {
-        const response = await fetch(file.url!, { signal: AbortSignal.timeout(30_000) });
+        const response = await fetchAsset(options.fetcher ?? fetch, file.url);
         if (!response.ok) continue;
         const buffer = Buffer.from(await response.arrayBuffer());
+        if (totalBytes + buffer.length > 100 * 1024 * 1024) continue;
+        totalBytes += buffer.length;
         let name = safeDownloadName(file.name || "file") || "file";
         let suffix = 2;
         while (zip.file(name)) {
@@ -694,9 +724,13 @@ export function buildApp(options: AppOptions): FastifyInstance {
         }
         zip.file(name, buffer);
         added += 1;
-      } catch {
+      } catch (error) {
+        if (error instanceof AssetFetchError && error.code === "blocked_host") blocked += 1;
         // Best-effort archive: omit files that Ed's static host cannot serve.
       }
+    }
+    if (added === 0 && blocked > 0) {
+      return reply.code(403).send({ error: { code: "blocked_host", message: "None of the selected files are hosted on Ed.", retryable: false } } satisfies ApiError);
     }
     if (added === 0) return reply.code(404).send({ error: { code: "no_files", message: "No Ed files could be downloaded.", retryable: false } } satisfies ApiError);
     const archiveName = `${safeDownloadName(request.body?.lessonTitle || "ed-lesson") || "ed-lesson"}.zip`;

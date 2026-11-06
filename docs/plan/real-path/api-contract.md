@@ -39,11 +39,13 @@ Base URL in development: `http://127.0.0.1:4317`. The Web App uses `/api` via Vi
 
 `status`: `connected | degraded | error | disconnected | fixture`.
 
-## GET /api/brief?since=&source=&q=
+## GET /api/brief?since=&source=&q=&limit=
 
 - `since`: optional ISO timestamp; filters `publishedAt >= since`.
 - `source`: optional `gmail | ed | moodle`.
 - `q`: optional text search over title/course/body.
+- `limit`: optional positive integer; caps the item count (hard ceiling 5000).
+- Responses above 1 KB are gzip-compressed when the client sends `accept-encoding: gzip`.
 
 ```json
 {
@@ -95,6 +97,18 @@ Requires a stored Moodle session. Returns:
 ```
 
 Fetches Moodle course sections and weekly activity links, then replaces the local cache for that course.
+
+## Ed downloads
+
+```text
+GET  /api/ed/download?url=...&name=...
+POST /api/ed/download-batch   { lessonTitle, markdown, files: [{ name, url }] }
+```
+
+Both require connected Ed credentials (`409 ed_not_connected` otherwise). Downloads are restricted to
+Ed asset hosts (`edstem.org`, `edusercontent.com`) over HTTPS; every redirect hop is re-validated,
+so the endpoint cannot be used as a general-purpose proxy (`400 invalid_url`, `403 blocked_host`).
+Batch archives skip unreachable files and fail with `403 blocked_host` when every file is off-host.
 
 ## Moodle downloads
 
