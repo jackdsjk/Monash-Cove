@@ -291,3 +291,11 @@ Tesseract CLI。
 - 同一 code 从 Moodle 与 Gmail 各出现一次时按 `course + week + session + code` 去重。
 - 填写成功（`status = filled`）后写入 `filled_at`，保留填写历史。
 - `DELETE /api/data` 会一并清空签到码与扫描记录。
+
+## 2026-11-06：图片地址落库 + 未识别图片可人工查看
+
+- **同步时保存图片地址**：`moodle_content.images` 存 label 里 `pluginfile.php` 图片的绝对 URL。OCR 直接取图，不再每次重新抓 section 页面（旧行没有 images 时仍回退到抓页面）。
+- **扫描状态细分**：`ok`（读到码）/ `empty`（图读到了但不符合 code 格式）/ `error`（抓图或 OCR 失败）。`refresh=1` 只重试 `error` 与从未扫过的行；`empty` 不重复消耗 OCR。
+- **未识别图片列表**：`GET /api/attendance/unmatched` 返回 `empty`/`error` 的 attendance 图片行；签到页新增「没识别出来的签到图」区块，直接显示缩略图，点开就是原图，可以自己核对抄写。
+- **图片代理**：`GET /api/moodle/asset?url=`，只允许 Moodle 同源且路径含 `pluginfile.php`，避免变成任意 URL 代理。
+- 扫描范围收紧为「标题或正文含 attendance」的行；之前 rescan 会把 631 条资料全部标记一遍。

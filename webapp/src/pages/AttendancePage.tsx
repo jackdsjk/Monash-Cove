@@ -7,6 +7,7 @@ import {
   cancelAttendanceAssistant,
   fetchAttendanceAssistant,
   fetchAttendanceCodes,
+  fetchUnmatchedAttendance,
   fetchAttendanceStatus,
   fillAttendanceCode,
   fillAllAttendanceCodes,
@@ -16,6 +17,7 @@ import {
   startAttendanceAssistant,
 } from "../data/repository";
 import type { AttendanceAssistantState, AttendanceCode, AttendancePreferenceCourse, AttendancePreferences } from "../types";
+import type { UnmatchedAttendanceImage } from "../data/repository";
 
 function courseKey(value: string) {
   return (/^[A-Z]{2,5}\d{3,4}/i.exec(value)?.[0] ?? value).toUpperCase();
@@ -77,6 +79,7 @@ export default function AttendancePage() {
   const [detecting, setDetecting] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [draftPreferences, setDraftPreferences] = useState<AttendancePreferenceCourse[]>([]);
+  const [unmatched, setUnmatched] = useState<UnmatchedAttendanceImage[]>([]);
   const autoDetected = useRef(false);
 
   const load = async (refresh = false, rescan = false) => {
@@ -89,6 +92,7 @@ export default function AttendancePage() {
     setAssistant(status.assistant);
     setCodes(nextCodes.codes);
     setPreferences(nextPreferences);
+    setUnmatched(await fetchUnmatchedAttendance().catch(() => []));
     return nextCodes;
   };
 
@@ -416,6 +420,40 @@ export default function AttendancePage() {
           ))}
         </div>
       )}
+
+      {unmatched.length > 0 ? (
+        <Card className="attendance-connect-card" title={`没识别出来的签到图（${unmatched.length}）`}>
+          <Typography.Paragraph type="secondary">
+            这些图片读到了，但没有匹配到 <Typography.Text code>Workshop 3: ABC123</Typography.Text> 这种格式。点开原图自己核对，格式对得上就是 OCR 认错了字。
+          </Typography.Paragraph>
+          <div className="attendance-unmatched-list">
+            {unmatched.map((entry) => (
+              <div className="attendance-unmatched-item" key={entry.id}>
+                <div>
+                  <Space wrap>
+                    {entry.week ? <Tag color="green">Week {entry.week}</Tag> : null}
+                    <Typography.Text strong>{entry.course}</Typography.Text>
+                    <Tag color={entry.status === "error" ? "red" : "orange"}>{entry.status === "error" ? "识别失败" : "格式不符"}</Tag>
+                  </Space>
+                  <Typography.Paragraph type="secondary" style={{ marginBottom: 4 }}>{entry.title}</Typography.Paragraph>
+                </div>
+                <Space wrap>
+                  {entry.images.map((image) => (
+                    <a key={image} href={`/api/moodle/asset?url=${encodeURIComponent(image)}`} target="_blank" rel="noreferrer">
+                      <img
+                        className="attendance-unmatched-thumb"
+                        src={`/api/moodle/asset?url=${encodeURIComponent(image)}`}
+                        alt={`${entry.title} 原图`}
+                        loading="lazy"
+                      />
+                    </a>
+                  ))}
+                </Space>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
 
       <Typography.Paragraph type="secondary" className="page-footnote">
         自动填写只会操作 attendance.monash.edu.my；如果当前没有 active code 表单，会提示而不是伪造提交。需要重新登录时，回到本页连接 Attendance。

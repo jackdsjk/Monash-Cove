@@ -163,6 +163,21 @@ export async function fillAllAttendanceCodes(codes: AttendanceCode[]): Promise<A
   return body;
 }
 
+export interface UnmatchedAttendanceImage {
+  id: string;
+  course: string;
+  week: number | null;
+  title: string;
+  url: string;
+  images: string[];
+  status: "empty" | "error";
+}
+
+export async function fetchUnmatchedAttendance(): Promise<UnmatchedAttendanceImage[]> {
+  const data = await getJson<{ items: UnmatchedAttendanceImage[] }>("/attendance/unmatched");
+  return data.items;
+}
+
 export async function fetchRuntimeStatus(): Promise<RuntimeStatus> {
   return getJson<RuntimeStatus>("/runtime/status");
 }

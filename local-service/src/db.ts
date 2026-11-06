@@ -79,7 +79,8 @@ CREATE TABLE IF NOT EXISTS moodle_content (
   url TEXT NOT NULL,
   text TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL,
-  campus TEXT NOT NULL DEFAULT 'shared'
+  campus TEXT NOT NULL DEFAULT 'shared',
+  images TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS moodle_content_course ON moodle_content(course_id, section_number);
 CREATE TABLE IF NOT EXISTS attendance_codes (
@@ -151,6 +152,7 @@ export class CoveDatabase {
       (this.db.prepare("PRAGMA table_info(moodle_content)").all() as Array<{ name?: string }>).map((column) => column.name),
     );
     if (!contentColumns.has("campus")) this.db.exec("ALTER TABLE moodle_content ADD COLUMN campus TEXT NOT NULL DEFAULT 'shared'");
+    if (!contentColumns.has("images")) this.db.exec("ALTER TABLE moodle_content ADD COLUMN images TEXT NOT NULL DEFAULT '[]'");
   }
 
   private ensureSources() {
@@ -419,13 +421,13 @@ export class CoveDatabase {
    */
   replaceMoodleContent(courseId: string, rows: MoodleContentRow[]) {
     const insert = this.db.prepare(`
-      INSERT INTO moodle_content (id, course_id, course_name, section_number, section_title, module, title, url, text, updated_at, campus)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO moodle_content (id, course_id, course_name, section_number, section_title, module, title, url, text, updated_at, campus, images)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.transaction(() => {
       this.db.prepare("DELETE FROM moodle_content WHERE course_id = ?").run(courseId);
       for (const row of rows) {
-        insert.run(row.id, row.courseId, row.courseName, row.sectionNumber, row.sectionTitle, row.module, row.title, row.url, row.text, row.updatedAt, row.campus ?? "shared");
+        insert.run(row.id, row.courseId, row.courseName, row.sectionNumber, row.sectionTitle, row.module, row.title, row.url, row.text, row.updatedAt, row.campus ?? "shared", JSON.stringify(row.images ?? []));
       }
     });
   }
@@ -559,7 +561,7 @@ export class CoveDatabase {
     return new Map(rows.map((row) => [row.key, row.status]));
   }
 
-  setAttendanceScan(key: string, status: "ok" | "error", detail: string | null = null) {
+  setAttendanceScan(key: string, status: "ok" | "empty" | "error", detail: string | null = null) {
     this.db
       .prepare(`
         INSERT INTO attendance_scans (key, status, detail, scanned_at) VALUES (?, ?, ?, ?)
@@ -604,6 +606,7 @@ export class CoveDatabase {
       text: String(row.text ?? ""),
       updatedAt: String(row.updated_at),
       campus: (String(row.campus ?? "shared") as "malaysia" | "australia" | "indonesia" | "shared"),
+      images: parseImages(row.images),
     }));
   }
 
@@ -623,6 +626,7 @@ export class CoveDatabase {
       text: String(row.text ?? ""),
       updatedAt: String(row.updated_at),
       campus: (String(row.campus ?? "shared") as "malaysia" | "australia" | "indonesia" | "shared"),
+      images: parseImages(row.images),
     }));
   }
 
@@ -636,6 +640,16 @@ export class CoveDatabase {
   counts() {
     const row = this.db.prepare("SELECT COUNT(*) AS n FROM items WHERE deleted_at IS NULL").get() as { n: number };
     return { items: row.n };
+  }
+}
+
+function parseImages(value: unknown): string[] {
+  if (typeof value !== "string" || !value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
   }
 }
 

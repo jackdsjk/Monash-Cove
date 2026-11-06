@@ -2313,3 +2313,33 @@ a {
 .update-banner .ant-alert-action {
   align-self: center;
 }
+
+/* 未识别出来的签到图片 */
+.attendance-unmatched-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.attendance-unmatched-item {
+  align-items: flex-start;
+  border: 1px solid #e5eee8;
+  border-radius: 8px;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 12px 16px;
+}
+
+.attendance-unmatched-thumb {
+  border: 1px solid #e5eee8;
+  border-radius: 6px;
+  display: block;
+  height: 96px;
+  object-fit: contain;
+  width: auto;
+}
+
+.attendance-unmatched-thumb:hover {
+  border-color: #1f6f4a;
+}

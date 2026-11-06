@@ -122,6 +122,8 @@ export interface MoodleContentRow {
   text: string;
   updatedAt: string;
   campus?: "malaysia" | "australia" | "indonesia" | "shared";
+  /** Absolute URLs of images inside a label/forum, captured at sync time. */
+  images?: string[];
 }
 
 export interface ApiError {

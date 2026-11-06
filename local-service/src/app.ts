@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { createDatabase, type CoveDatabase } from "./db.js";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { gzip as gzipCallback } from "node:zlib";
 import { promisify } from "node:util";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -25,6 +25,7 @@ import { downloadMoodleResource, MoodleDownloadError, moodleCookieHeader, safeDo
 import { captureMoodlePage } from "./moodle-snapshot.js";
 import { AssetFetchError, fetchAsset } from "./safe-download.js";
 import { withTimeout } from "./http.js";
+import { attendanceScanKey } from "./attendance/scan-key.js";
 import type { ApiError, Source } from "./domain.js";
 import { getRuntimeStatus } from "./runtime.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
@@ -46,10 +47,6 @@ let updateCache: { at: number; value: UpdateStatus } | null = null;
 
 const gzipAsync = promisify(gzipCallback);
 
-/** Stable identity for an OCR source row: same content means no re-scan. */
-function attendanceScanKey(row: { id: string; title: string; text: string; url: string }) {
-  return createHash("sha1").update(`${row.id}:${row.title}:${row.text}:${row.url}`).digest("hex");
-}
 
 const sourceSchema = z.enum(["gmail", "ed", "moodle"]);
 
@@ -331,15 +328,26 @@ export function buildApp(options: AppOptions): FastifyInstance {
           });
           const scanKeys = new Map(candidates.map((row) => [row.id, attendanceScanKey(row)]));
           const known = request.query.rescan === "1" ? new Map<string, string>() : db.attendanceScanStatus([...scanKeys.values()]);
-          const pending = candidates.filter((row) => known.get(scanKeys.get(row.id) ?? "") !== "ok");
+          const pending = candidates
+            // Only pages that talk about attendance are worth OCR (the scanner
+            // applies the same filter, but the scan ledger should match it).
+            .filter((row) => /attendance/i.test(`${row.title} ${row.text}`))
+            .filter((row) => {
+              const status = known.get(scanKeys.get(row.id) ?? "");
+              // "empty" means the picture was read but no code matched its shape:
+              // retrying the same pixels costs 30s and changes nothing.
+              return status !== "ok" && status !== "empty";
+            });
           if (pending.length > 0) {
             const { codes, failedRowIds } = await scanMoodleAttendanceImages(credentials, pending);
             for (const code of codes) db.upsertAttendanceCode({ ...code, origin: "ocr" });
             const failed = new Set(failedRowIds);
+            const produced = new Set(codes.map((code) => code.id.split(":")[1]));
             for (const row of pending) {
               const key = scanKeys.get(row.id) ?? attendanceScanKey(row);
               if (failed.has(row.id)) db.setAttendanceScan(key, "error", "OCR failed");
-              else db.setAttendanceScan(key, "ok");
+              else if (produced.has(row.id)) db.setAttendanceScan(key, "ok");
+              else db.setAttendanceScan(key, "empty", "图片读到了，但没有匹配到 code 格式");
             }
             db.setSetting("attendance_scan_at", new Date().toISOString());
             ocr = { scanned: pending.length, failed: failed.size, pending: 0 };
@@ -405,6 +413,56 @@ export function buildApp(options: AppOptions): FastifyInstance {
       return { filled, inactive, notFound, results };
     } catch (error) {
       return reply.code(502).send({ error: { code: "attendance_fill_failed", message: error instanceof Error ? error.message : "Attendance fill failed.", retryable: true } } satisfies ApiError);
+    }
+  });
+
+  app.get("/api/attendance/unmatched", async () => {
+    const rows = db
+      .listAllMoodleContent()
+      .filter((row) => (row.images?.length ?? 0) > 0)
+      // Same gate as the scanner: only pages that talk about attendance.
+      .filter((row) => /attendance/i.test(`${row.title} ${row.text}`));
+    const keys = new Map(rows.map((row) => [row.id, attendanceScanKey(row)]));
+    const statuses = db.attendanceScanStatus([...keys.values()]);
+    const items = rows
+      .map((row) => ({ row, status: statuses.get(keys.get(row.id) ?? "") }))
+      .filter(({ status }) => status === "empty" || status === "error")
+      .map(({ row, status }) => ({
+        id: row.id,
+        course: row.courseName,
+        week: Number(/\bweek\s*(\d{1,2})\b/i.exec(row.title)?.[1] ?? 0) || null,
+        title: row.title,
+        url: row.url,
+        images: row.images ?? [],
+        status,
+      }));
+    return { items, lastScanAt: db.getSetting("attendance_scan_at") };
+  });
+
+  app.get<{ Querystring: { url?: string } }>("/api/moodle/asset", async (request, reply) => {
+    const target = request.query.url;
+    if (!target) return reply.code(400).send({ error: { code: "invalid_url", message: "url is required.", retryable: false } } satisfies ApiError);
+    const raw = await secrets.get("moodle-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
+    const credentials = moodleCredentials.parse(JSON.parse(raw));
+    const base = new URL(credentials.baseUrl);
+    const parsed = new URL(target, credentials.baseUrl);
+    if (parsed.hostname !== base.hostname || !parsed.pathname.includes("pluginfile.php")) {
+      return reply.code(403).send({ error: { code: "blocked_host", message: "Only Moodle pluginfile assets can be served.", retryable: false } } satisfies ApiError);
+    }
+    try {
+      const response = await fetcher(parsed.toString(), {
+        headers: { cookie: moodleCookieHeader(credentials) },
+        redirect: "follow",
+      });
+      if (!response.ok) {
+        return reply.code(502).send({ error: { code: "asset_failed", message: `Moodle returned HTTP ${response.status}.`, retryable: true } } satisfies ApiError);
+      }
+      reply.header("content-type", response.headers.get("content-type") ?? "image/png");
+      reply.header("cache-control", "private, max-age=300");
+      return reply.send(Buffer.from(await response.arrayBuffer()));
+    } catch (error) {
+      return reply.code(502).send({ error: { code: "asset_failed", message: error instanceof Error ? error.message : "Asset fetch failed.", retryable: true } } satisfies ApiError);
     }
   });
 

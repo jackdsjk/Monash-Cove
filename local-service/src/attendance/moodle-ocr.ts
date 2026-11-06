@@ -65,6 +65,25 @@ async function ocrImage(buffer: Buffer, worker: Worker) {
   return result.data.text;
 }
 
+/** Fallback for rows synced before image URLs were stored. */
+async function discoverImages(credentials: MoodleAttendanceCredentials, row: MoodleContentRow): Promise<string[]> {
+  const pageResponse = await fetch(row.url, {
+    headers: { cookie: moodleCookieHeader(credentials) },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!pageResponse.ok) return [];
+  const root = parse(await pageResponse.text());
+  const images = row.module === "label"
+    ? [...root.querySelectorAll("li.activity")]
+        .filter((activity) => /attendance/i.test(activity.getAttribute("data-activityname") ?? activity.text))
+        .flatMap((activity) => activity.querySelectorAll("img"))
+    : [...root.querySelectorAll("img")].filter((image) => /\/mod_forum\/post\//.test(image.getAttribute("src") ?? ""));
+  return images
+    .map((image) => image.getAttribute("src"))
+    .filter((src): src is string => typeof src === "string" && src.includes("pluginfile.php"))
+    .map((src) => new URL(src, row.url).toString());
+}
+
 export async function scanMoodleAttendanceImages(
   credentials: MoodleAttendanceCredentials,
   rows: MoodleContentRow[],
@@ -77,21 +96,9 @@ export async function scanMoodleAttendanceImages(
     worker = await createOcrWorker();
     const results = await mapLimit(candidates, 4, async (row) => {
       try {
-        const pageResponse = await fetch(row.url, {
-          headers: { cookie: moodleCookieHeader(credentials) },
-          signal: AbortSignal.timeout(20_000),
-        });
-        if (!pageResponse.ok) return [];
-        const root = parse(await pageResponse.text());
-        const images = row.module === "label"
-          ? [...root.querySelectorAll("li.activity")]
-              .filter((activity) => /attendance/i.test(activity.getAttribute("data-activityname") ?? activity.text))
-              .flatMap((activity) => activity.querySelectorAll("img"))
-          : [...root.querySelectorAll("img")].filter((image) => /\/mod_forum\/post\//.test(image.getAttribute("src") ?? ""));
-        const imageCodes = await mapLimit(images, 2, async (image) => {
-          const src = image.getAttribute("src");
-          if (!src || !/pluginfile\.php/.test(src)) return [];
-          const imageUrl = new URL(src, row.url).toString();
+        const imageUrls = row.images?.length ? row.images : await discoverImages(credentials, row);
+        if (imageUrls.length === 0) return [];
+        const imageCodes = await mapLimit(imageUrls, 2, async (imageUrl) => {
           const imageResponse = await fetch(imageUrl, {
             headers: { cookie: moodleCookieHeader(credentials) },
             signal: AbortSignal.timeout(20_000),
