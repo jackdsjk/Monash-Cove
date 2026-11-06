@@ -253,3 +253,10 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - SQLite 开启 WAL、`synchronous=NORMAL`、`busy_timeout=5000`；桌面 App 与命令行同时打开数据库时改为等待而非直接 SQLITE_BUSY。
 - `/api/brief` 增加 `limit`（上限 5000）并对大于 1 KB 的 JSON 响应启用 gzip，整份简报 4.4 MB → 约 0.94 MB。
 - 新增 `src/safe-download.ts` 与 7 条测试（Ed 下载白名单、事务回滚、gzip、limit）；`npm run check` 与 webapp e2e 均通过。
+
+## 2026-11-06（续）
+
+- 修 P2：写请求的 Origin 校验改为"与自身 Host 同源即可"，不再写死 4317/5174（自定义 `COVE_PORT` 与 e2e 的 4318 之前会被 403 拒绝，且被前端的静默 catch 掩盖）。
+- 修 P2：会触发 OCR / 页面抓取 / 外网请求的 GET 拒绝 `Sec-Fetch-Site: cross-site`。
+- 修 P2：纠错、反馈、清除数据改为"服务端成功后再更新界面"，失败时提示用户，不再静默失败。
+- 修 P2：5xx 统一返回固定文案，内部错误只进日志；前后端所有出站请求加超时。

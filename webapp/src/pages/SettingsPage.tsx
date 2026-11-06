@@ -38,8 +38,12 @@ export default function SettingsPage() {
     message.success("本地称呼和地区已保存");
   };
 
-  const clear = () => {
-    reset();
+  const clear = async () => {
+    const cleared = await reset();
+    if (!cleared) {
+      message.error("清除失败，请确认本地服务正在运行");
+      return;
+    }
     window.localStorage.removeItem("cove-profile-name");
     window.localStorage.removeItem("cove-campus-region");
     message.success("本地数据和凭据已清除");

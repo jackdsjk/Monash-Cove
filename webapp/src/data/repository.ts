@@ -9,8 +9,15 @@ export interface BriefData {
 
 const API = "/api";
 
+/** Local service calls are quick; a hung request must not freeze the UI. */
+const REQUEST_TIMEOUT_MS = 20_000;
+
+function request(path: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(`${API}${path}`, { ...init, signal: init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+}
+
 async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API}${path}`);
+  const response = await request(path);
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
     throw new Error(body?.error?.message ?? `Local API returned ${response.status}`);
@@ -60,7 +67,7 @@ export async function fetchAttendanceCodes(refresh = false): Promise<AttendanceC
 }
 
 export async function startAttendanceAssistant(): Promise<AttendanceAssistantState> {
-  const response = await fetch("/api/attendance/connect/start", { method: "POST" });
+  const response = await request("/attendance/connect/start", { method: "POST" });
   const data = (await response.json()) as { assistant: AttendanceAssistantState };
   return data.assistant;
 }
@@ -70,7 +77,7 @@ export async function fetchAttendancePreferences(): Promise<AttendancePreference
 }
 
 export async function saveAttendancePreferences(preferences: AttendancePreferences): Promise<AttendancePreferences> {
-  const response = await fetch("/api/attendance/preferences", {
+  const response = await request("/attendance/preferences", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(preferences),
@@ -80,7 +87,7 @@ export async function saveAttendancePreferences(preferences: AttendancePreferenc
 }
 
 export async function detectAttendancePreferences(): Promise<AttendancePreferences> {
-  const response = await fetch("/api/attendance/detect", { method: "POST" });
+  const response = await request("/attendance/detect", { method: "POST" });
   const body = (await response.json().catch(() => null)) as { preferences?: AttendancePreferences; error?: { message?: string } } | null;
   if (!response.ok || !body?.preferences) throw new Error(body?.error?.message ?? "识别签到班次失败");
   return body.preferences;
@@ -92,13 +99,13 @@ export async function fetchAttendanceAssistant(): Promise<AttendanceAssistantSta
 }
 
 export async function cancelAttendanceAssistant(): Promise<AttendanceAssistantState> {
-  const response = await fetch("/api/attendance/connect/cancel", { method: "POST" });
+  const response = await request("/attendance/connect/cancel", { method: "POST" });
   const data = (await response.json()) as { assistant: AttendanceAssistantState };
   return data.assistant;
 }
 
 export async function fillAttendanceCode(code: AttendanceCode): Promise<{ status: "filled" | "inactive" | "not_found"; message: string }> {
-  const response = await fetch("/api/attendance/fill", {
+  const response = await request("/attendance/fill", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ course: code.course, week: code.week, session: code.session, code: code.code }),
@@ -116,7 +123,7 @@ export interface AttendanceBulkResult {
 }
 
 export async function fillAllAttendanceCodes(codes: AttendanceCode[]): Promise<AttendanceBulkResult> {
-  const response = await fetch("/api/attendance/fill-all", {
+  const response = await request("/attendance/fill-all", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -137,7 +144,7 @@ export async function fetchSetupStatus(): Promise<SetupStatus> {
 }
 
 export async function startMoodleAssistant(): Promise<MoodleAssistantState> {
-  const response = await fetch("/api/setup/moodle/start", { method: "POST" });
+  const response = await request("/setup/moodle/start", { method: "POST" });
   const body = (await response.json().catch(() => null)) as { assistant?: MoodleAssistantState; error?: { message?: string } } | null;
   if (!response.ok) throw new Error(body?.error?.message ?? `Moodle assistant returned ${response.status}`);
   return body?.assistant ?? { status: "error", message: "Moodle assistant did not start" };
@@ -149,7 +156,7 @@ export async function fetchMoodleAssistant(): Promise<MoodleAssistantState> {
 }
 
 export async function cancelMoodleAssistant(): Promise<MoodleAssistantState> {
-  const response = await fetch("/api/setup/moodle/cancel", { method: "POST" });
+  const response = await request("/setup/moodle/cancel", { method: "POST" });
   const data = (await response.json()) as { assistant: MoodleAssistantState };
   return data.assistant;
 }
@@ -159,7 +166,7 @@ export async function fetchSyncStatus(): Promise<SyncStatus> {
 }
 
 export async function startFullSync(): Promise<SyncStatus["job"]> {
-  const response = await fetch("/api/sync/full", { method: "POST" });
+  const response = await request("/sync/full", { method: "POST" });
   const body = (await response.json().catch(() => null)) as { job?: SyncStatus["job"]; error?: { message?: string } } | null;
   if (!response.ok) throw new Error(body?.error?.message ?? `Full sync returned ${response.status}`);
   return body?.job ?? null;
@@ -176,7 +183,7 @@ export async function fetchMoodleContent(courseId: number): Promise<MoodleConten
 }
 
 export async function syncMoodleContent(courseId: number): Promise<{ sections: number; items: number }> {
-  const response = await fetch("/api/moodle/content-sync", {
+  const response = await request("/moodle/content-sync", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ courseId }),

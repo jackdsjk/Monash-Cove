@@ -207,11 +207,20 @@ export default function BriefPage() {
     }
   };
 
-  const handleFeedback = (feedback: Feedback) => {
+  const handleFeedback = async (feedback: Feedback) => {
     if (!feedbackItem) return;
-    saveFeedback(feedbackItem.id, feedback);
+    const saved = await saveFeedback(feedbackItem.id, feedback);
+    if (!saved) {
+      message.error("反馈没有保存成功，请确认本地服务正在运行");
+      return;
+    }
     message.success("反馈已保存，仅在本机生效");
     setFeedbackItem(null);
+  };
+
+  const handleCorrection = async (id: string, key: "pinned" | "dismissed") => {
+    const saved = await toggleCorrection(id, key);
+    if (!saved) message.error("操作没有保存成功，请确认本地服务正在运行");
   };
 
   if (loading) {
@@ -380,8 +389,8 @@ export default function BriefPage() {
                             correction={state.corrections[item.id] ?? {}}
                             read={Boolean(state.read[item.id])}
                             onOpen={openItem}
-                            onTogglePin={(id) => toggleCorrection(id, "pinned")}
-                            onDismiss={(id) => toggleCorrection(id, "dismissed")}
+                            onTogglePin={(id) => void handleCorrection(id, "pinned")}
+                            onDismiss={(id) => void handleCorrection(id, "dismissed")}
                           />
                         ))}
                       </div>
@@ -408,8 +417,8 @@ export default function BriefPage() {
                       correction={state.corrections[item.id] ?? {}}
                       read={Boolean(state.read[item.id])}
                       onOpen={openItem}
-                      onTogglePin={(id) => toggleCorrection(id, "pinned")}
-                      onDismiss={(id) => toggleCorrection(id, "dismissed")}
+                      onTogglePin={(id) => void handleCorrection(id, "pinned")}
+                      onDismiss={(id) => void handleCorrection(id, "dismissed")}
                     />
                   ))}
                 </div>
@@ -446,8 +455,8 @@ export default function BriefPage() {
                         correction={state.corrections[item.id] ?? {}}
                         read={Boolean(state.read[item.id])}
                         onOpen={openItem}
-                        onTogglePin={(id) => toggleCorrection(id, "pinned")}
-                        onDismiss={(id) => toggleCorrection(id, "dismissed")}
+                        onTogglePin={(id) => void handleCorrection(id, "pinned")}
+                        onDismiss={(id) => void handleCorrection(id, "dismissed")}
                       />
                     ))}
                   </div>
@@ -474,8 +483,8 @@ export default function BriefPage() {
         open={Boolean(selectedItem)}
         correction={selectedCorrection}
         onClose={() => setSelectedId(null)}
-        onTogglePin={(id) => toggleCorrection(id, "pinned")}
-        onDismiss={(id) => toggleCorrection(id, "dismissed")}
+        onTogglePin={(id) => void handleCorrection(id, "pinned")}
+        onDismiss={(id) => void handleCorrection(id, "dismissed")}
         onFeedback={setFeedbackItem}
       />
 

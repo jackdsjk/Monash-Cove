@@ -149,6 +149,31 @@ describe("local API", () => {
     expect(sneaky.statusCode).toBe(403);
   });
 
+  it("accepts writes from the service's own origin on a custom port", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/check",
+      headers: { origin: "http://127.0.0.1:4318", host: "127.0.0.1:4318" },
+      payload: { ids: [] },
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("blocks cross-site requests to side-effecting GET routes", async () => {
+    const url = "/api/ed/download?url=https%3A%2F%2Fstatic.edusercontent.com%2Fa.pdf";
+    const blocked = await app.inject({ method: "GET", url, headers: { "sec-fetch-site": "cross-site" } });
+    expect(blocked.statusCode).toBe(403);
+    expect(blocked.json().error.code).toBe("forbidden_origin");
+
+    // Same-origin traffic reaches the route and fails on missing credentials instead.
+    const reached = await app.inject({ method: "GET", url, headers: { "sec-fetch-site": "same-origin" } });
+    expect(reached.statusCode).toBe(409);
+
+    // Read-only endpoints stay callable from anywhere on the machine.
+    const brief = await app.inject({ method: "GET", url: "/api/brief", headers: { "sec-fetch-site": "cross-site" } });
+    expect(brief.statusCode).toBe(200);
+  });
+
   it("gzips large JSON responses when the client accepts it", async () => {
     const plain = await app.inject({ method: "GET", url: "/api/brief" });
     const response = await app.inject({ method: "GET", url: "/api/brief", headers: { "accept-encoding": "gzip" } });

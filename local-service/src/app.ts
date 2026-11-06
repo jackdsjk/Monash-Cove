@@ -24,6 +24,7 @@ import { syncMoodleContent } from "./sync/moodle-content.js";
 import { downloadMoodleResource, MoodleDownloadError, safeDownloadName } from "./moodle-download.js";
 import { captureMoodlePage } from "./moodle-snapshot.js";
 import { AssetFetchError, fetchAsset } from "./safe-download.js";
+import { withTimeout } from "./http.js";
 import type { ApiError, Source } from "./domain.js";
 import { getRuntimeStatus } from "./runtime.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
@@ -46,6 +47,17 @@ let updateCache: { at: number; value: UpdateStatus } | null = null;
 const gzipAsync = promisify(gzipCallback);
 
 const sourceSchema = z.enum(["gmail", "ed", "moodle"]);
+
+/** GET routes that trigger OCR, a browser capture, or an outbound fetch. */
+const SIDE_EFFECTING_GETS = new Set([
+  "/api/attendance/codes",
+  "/api/moodle/page",
+  "/api/moodle/download",
+  "/api/moodle/download-batch",
+  "/api/ed/download",
+  "/api/ed/download-batch",
+  "/api/update",
+]);
 
 const correctionSchema = z.object({
   pinned: z.boolean().optional(),
@@ -85,10 +97,27 @@ export function buildApp(options: AppOptions): FastifyInstance {
     "http://127.0.0.1:4317",
     "http://localhost:4317",
   ]);
+  // The UI is same-origin in production and on a custom COVE_PORT, so an
+  // Origin that matches the request's own Host is accepted too.
+  const isSameOrigin = (origin: string, host: string | undefined): boolean => {
+    if (!host) return false;
+    try {
+      return new URL(origin).host === host;
+    } catch {
+      return false;
+    }
+  };
   app.addHook("onRequest", async (request, reply) => {
     const origin = request.headers.origin;
-    if (origin && !allowedOrigins.has(origin) && ["POST", "PATCH", "DELETE"].includes(request.method)) {
+    if (origin && !allowedOrigins.has(origin) && !isSameOrigin(origin, request.headers.host) && ["POST", "PATCH", "DELETE"].includes(request.method)) {
       return reply.code(403).send({ error: { code: "forbidden_origin", message: "Origin is not allowed.", retryable: false } } satisfies ApiError);
+    }
+    // Some GET routes do remote work (OCR, page capture, release lookup) and a
+    // web page can trigger them with an <img> tag, which carries no Origin.
+    // Browsers label those requests `cross-site`; our own UI is always
+    // same-origin, so blocking cross-site here closes the CSRF gap.
+    if (request.method === "GET" && SIDE_EFFECTING_GETS.has(request.url.split("?")[0]) && request.headers["sec-fetch-site"] === "cross-site") {
+      return reply.code(403).send({ error: { code: "forbidden_origin", message: "Cross-site requests are not allowed for this endpoint.", retryable: false } } satisfies ApiError);
     }
   });
   // 简报是一个数 MB 的 JSON，本地回环也值得压缩；hook 必须早于路由注册才生效。
@@ -102,8 +131,11 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
 
   const secrets = options.secretStore ?? defaultSecretStore();
-  const google = new GoogleOAuth(options.google ?? null, secrets, options.fetcher ?? fetch);
-  const orchestrator = new SyncOrchestrator(db, secrets, google, options.fetcher ?? fetch);
+  // Every outbound call gets a deadline; a stalled upstream must not hang a
+  // request handler or the hourly sync loop.
+  const fetcher = withTimeout(options.fetcher ?? fetch);
+  const google = new GoogleOAuth(options.google ?? null, secrets, fetcher);
+  const orchestrator = new SyncOrchestrator(db, secrets, google, fetcher);
   const fullSyncJobs = new FullSyncJobs();
   const moodleAssistant = new MoodleLoginAssistant(secrets, db);
   const attendanceAssistant = new AttendanceLoginAssistant(secrets);
@@ -121,13 +153,16 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.decorate("coveDb", db);
   app.addHook("onClose", async () => db.close());
 
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     const err = error as Error & { statusCode?: number };
     const status = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500;
+    // Internal messages can contain file paths, SQL, or upstream response text.
+    // Keep them in the server log and return a stable message to the browser.
+    if (status >= 500) request.log.error({ err }, "request failed");
     const body: ApiError = {
       error: {
-        code: status === 400 ? "invalid_request" : "internal_error",
-        message: err.message,
+        code: status === 400 ? "invalid_request" : status >= 500 ? "internal_error" : "request_failed",
+        message: status >= 500 ? "The local service hit an unexpected error." : err.message,
         retryable: status >= 500,
       },
     };
@@ -387,7 +422,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
         const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
         const threadId = Number(item.sourceItemId.replace(/^thread:/, ""));
         if (!Number.isFinite(threadId)) return fallback;
-        const detail = await new EdClient(credentials.token, credentials.region, options.fetcher ?? fetch).getThreadDetail(threadId);
+        const detail = await new EdClient(credentials.token, credentials.region, fetcher).getThreadDetail(threadId);
         return { ...detail, url: item.url, warning: null };
       }
       if (item.source === "gmail") {
@@ -505,7 +540,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const client = new MoodleClient(credentials.baseUrl, credentials.session, options.fetcher ?? fetch);
+      const client = new MoodleClient(credentials.baseUrl, credentials.session, fetcher);
       return { courses: await client.listCourses() };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Moodle course list failed.";
@@ -522,7 +557,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const result = await syncMoodleContent(db, credentials.baseUrl, credentials.session, courseId, options.fetcher);
+      const result = await syncMoodleContent(db, credentials.baseUrl, credentials.session, courseId, fetcher);
       db.setSourceStatus("moodle", "connected", new Date().toISOString(), null);
       return { ok: true, ...result };
     } catch (error) {
@@ -539,7 +574,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const file = await downloadMoodleResource(credentials, targetValue, request.query.name, options.fetcher ?? fetch);
+      const file = await downloadMoodleResource(credentials, targetValue, request.query.name, fetcher);
       reply.header("content-type", file.contentType);
       reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
       return reply.send(file.buffer);
@@ -591,7 +626,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     const usedNames = new Set<string>();
     for (const item of items) {
       try {
-        const file = await downloadMoodleResource(credentials, item.url, item.name, options.fetcher ?? fetch);
+        const file = await downloadMoodleResource(credentials, item.url, item.name, fetcher);
         if (totalBytes + file.buffer.length > 100 * 1024 * 1024) {
           skipped += 1;
           continue;
@@ -627,7 +662,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.get<{ Querystring: { refresh?: string } }>("/api/update", async (request) => {
     if (!request.query.refresh && updateCache && Date.now() - updateCache.at < 15 * 60_000) return updateCache.value;
     try {
-      const latest = await fetchLatestRelease(options.fetcher ?? fetch);
+      const latest = await fetchLatestRelease(fetcher);
       const value = buildUpdateStatus(CURRENT_VERSION, latest);
       updateCache = { at: Date.now(), value };
       return value;
@@ -643,7 +678,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
     try {
       const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
-      return { courses: await new EdClient(credentials.token, credentials.region, options.fetcher ?? fetch).listCourses() };
+      return { courses: await new EdClient(credentials.token, credentials.region, fetcher).listCourses() };
     } catch (error) {
       return reply.code(502).send({ error: { code: "ed_courses_failed", message: error instanceof Error ? error.message : "Ed courses failed.", retryable: true } } satisfies ApiError);
     }
@@ -656,7 +691,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
     try {
       const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
-      return { lessons: await new EdClient(credentials.token, credentials.region, options.fetcher ?? fetch).listLessons(courseId) };
+      return { lessons: await new EdClient(credentials.token, credentials.region, fetcher).listLessons(courseId) };
     } catch (error) {
       return reply.code(502).send({ error: { code: "ed_lessons_failed", message: error instanceof Error ? error.message : "Ed lessons failed.", retryable: true } } satisfies ApiError);
     }
@@ -669,7 +704,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
     try {
       const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
-      return await new EdClient(credentials.token, credentials.region, options.fetcher ?? fetch).getLesson(lessonId);
+      return await new EdClient(credentials.token, credentials.region, fetcher).getLesson(lessonId);
     } catch (error) {
       return reply.code(502).send({ error: { code: "ed_lesson_failed", message: error instanceof Error ? error.message : "Ed lesson failed.", retryable: true } } satisfies ApiError);
     }
@@ -680,7 +715,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     const raw = await secrets.get("ed-credentials");
     if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
     try {
-      const response = await fetchAsset(options.fetcher ?? fetch, request.query.url);
+      const response = await fetchAsset(fetcher, request.query.url);
       if (!response.ok) return reply.code(502).send({ error: { code: "ed_download_failed", message: `Ed file returned HTTP ${response.status}.`, retryable: true } } satisfies ApiError);
       const buffer = Buffer.from(await response.arrayBuffer());
       const name = safeDownloadName(request.query.name || "ed-material") || "ed-material";
@@ -710,7 +745,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
     for (const file of files) {
       try {
-        const response = await fetchAsset(options.fetcher ?? fetch, file.url);
+        const response = await fetchAsset(fetcher, file.url);
         if (!response.ok) continue;
         const buffer = Buffer.from(await response.arrayBuffer());
         if (totalBytes + buffer.length > 100 * 1024 * 1024) continue;
@@ -761,7 +796,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (rawMoodle) {
       try {
         const credentials = moodleCredentials.parse(JSON.parse(rawMoodle));
-        moodle = await new MoodleClient(credentials.baseUrl, credentials.session, options.fetcher ?? fetch).validateSession();
+        moodle = await new MoodleClient(credentials.baseUrl, credentials.session, fetcher).validateSession();
         if (!moodle) db.setSourceStatus("moodle", "degraded", null, "Moodle session expired; reconnect");
       } catch {
         moodle = false;
@@ -814,7 +849,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
         const raw = await secrets.get("ed-credentials");
         if (!raw) throw new Error("Ed token is not configured.");
         const credentials = edCredentials.parse(JSON.parse(raw));
-        await syncEd(db, credentials.token, credentials.region, options.fetcher, {
+        await syncEd(db, credentials.token, credentials.region, fetcher, {
           full: true,
           onProgress: (processed, total) => fullSyncJobs.update("ed", { processed, total }),
         });
@@ -829,9 +864,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
         const raw = await secrets.get("moodle-credentials");
         if (!raw) throw new Error("Moodle session is not configured.");
         const credentials = moodleCredentials.parse(JSON.parse(raw));
-        const assessments = await syncMoodle(db, credentials.baseUrl, credentials.session, options.fetcher);
-        const forum = await syncMoodleForum(db, credentials.baseUrl, credentials.session, options.fetcher);
-        const content = await syncAllMoodleContent(db, credentials.baseUrl, credentials.session, options.fetcher, (processed, total) => {
+        const assessments = await syncMoodle(db, credentials.baseUrl, credentials.session, fetcher);
+        const forum = await syncMoodleForum(db, credentials.baseUrl, credentials.session, fetcher);
+        const content = await syncAllMoodleContent(db, credentials.baseUrl, credentials.session, fetcher, (processed, total) => {
           fullSyncJobs.update("moodle", { processed, total });
         });
         fullSyncJobs.update("moodle", { status: "done", processed: content.courses, total: content.courses, message: `${assessments.synced + forum.synced} 条简报，${content.items} 条资料` });

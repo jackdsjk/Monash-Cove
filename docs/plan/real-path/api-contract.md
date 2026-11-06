@@ -39,6 +39,13 @@ Base URL in development: `http://127.0.0.1:4317`. The Web App uses `/api` via Vi
 
 `status`: `connected | degraded | error | disconnected | fixture`.
 
+## 本地调用约束
+
+- 写请求（`POST` / `PATCH` / `DELETE`）要求 `Origin` 缺失、与服务自身 Host 同源，或属于 `5174` / `4317` 开发端口。
+- 会触发外部请求的 GET（`/api/attendance/codes`、`/api/update`、`/api/moodle/page`、`/api/moodle/download*`、`/api/ed/download*`）拒绝 `Sec-Fetch-Site: cross-site`，防止网页用 `<img>` 触发抓取或 OCR。
+- 5xx 只返回固定文案，详细错误写进服务端日志。
+- 后端出站请求 30 秒超时，前端接口调用 20 秒超时。
+
 ## GET /api/brief?since=&source=&q=&limit=
 
 - `since`: optional ISO timestamp; filters `publishedAt >= since`.
