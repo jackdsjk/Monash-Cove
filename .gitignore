@@ -7,6 +7,9 @@ dist/
 # 文档工具生成的冲突副本
 docs/.miaoyan-conflicts/
 
+# CodeGraph 本地索引（每台机器各自生成）
+.codegraph/
+
 # 通用
 node_modules/
 .npm-cache/
