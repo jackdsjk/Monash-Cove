@@ -276,6 +276,15 @@ export interface OnTrackCommentView {
   authorName: string;
 }
 
+/** 每个来源的登录凭据有效期。 */
+export interface CredentialInfo {
+  source: Source;
+  connected: boolean;
+  expiresAt: string | null;
+  renewable: boolean;
+  note: string;
+}
+
 export type ChangeField = "due_at" | "title" | "course" | "text";
 
 /** 一条源头内容的变化，用于「自上次查看，哪几条改过」。 */

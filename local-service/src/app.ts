@@ -27,6 +27,7 @@ import { AssetFetchError, fetchAsset } from "./safe-download.js";
 import { withTimeout } from "./http.js";
 import { attendanceScanKey } from "./attendance/scan-key.js";
 import type { ApiError, ChangesResponse, Source } from "./domain.js";
+import { describeCredentials } from "./credentials.js";
 import { configureOnTrackCredentials, fetchOnTrackAccount, fetchOnTrackArtifact, fetchOnTrackComments, fetchOnTrackProjects, fetchOnTrackTasks } from "./sources/ontrack.js";
 import { getRuntimeStatus } from "./runtime.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
@@ -600,6 +601,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!account) return { connected: false, account: null };
     return { connected: true, account };
   });
+
+  app.get("/api/credentials", async () => ({ credentials: await describeCredentials(secrets) }));
 
   app.get<{ Querystring: { since?: string; limit?: string } }>("/api/changes", async (request, reply) => {
     const { since, limit } = request.query;

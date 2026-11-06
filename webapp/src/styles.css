@@ -3458,3 +3458,26 @@ a {
   margin: 12px 0;
 }
 
+
+/* 登录有效期 */
+.cred-validity {
+  font-size: 12.5px;
+}
+
+.cred-validity--ok {
+  color: #3d5364;
+}
+
+.cred-validity--warn {
+  color: #a8630a;
+  font-weight: 600;
+}
+
+.cred-validity--bad {
+  color: #cf1322;
+  font-weight: 600;
+}
+
+.cred-validity--idle {
+  color: #8b9daa;
+}

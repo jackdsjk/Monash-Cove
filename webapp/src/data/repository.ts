@@ -1,4 +1,4 @@
-import type { OnTrackAccount, OnTrackCommentView, OnTrackProjectView, OnTrackTaskView, OnTrackOverview, AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
+import type { CredentialInfo, OnTrackAccount, OnTrackCommentView, OnTrackProjectView, OnTrackTaskView, OnTrackOverview, AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
 
 export interface BriefData {
   items: BriefItem[];
@@ -53,6 +53,12 @@ export async function fetchOnTrackComments(projectId: number, taskDefinitionId: 
   return getJson<{ comments: OnTrackCommentView[]; viewerId: number | null }>(
     `/ontrack/comments?project=${projectId}&task=${taskDefinitionId}`,
   );
+}
+
+/** How long each source's stored credential stays valid. */
+export async function fetchCredentials(): Promise<CredentialInfo[]> {
+  const data = await getJson<{ credentials: CredentialInfo[] }>("/credentials");
+  return data.credentials;
 }
 
 /** Field-level changes recorded since a timestamp; empty when nothing changed. */

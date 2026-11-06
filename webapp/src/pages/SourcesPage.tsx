@@ -9,12 +9,13 @@ import {
   fetchMoodleAssistant,
   fetchOnTrackAccount,
   fetchOnTrackAssistant,
+  fetchCredentials,
   fetchSources,
   startMoodleAssistant,
   startOnTrackAssistant,
 } from "../data/repository";
 import { SOURCE_LABELS } from "../lib/triage";
-import type { MoodleAssistantState, OnTrackAccount, Source, SourceStatus } from "../types";
+import type { CredentialInfo, MoodleAssistantState, OnTrackAccount, Source, SourceStatus } from "../types";
 
 const sources: Array<{ source: Source; status: "success" | "warning"; lastSync: string; scope: string }> = [
   { source: "gmail", status: "success", lastSync: "12 分钟前", scope: "只读邮件与线程" },
@@ -28,6 +29,7 @@ export default function SourcesPage() {
   const [onTrack, setOnTrack] = useState<OnTrackAccount | null>(null);
   const [onTrackChecking, setOnTrackChecking] = useState(false);
   const [onTrackAssistant, setOnTrackAssistant] = useState<MoodleAssistantState>({ status: "idle", message: "未开始" });
+  const [credentials, setCredentials] = useState<CredentialInfo[]>([]);
   const [connectSource, setConnectSource] = useState<Source | null>(null);
   const [loading, setLoading] = useState(true);
   const [form] = Form.useForm();
@@ -137,11 +139,27 @@ export default function SourcesPage() {
     window.location.href = body.url;
   };
 
+  const validityFor = (source: Source) => {
+    const entry = credentials.find((item) => item.source === source);
+    if (!entry || !entry.connected) return { text: "未连接", tone: "idle" as const };
+    if (!entry.expiresAt) {
+      return { text: entry.renewable ? "长期有效，自动续期" : "无固定到期，失效时才需重连", tone: "ok" as const };
+    }
+    const expiresAt = Date.parse(entry.expiresAt);
+    const left = expiresAt - Date.now();
+    const when = new Date(expiresAt).toLocaleString("zh-CN");
+    if (left <= 0) return { text: `已过期（${when}）`, tone: "bad" as const };
+    if (entry.renewable) return { text: `有效至 ${when}，到期自动续期`, tone: "ok" as const };
+    if (left < 60 * 60_000) return { text: `即将到期：${when}`, tone: "warn" as const };
+    return { text: `有效至 ${when}`, tone: "ok" as const };
+  };
+
   const refreshOnTrack = useCallback(async () => {
     setOnTrackChecking(true);
     try {
-      const result = await fetchOnTrackAccount();
+      const [result, list] = await Promise.all([fetchOnTrackAccount(), fetchCredentials().catch(() => [])]);
       setOnTrack(result.connected ? result.account : null);
+      setCredentials(list);
     } catch {
       setOnTrack(null);
     } finally {
@@ -242,6 +260,18 @@ export default function SourcesPage() {
                           : config.scope,
                     },
                     { key: "count", label: "样本数", children: `${count} 条` },
+                    {
+                      key: "validity",
+                      label: "登录有效期",
+                      children: (
+                        <span
+                          className={`cred-validity cred-validity--${validityFor(config.source).tone}`}
+                          title={credentials.find((item) => item.source === config.source)?.note}
+                        >
+                          {validityFor(config.source).text}
+                        </span>
+                      ),
+                    },
                   ]}
                 />
                 <Space className="source-actions" wrap>
@@ -296,8 +326,15 @@ export default function SourcesPage() {
               { key: "mail", label: "邮箱", children: onTrack.email },
               {
                 key: "expiry",
-                label: "会话状态",
-                children: onTrack.expiresAt ? `有效至 ${new Date(onTrack.expiresAt).toLocaleString("zh-CN")}，过期会自动续期` : "由登录助手自动续期",
+                label: "登录有效期",
+                children: (
+                  <span
+                    className={`cred-validity cred-validity--${validityFor("ontrack").tone}`}
+                    title={credentials.find((item) => item.source === "ontrack")?.note}
+                  >
+                    {validityFor("ontrack").text}
+                  </span>
+                ),
               },
             ]}
           />

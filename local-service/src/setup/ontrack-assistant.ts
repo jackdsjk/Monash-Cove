@@ -79,14 +79,19 @@ export class OnTrackLoginAssistant {
     }
   }
 
-  private async credentials(): Promise<{ refreshToken: string; username: string } | null> {
+  private async credentials(): Promise<{ refreshToken: string; username: string; expiresAt: number | null } | null> {
     if (!this.context) return null;
     const cookies = await this.context.cookies(ORIGIN).catch(() => []);
-    const find = (name: string) => cookies.find((cookie) => cookie.name === name)?.value ?? "";
-    const refreshToken = find("refresh_token");
-    const username = find("username");
-    if (!refreshToken || !username) return null;
-    return { refreshToken, username };
+    const find = (name: string) => cookies.find((cookie) => cookie.name === name);
+    const refresh = find("refresh_token");
+    const user = find("username");
+    if (!refresh?.value || !user?.value) return null;
+    return {
+      refreshToken: refresh.value,
+      username: user.value,
+      // -1 means a session cookie: it dies with the browser, so no date.
+      expiresAt: typeof refresh.expires === "number" && refresh.expires > 0 ? refresh.expires * 1000 : null,
+    };
   }
 
   /** Mint an access token so an expired cookie is never reported as a success. */
@@ -122,7 +127,10 @@ export class OnTrackLoginAssistant {
           const probe = await this.probe(credentials).catch(() => ({ ok: false, status: 0, url: "", token: null }));
           this.lastProbe = { ok: probe.ok, status: probe.status, url: probe.url };
           if (probe.ok) {
-            await this.secrets.set("ontrack-credentials", JSON.stringify({ baseUrl: API, ...credentials }));
+            await this.secrets.set(
+              "ontrack-credentials",
+              JSON.stringify({ baseUrl: API, refreshToken: credentials.refreshToken, username: credentials.username, expiresAt: credentials.expiresAt }),
+            );
             this.db.setSourceStatus("ontrack", "connected", null, null);
             this.state = { status: "connected", message: `OnTrack 已连接（${credentials.username}），刷新凭据已保存到本机 Keychain` };
             await this.context.close().catch(() => undefined);

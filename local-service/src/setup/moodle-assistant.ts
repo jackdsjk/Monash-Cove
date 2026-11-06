@@ -75,12 +75,12 @@ export class MoodleLoginAssistant {
     }
   }
 
-  private async cookieJar(): Promise<Array<{ name: string; value: string }>> {
+  private async cookieJar(): Promise<Array<{ name: string; value: string; expires?: number }>> {
     if (!this.context) return [];
     const cookies = await this.context.cookies(this.baseUrl).catch(() => []);
     return cookies
       .filter((cookie) => cookie.domain.replace(/^\./, "").endsWith("monash.edu") && cookie.value)
-      .map((cookie) => ({ name: cookie.name, value: cookie.value }));
+      .map((cookie) => ({ name: cookie.name, value: cookie.value, expires: cookie.expires }));
   }
 
   private async run() {
