@@ -93,7 +93,7 @@ export default function SettingsPage() {
             <div className="runtime-meta">
               <Tag>{runtime.platform} / {runtime.arch}</Tag>
               <Tag>Node {runtime.node}</Tag>
-              {runtime.desktop ? <Tag color="green">桌面 App</Tag> : <Tag>浏览器模式</Tag>}
+              {runtime.desktop ? <Tag color="success">桌面 App</Tag> : <Tag>浏览器模式</Tag>}
             </div>
             <div className="runtime-checks">
               {runtime.checks.map((check) => (

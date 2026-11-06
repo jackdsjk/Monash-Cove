@@ -110,7 +110,7 @@ export default function ItemDrawer({ item, open, correction = {}, onClose, onTog
 
           {item.dueAt ? (
             <Space wrap className="drawer-submit-state">
-              <Tag color={item.completedAt ? "green" : "default"}>{item.completedAt ? "已提交" : "未提交"}</Tag>
+              <Tag color={item.completedAt ? "success" : "default"}>{item.completedAt ? "已提交" : "未提交"}</Tag>
               <Button size="small" onClick={() => onToggleCompleted?.(item.id, !item.completedAt)}>
                 {item.completedAt ? "撤销标记（恢复倒计时）" : "标记为已提交"}
               </Button>

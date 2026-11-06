@@ -187,7 +187,7 @@ export default function SourcesPage() {
                   ]}
                 />
                 <Space className="source-actions" wrap>
-                  <Tag color="green" icon={<CheckCircleOutlined />}>
+                  <Tag color="success" icon={<CheckCircleOutlined />}>
                     只读
                   </Tag>
                   {apiStatus?.status !== "connected" ? (

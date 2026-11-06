@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { App as AntApp, Empty, Tag, Typography } from "antd";
-import { ClockCircleOutlined } from "@ant-design/icons";
+import { App as AntApp, Empty, Typography } from "antd";
 import { useNavigate } from "react-router-dom";
 import DeadlineCountdown from "../components/DeadlineCountdown";
 import CoveLoader from "../components/CoveLoader";
 import { fetchBrief, setItemCompleted } from "../data/repository";
 import { useDemoStore } from "../state/DemoStateContext";
 import type { BriefItem } from "../types";
+
+const HOUR = 3_600_000;
 
 export default function DeadlinesPage() {
   const { message } = AntApp.useApp();
@@ -44,10 +45,26 @@ export default function DeadlinesPage() {
     }
   };
 
-  const count = useMemo(
-    () => items.filter((item) => item.source === "moodle" && item.dueAt && !item.completedAt && !state.corrections[item.id]?.dismissed).length,
+  const open = useMemo(
+    () =>
+      items.filter(
+        (item) =>
+          item.source === "moodle" &&
+          item.dueAt &&
+          Number.isFinite(Date.parse(item.dueAt)) &&
+          !item.completedAt &&
+          !state.corrections[item.id]?.dismissed,
+      ),
     [items, state.corrections],
   );
+
+  const soonCount = useMemo(() => {
+    const now = Date.now();
+    return open.filter((item) => {
+      const remaining = Date.parse(item.dueAt ?? "") - now;
+      return remaining > 0 && remaining <= 48 * HOUR;
+    }).length;
+  }, [open]);
 
   if (loading) {
     return <CoveLoader label="正在读取截止时间" />;
@@ -56,10 +73,7 @@ export default function DeadlinesPage() {
   return (
     <>
       <header className="page-header">
-        <div>
-          <Typography.Text className="eyebrow" type="secondary">
-            DEADLINES
-          </Typography.Text>
+        <div className="page-header__main">
           <Typography.Title level={1} className="page-title">
             截止倒计时
           </Typography.Title>
@@ -67,12 +81,25 @@ export default function DeadlinesPage() {
             根据 Moodle 作业的截止时间自动生成；这里只处理有结构化截止时间的条目。
           </Typography.Paragraph>
         </div>
-        <Tag icon={<ClockCircleOutlined />} className="deadline-page-tag">
-          {count} 个截止项
-        </Tag>
+        <div className="page-header__side">
+          <div className="board-counters">
+            <div className="board-counter board-counter--hot">
+              <div className="board-flap">
+                <b>{soonCount}</b>
+              </div>
+              <span>48h 内</span>
+            </div>
+            <div className="board-counter">
+              <div className="board-flap">
+                <b>{open.length}</b>
+              </div>
+              <span>总计</span>
+            </div>
+          </div>
+        </div>
       </header>
 
-      {count === 0 ? (
+      {open.length === 0 ? (
         <Empty
           className="brief-empty"
           description={
@@ -88,7 +115,6 @@ export default function DeadlinesPage() {
         <DeadlineCountdown
           items={items}
           corrections={state.corrections}
-          showHeading={false}
           onOpen={(id) => navigate("/", { state: { openItemId: id } })}
           onMarkSubmitted={(id) => void markSubmitted(id)}
         />

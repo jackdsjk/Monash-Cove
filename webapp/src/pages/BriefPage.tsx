@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { HistoryOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
-import { Alert, App as AntApp, Button, Card, Col, Collapse, Empty, Input, Row, Segmented, Select, Space, Statistic, Switch, Tag, Typography } from "antd";
+import { Alert, App as AntApp, Button, Collapse, Empty, Input, Segmented, Select, Space, Switch, Tag, Typography } from "antd";
 import { fetchBrief, fetchSyncStatus, setItemCompleted, startFullSync } from "../data/repository";
 import ItemCard from "../components/ItemCard";
 import ItemDrawer from "../components/ItemDrawer";
@@ -141,7 +141,7 @@ export default function BriefPage() {
       ? `共 ${filtered.length} 条，按注意力层级分组。`
       : state.windowHours === 0
         ? "上次查看后没有新内容。过去的内容仍可在下方展开。"
-        : `过去 ${formatWindow(state.windowHours)}，整理了 ${filtered.length} 条更新，其中 ${summary.action} 条需要你处理。${pastItems.length > 0 ? ` 另有 ${pastItems.length} 条更早内容可展开。` : ""}`;
+        : `过去 ${formatWindow(state.windowHours)}，整理了 ${filtered.length} 条更新，其中 ${summary.action} 条需要你处理，${uncertainCount} 条待确认。${pastItems.length > 0 ? ` 另有 ${pastItems.length} 条更早内容可展开。` : ""}`;
 
   const openItem = (id: string) => {
     markRead(id);
@@ -240,7 +240,7 @@ export default function BriefPage() {
   return (
     <>
       <header className="page-header">
-        <div>
+        <div className="page-header__main">
           <Typography.Text className="eyebrow" type="secondary">
             {new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date())}
           </Typography.Text>
@@ -251,22 +251,44 @@ export default function BriefPage() {
             {subtitle}
           </Typography.Paragraph>
         </div>
-        <Space className="page-actions" wrap>
-          <Segmented
-            value={view}
-            options={[
-              { label: "自上次查看", value: "since" },
-              { label: "全部", value: "all" },
-            ]}
-            onChange={(value) => setView(value as ViewMode)}
-          />
-          <Button icon={<ReloadOutlined />} loading={syncing} onClick={() => void handleSync()}>
-            同步全部来源
-          </Button>
-          <Button type="primary" onClick={handleMarkChecked} disabled={view === "all"}>
-            标记本次已查看
-          </Button>
-        </Space>
+        <div className="page-header__side">
+          <Space className="page-actions" wrap>
+            <Segmented
+              value={view}
+              options={[
+                { label: "自上次查看", value: "since" },
+                { label: "全部", value: "all" },
+              ]}
+              onChange={(value) => setView(value as ViewMode)}
+            />
+            <Button icon={<ReloadOutlined />} loading={syncing} onClick={() => void handleSync()}>
+              同步全部来源
+            </Button>
+            <Button type="primary" onClick={handleMarkChecked} disabled={view === "all"}>
+              标记本次已查看
+            </Button>
+          </Space>
+          <div className="board-counters">
+            <div className="board-counter">
+              <div className="board-flap">
+                <b>{filtered.length}</b>
+              </div>
+              <span>本次视图</span>
+            </div>
+            <div className="board-counter board-counter--hot">
+              <div className="board-flap">
+                <b>{summary.action}</b>
+              </div>
+              <span>要处理</span>
+            </div>
+            <div className="board-counter">
+              <div className="board-flap">
+                <b>{summary.folded}</b>
+              </div>
+              <span>已折叠</span>
+            </div>
+          </div>
+        </div>
       </header>
 
       {error ? (
@@ -279,29 +301,6 @@ export default function BriefPage() {
           action={<Button onClick={() => void load()}>重试</Button>}
         />
       ) : null}
-
-      <Row className="stat-row" gutter={[16, 16]}>
-        <Col xs={12} lg={6}>
-          <Card className="stat-card">
-            <Statistic title="本次视图" value={filtered.length} suffix="条" />
-          </Card>
-        </Col>
-        <Col xs={12} lg={6}>
-          <Card className="stat-card">
-            <Statistic title="必须处理" value={summary.action} suffix="条" styles={{ content: { color: "#CF1322" } }} />
-          </Card>
-        </Col>
-        <Col xs={12} lg={6}>
-          <Card className="stat-card">
-            <Statistic title="待确认" value={uncertainCount} suffix="条" styles={{ content: { color: "#D48806" } }} />
-          </Card>
-        </Col>
-        <Col xs={12} lg={6}>
-          <Card className="stat-card">
-            <Statistic title="已折叠" value={summary.folded} suffix="条" />
-          </Card>
-        </Col>
-      </Row>
 
       <div className="toolbar brief-filter-bar">
         <Segmented
@@ -411,9 +410,6 @@ export default function BriefPage() {
             ) : (
               <section className={`feed-section feed-section--${group.id}`} key={group.id}>
                 <div className="section-heading">
-                  <Typography.Text className="section-kicker" type="secondary">
-                    BRIEF
-                  </Typography.Text>
                   <Typography.Title level={2}>
                     {group.title} <Tag>{group.items.length}</Tag>
                   </Typography.Title>

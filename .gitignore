@@ -29,3 +29,6 @@ desktop/node_modules/
 desktop/release/
 
 desktop/.cache/
+
+# Impeccable（设计流程工具）本地状态
+.impeccable/

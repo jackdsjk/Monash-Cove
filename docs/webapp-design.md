@@ -49,27 +49,29 @@ Ant Design 仓库里没有“Web 设计 skill”。`.agents/skills/` 下是 chan
 
 ### 4.1 色彩
 
-Cove 用深绿作为 primary，而不是 Ant Design 默认的 `#1677FF`。原因是：
+> 2026-11-06 改版：弃用深绿，主色改为淡蓝系，底色从 `#F5F5F5` 换成带蓝的 `#F4F9FD`。定稿预览见 `redesign/cove.html`，实施落在 `webapp/src/theme.ts` 与 `webapp/src/styles.css`。下表已按新方案更新；下文涉及“绿色”的旧论述作废，仅作为上一版参考。
 
-- 绿色更接近“校园、安静、整理”的产品气质；
-- 白字在 `#1677FF` 上的对比度不足，Ant Design 自己的 DESIGN.md 也提示了这一点；
-- `#1F5A46` 上的白字对比度约 8.05:1，满足正文和按钮文字要求。
+Cove 用淡蓝作为 primary，而不是 Ant Design 默认的 `#1677FF`。原因是：
+
+- 2026-11-06 的产品方向定为“清爽、浅色”，深绿不再符合；
+- Ant Design 默认蓝 `#1677FF` 上的白字对比度不足，Ant Design 自己的 DESIGN.md 也提示了这一点；
+- `#2568B3` 上的白字对比度约 5.6:1，满足正文和按钮文字要求。
 
 | Token | 值 | 用途 |
 |---|---|---|
-| `colorPrimary` | `#1F5A46` | 主按钮、链接、选中态 |
-| `colorPrimaryHover` | `#2B6B54` | hover |
-| `colorBgLayout` | `#F5F5F5` | 页面底色 |
+| `colorPrimary` | `#2568B3` | 主按钮、链接、选中态 |
+| `colorPrimaryHover` | `#1D5A9E` | hover |
+| `colorBgLayout` | `#F4F9FD` | 页面底色 |
 | `colorBgContainer` | `#FFFFFF` | 卡片、面板、抽屉 |
-| `colorText` | `rgba(0,0,0,0.88)` | 正文 |
-| `colorTextSecondary` | `rgba(0,0,0,0.65)` | 说明文字 |
-| `colorTextTertiary` | `rgba(0,0,0,0.45)` | 元信息 |
-| `colorBorder` | `#D9D9D9` | 控件边框 |
-| `colorBorderSecondary` | `#F0F0F0` | 分隔线 |
+| `colorText` | `#13212C` | 正文 |
+| `colorTextSecondary` | `#3D5364` | 说明文字 |
+| `colorTextTertiary` | `#5C7182` | 元信息 |
+| `colorBorder` | `#CDDEEB` | 控件边框 |
+| `colorBorderSecondary` | `#E3ECF3` | 分隔线 |
 | `colorError` | `#CF1322` | 必须处理、错误 |
-| `colorWarning` | `#D48806` | 重要、待确认 |
-| `colorSuccess` | `#389E0D` | 同步成功、已保存 |
-| `colorInfo` | `#0958D9` | 教师答复、说明信息 |
+| `colorWarning` | `#A8630A` | 重要、待确认 |
+| `colorSuccess` | `#177B8A` | 同步成功、已保存（青，不用绿） |
+| `colorInfo` | `#2F7FD1` | 教师答复、说明信息 |
 
 注意力状态不只靠颜色表达，必须同时有图标或文字：
 

@@ -323,7 +323,7 @@ export default function AttendancePage() {
         {preferences.courses.length > 0 ? (
           <Space wrap>
             {preferences.courses.map((item) => (
-              <Tag key={item.course} color="green">
+              <Tag key={item.course} color="success">
                 {item.course} · {item.sessions.join(" / ")}
               </Tag>
             ))}
@@ -391,7 +391,7 @@ export default function AttendancePage() {
               <div className="attendance-code-row">
                 <div className="attendance-code-main">
                   <Space wrap>
-                    <Tag color="green">Week {item.week}</Tag>
+                    <Tag color="success">Week {item.week}</Tag>
                     <Typography.Text strong>{item.course}</Typography.Text>
                     <Tag>{item.session}</Tag>
                     <Typography.Text code className="attendance-code">{item.code}</Typography.Text>
@@ -431,7 +431,7 @@ export default function AttendancePage() {
               <div className="attendance-unmatched-item" key={entry.id}>
                 <div>
                   <Space wrap>
-                    {entry.week ? <Tag color="green">Week {entry.week}</Tag> : null}
+                    {entry.week ? <Tag color="success">Week {entry.week}</Tag> : null}
                     <Typography.Text strong>{entry.course}</Typography.Text>
                     <Tag color={entry.status === "error" ? "red" : "orange"}>{entry.status === "error" ? "识别失败" : "格式不符"}</Tag>
                   </Space>

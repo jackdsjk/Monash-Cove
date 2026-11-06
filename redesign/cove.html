@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Cove 改版方向 · 淡蓝</title>
+<style>
+  :root{
+    --bg:#f4f9fd;
+    --surface:#ffffff;
+    --tint:#eef6fe;
+    --tint2:#e0eefb;
+    --line:#e2ecf3;
+    --line2:#cbdcea;
+    --ink:#13212c;
+    --ink2:#41586a;
+    --ink3:#6b8090;
+    --blue:#2f7fd1;
+    --blue-deep:#1f5fa8;
+    --amber:#a8630a;
+    --amber-bg:#fdf0d9;
+    --mono:"SF Mono",ui-monospace,Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    font-size:14px;line-height:1.65;-webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:#cfe4f9;color:#0b1a26}
+  :focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+  button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+  a{color:var(--blue-deep);text-decoration:none}
+
+  .shell{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
+  .rail{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;
+        padding:28px 0 22px;background:var(--surface);border-right:1px solid var(--line)}
+  .brand{padding:0 22px 26px}
+  .brand b{font-family:var(--mono);font-size:21px;font-weight:600;letter-spacing:-.01em}
+  .brand b i{color:var(--blue);font-style:normal}
+  .brand span{display:block;font-size:12px;color:var(--ink3);margin-top:2px}
+  .nav{display:flex;flex-direction:column;gap:1px}
+  .nav a{display:block;margin:0 10px;padding:8px 12px;border-radius:6px;
+         color:var(--ink2);font-weight:500}
+  .nav a:hover{color:var(--ink);background:var(--tint)}
+  .nav a.on{color:var(--blue-deep);background:var(--tint2);font-weight:600}
+  .rail-foot{margin-top:auto;padding:18px 22px 0;border-top:1px solid var(--line)}
+  .rail-foot p{margin:0 0 10px;font-size:11px;font-weight:600;color:var(--ink3);letter-spacing:.06em}
+  .src{display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink2);padding:3px 0}
+  .src b{font-weight:600;color:var(--ink);font-family:var(--mono);font-size:12px}
+
+  .board{padding:26px 40px 26px;background:var(--surface);border-bottom:1px solid var(--line)}
+  .meta{display:flex;justify-content:space-between;align-items:center;gap:16px;
+        font-size:12.5px;color:var(--ink3);font-weight:500}
+  .meta .sep{color:var(--line2);margin:0 8px}
+  .acts{display:flex;gap:10px}
+  .btn{height:34px;padding:0 14px;border:1px solid var(--line2);border-radius:6px;
+       font-size:13px;color:var(--ink2);background:var(--surface);white-space:nowrap;font-weight:500}
+  .btn:hover{border-color:#a9c9e3;color:var(--ink)}
+  .btn.pri{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600;
+           box-shadow:0 1px 2px rgba(47,127,209,.3)}
+  .btn.pri:hover{background:var(--blue-deep);border-color:var(--blue-deep)}
+  .board-main{display:flex;justify-content:space-between;align-items:flex-end;
+              gap:40px;margin-top:22px}
+  h1{margin:0;font-size:34px;line-height:1.2;font-weight:700;letter-spacing:-.02em;color:var(--ink)}
+  .sub{margin:9px 0 0;color:var(--ink2);font-size:13.5px;max-width:58ch}
+  .sub em{font-style:normal;color:var(--ink);font-family:var(--mono);font-weight:700;font-size:14.5px}
+
+  .counters{display:flex;gap:20px;flex:none}
+  .counter{display:flex;flex-direction:column;gap:7px;align-items:flex-start}
+  .flap{position:relative;min-width:62px;height:52px;display:flex;align-items:center;
+        justify-content:center;border-radius:8px;background:var(--surface);
+        border:1px solid var(--line2);box-shadow:0 1px 2px rgba(19,33,44,.05)}
+  .flap::after{content:"";position:absolute;left:8px;right:8px;top:50%;height:1px;background:var(--line)}
+  .flap b{font-family:var(--mono);font-size:24px;font-weight:700;letter-spacing:0}
+  .counter.hot .flap{background:var(--amber-bg);border-color:#eccd9c}
+  .counter.hot .flap::after{background:#eccd9c}
+  .counter.hot .flap b{color:var(--amber)}
+  .counter span{font-size:11.5px;font-weight:600;color:var(--ink3);padding-left:2px}
+  .counter.hot span{color:var(--amber)}
+
+  .filters{display:flex;align-items:center;gap:18px;padding:0 40px;
+           background:var(--surface);border-bottom:1px solid var(--line);min-height:52px}
+  .tabs{display:flex;gap:4px;margin-left:-10px}
+  .tab{padding:6px 12px;border-radius:6px;font-size:13px;color:var(--ink2);font-weight:500}
+  .tab:hover{color:var(--ink);background:var(--tint)}
+  .tab[aria-selected=true]{color:var(--blue-deep);background:var(--tint2);font-weight:700}
+  .tab u{text-decoration:none;margin-left:6px;font-family:var(--mono);font-size:11.5px;
+         color:var(--ink3);font-weight:600}
+  .tab[aria-selected=true] u{color:var(--blue-deep)}
+
+  .list{padding:10px 40px 72px}
+  .sec{display:flex;align-items:baseline;gap:10px;padding:26px 0 10px}
+  .sec h2{margin:0;font-size:14px;font-weight:700;color:var(--ink)}
+  .sec i{font-style:normal;font-family:var(--mono);font-size:11.5px;color:var(--ink3);font-weight:600}
+  .sec em{margin-left:auto;font-style:normal;font-size:12px;color:var(--ink3)}
+
+  .row{display:grid;grid-template-columns:56px 148px minmax(0,1fr) 92px;gap:20px;
+       padding:15px 18px;background:var(--surface);border:1px solid var(--line);
+       border-radius:10px;margin-bottom:8px}
+  .row:hover{border-color:var(--line2);box-shadow:0 2px 8px rgba(19,33,44,.05)}
+  .age{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink3);padding-top:2px}
+  .who{display:flex;flex-direction:column;gap:2px;padding-top:1px}
+  .who b{font-size:11.5px;font-weight:700;letter-spacing:.03em;color:var(--ink2)}
+  .who span{font-family:var(--mono);font-size:11.5px;font-weight:500;color:var(--ink3)}
+  h3{margin:0;font-size:15px;font-weight:700;line-height:1.5;color:var(--ink)}
+  h3 a{color:inherit}
+  h3 a:hover{color:var(--blue-deep);text-decoration:underline;text-underline-offset:3px}
+  .quote{margin:4px 0 0;font-size:13px;color:var(--ink2);max-width:72ch}
+  .foot{display:flex;align-items:center;gap:6px;margin-top:9px;flex-wrap:wrap}
+  .tag{font-size:11.5px;line-height:1.7;padding:0 7px;border-radius:4px;
+       background:var(--tint);color:var(--blue-deep);font-weight:600}
+  .tag.hot{background:var(--amber-bg);color:var(--amber)}
+  .open{margin-left:6px;font-size:12.5px;font-weight:600}
+  .open:hover{text-decoration:underline;text-underline-offset:3px}
+  .state{display:flex;flex-direction:column;align-items:flex-end;gap:6px;padding-top:2px}
+  .mark{width:22px;height:2px;border-radius:2px;background:#b9cbd9}
+  .mark.crit{background:var(--amber);height:3px}
+  .mark.pend{background:repeating-linear-gradient(90deg,#6b8090 0 3px,transparent 3px 6px)}
+  .mark.fold{width:12px;background:#c3d2dd}
+  .state b{font-size:11.5px;font-weight:700;color:var(--ink2)}
+  .state b.crit{color:var(--amber)}
+
+  .due{display:grid;grid-template-columns:126px minmax(0,1fr) 104px;gap:20px;
+       align-items:baseline;padding:14px 18px;background:var(--surface);
+       border:1px solid var(--line);border-radius:10px;margin-bottom:8px}
+  .due:hover{border-color:var(--line2)}
+  .due .when{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink2)}
+  .due .count{text-align:right;font-family:var(--mono);font-size:13px;font-weight:700;color:var(--ink)}
+  .due .count.soon{color:var(--amber)}
+  .due .hint{display:block;font-size:12.5px;color:var(--ink3);margin-top:1px}
+
+  /* 资料：严格表格 */
+  .bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:18px 0 14px}
+  .bar .label{font-size:12px;font-weight:700;color:var(--ink3);margin-right:2px}
+  .seg{display:flex;border:1px solid var(--line2);border-radius:6px;overflow:hidden;background:var(--surface)}
+  .seg button{padding:5px 12px;font-size:12.5px;color:var(--ink2);font-weight:500;
+              border-right:1px solid var(--line2)}
+  .seg button:last-child{border-right:0}
+  .seg button:hover{background:var(--tint);color:var(--ink)}
+  .seg button[aria-pressed=true]{background:var(--tint2);color:var(--blue-deep);font-weight:700}
+  .bar .count{margin-left:auto;font-size:12px;color:var(--ink3);font-weight:500}
+
+  .table{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .thead,.trow{display:grid;grid-template-columns:40px minmax(0,1fr) 92px 74px 68px 56px;
+               gap:14px;align-items:center;padding:0 16px}
+  .thead{height:38px;background:#f7fbfe;border-bottom:1px solid var(--line);
+         font-size:11.5px;font-weight:700;color:var(--ink3);letter-spacing:.04em}
+  .tgroup{height:34px;display:flex;align-items:center;gap:8px;padding:0 16px;
+          background:#fafcfe;border-bottom:1px solid var(--line);
+          font-size:11.5px;font-weight:700;color:var(--ink3)}
+  .tgroup i{font-style:normal;font-family:var(--mono);color:#9db0bd}
+  .trow{height:46px;border-bottom:1px solid var(--line);font-size:13.5px}
+  .trow:last-child{border-bottom:0}
+  .trow:hover{background:#f7fbff}
+  .trow .name{font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .trow .name a{color:inherit}
+  .trow .name a:hover{color:var(--blue-deep)}
+  .cell{font-size:12px;color:var(--ink2);font-weight:500}
+  .cell.mono{font-family:var(--mono);font-size:11.5px;letter-spacing:.03em}
+  .kind{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:4px;
+        background:var(--tint);color:var(--blue-deep)}
+  .kind.work{background:var(--amber-bg);color:var(--amber)}
+  .kind.soft{background:#eef2f5;color:var(--ink2)}
+  .trow .go{text-align:right;font-size:12.5px;font-weight:600}
+  .box{appearance:none;width:16px;height:16px;margin:0;border:1px solid #b9cddd;
+       border-radius:4px;background:#fff;cursor:pointer}
+  .box:checked{background:var(--blue);border-color:var(--blue)}
+  .box:checked::after{content:"";display:block;width:4px;height:8px;margin:1px 0 0 5px;
+      border:solid #fff;border-width:0 1.5px 1.5px 0;transform:rotate(45deg)}
+
+  .note{margin:26px 0 0;padding-top:16px;border-top:1px solid var(--line);
+        font-size:12.5px;color:var(--ink3);max-width:82ch;line-height:1.7}
+  .empty{padding:64px 0;text-align:center;color:var(--ink3)}
+  .empty p{margin:0 0 14px}
+
+  @media (max-width:760px){
+    .shell{grid-template-columns:1fr}
+    .rail{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);padding-bottom:12px}
+    .nav{flex-direction:row;overflow-x:auto;padding:0 10px;gap:2px}
+    .nav a{margin:0;white-space:nowrap;padding:8px 12px;border-radius:0}
+    .rail-foot{display:none}
+    .board{padding:18px 20px 22px}
+    .meta{flex-wrap:wrap;gap:10px}
+    .board-main{flex-direction:column;align-items:flex-start;gap:18px}
+    h1{font-size:27px}
+    .filters{padding:8px 20px;flex-wrap:wrap;min-height:0}
+    .list{padding:4px 20px 56px}
+    .row,.due{grid-template-columns:1fr;gap:4px;padding:14px}
+    .row .age,.row .who{flex-direction:row;align-items:baseline;gap:10px}
+    .state{flex-direction:row;align-items:center;gap:8px}
+    .due .count{text-align:left}
+    .thead{display:none}
+    .trow{grid-template-columns:24px minmax(0,1fr) 56px;gap:10px;height:auto;
+          padding:12px 14px;row-gap:3px;align-items:start}
+    .trow .box{margin-top:4px}
+    .trow .hide-m,.trow .kind-cell{display:none}
+    .trow .name{white-space:normal}
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="rail">
+    <div class="brand"><b>cove<i>.</i></b><span>校园信息分诊</span></div>
+    <nav class="nav" id="nav">
+      <a href="#brief" class="on">简报</a>
+      <a href="#deadlines">截止时间</a>
+      <a href="#materials">资料</a>
+      <a href="#sources">数据源</a>
+      <a href="#settings">设置</a>
+    </nav>
+    <div class="rail-foot">
+      <p>示例来源</p>
+      <div class="src"><span>Gmail</span><b>6</b></div>
+      <div class="src"><span>Ed</span><b>4</b></div>
+      <div class="src"><span>Moodle</span><b>2</b></div>
+      <div class="src"><span>合计</span><b>12</b></div>
+    </div>
+  </aside>
+  <main id="main"></main>
+</div>
+
+<script>
+/* 示例条目取自仓库 demo/data/items.js 的匿名样本，正文做了截短 */
+const ITEMS = [
+  {age:"48m",src:"Gmail",course:"ETW2001",title:"Assignment 3 parts A and B: requirements updated",
+   quote:"Part B must now include a short comparison table",tags:["要求变更","需要行动"],g:"crit"},
+  {age:"1h",src:"Moodle",course:"FIT1047",title:"Assignment 4 Part 1 submission deadline",
+   quote:"lists the submission deadline for Assignment 4 Part 1 as 11:55 pm",tags:["需要行动"],g:"crit"},
+  {age:"8h",src:"Moodle",course:"MPU3312",title:"Self-reflective question quiz closing time",
+   quote:"Students who intend to complete it must submit before the closing time",tags:["需要行动","建议看原文"],g:"crit"},
+  {age:"10h",src:"Gmail",course:"非课程",title:"New sign-in notification",
+   quote:"If it was not the owner, the account security steps should be followed immediately",tags:["需要行动"],g:"crit"},
+  {age:"13h",src:"Gmail",course:"非课程",title:"Tuition payment deadline changed",
+   quote:"Students with an outstanding balance must review the new date",tags:["需要行动"],g:"crit"},
+  {age:"23h",src:"Ed",course:"FIT1045",title:"Final test: last sitting and room details",
+   quote:"Passing the test is required to pass the unit",tags:["需要行动"],g:"crit"},
+  {age:"6h",src:"Ed",course:"FIT1047",title:"Video submission guidelines not in the specification",
+   quote:"No staff answer has been posted.",tags:["建议看原文"],g:"pend"},
+  {age:"11h",src:"Ed",course:"FIT1045",title:"Gadget: is there a required label format?",
+   quote:"A staff reply confirms the pattern",tags:[],g:"pend"},
+  {age:"2h",src:"Gmail",course:"FIT1058",title:"Assignment 2 Part 3 Q&A session registration",
+   quote:"Students who want to attend should register",tags:["可选行动"],g:"fold"},
+  {age:"14h",src:"Ed",course:"FIT1047",title:"Week 10 task: PKI explanation",
+   quote:"A student shares a draft explanation of public-key infrastructure",tags:[],g:"fold"},
+  {age:"16h",src:"Gmail",course:"FIT1058",title:"Clayton seminar recording available",
+   quote:"The material is supplementary",tags:[],g:"fold"},
+  {age:"18h",src:"Gmail",course:"FIT1058",title:"SETU survey reminder and gift-card promotion",
+   quote:"chance to enter a gift-card draw",tags:[],g:"fold"}
+];
+
+const DUE = [
+  {when:"11月7日 03:30",title:"Assignment 3 parts A and B",quote:"Part B must now include a short comparison table",count:"7h 30m",soon:true,grp:"24 小时内"},
+  {when:"11月8日 13:30",title:"Assignment 4 Part 1 submission deadline",quote:"submission deadline as 11:55 pm",count:"41h 30m",soon:true,grp:"24 小时内"},
+  {when:"11月9日 23:30",title:"Short extension approved for Assignment 4 Part 3",quote:"A short extension has been approved",count:"3d 04h",grp:"三天内"},
+  {when:"11月11日 09:30",title:"Assignment 4 Part 2 submission deadline",quote:"submission deadline as 11:55 pm",count:"4d 14h",grp:"三天内"},
+  {when:"11月12日 19:30",title:"Assignment 4 Part 3 submission deadline override",quote:"The override changes the submission deadline",count:"6d 00h",grp:"更晚"},
+  {when:"11月14日 05:30",title:"Assignment 4 Part 4 submission deadline override",quote:"The override changes the deadline shown for the student",count:"7d 10h",grp:"更晚"}
+];
+
+/* 资料表：课程、类型、来源都占固定列，按周分组 */
+const MAT = [
+  {title:"Can a member initialisation list set a constant?",course:"FIT1045",kind:"讨论",week:"第 9 周",src:"Ed"},
+  {title:"Where should the consolidated code be uploaded?",course:"FIT1045",kind:"讨论",week:"第 9 周",src:"Ed"},
+  {title:"Week 10 task: PKI explanation",course:"FIT1047",kind:"资料",week:"第 10 周",src:"Ed"},
+  {title:"Course announcement: optional practice questions",course:"FIT1047",kind:"资料",week:"第 10 周",src:"Gmail"},
+  {title:"Assignment 4 Part 2 submission deadline",course:"FIT1047",kind:"作业",week:"第 10 周",src:"Moodle"},
+  {title:"Short extension approved for Assignment 4 Part 4",course:"FIT1047",kind:"通知",week:"第 10 周",src:"Gmail"},
+  {title:"Clayton seminar recording available",course:"FIT1058",kind:"资料",week:"第 10 周",src:"Gmail"},
+  {title:"Additional Q&A for Assignment 2 Part 3",course:"FIT1058",kind:"通知",week:"第 10 周",src:"Gmail"},
+  {title:"Week 12 task: password storage notes",course:"FIT1047",kind:"资料",week:"第 12 周",src:"Ed"},
+  {title:"Week 12 wrap-up and seminar recording",course:"FIT1058",kind:"通知",week:"第 12 周",src:"Ed"}
+];
+
+const GROUPS = [["crit","必须处理","错过可能影响提交、资格或成绩"],["pend","待确认","还不确定要不要动，先看一眼原文"],["fold","已折叠","读过即可，不需要行动"]];
+const TABS = [["all","全部"],["crit","必须处理"],["pend","待确认"],["fold","已折叠"]];
+const LABEL = {crit:"必须处理",pend:"待确认",fold:"已折叠"};
+const C = {all:ITEMS.length,crit:ITEMS.filter(i=>i.g==="crit").length,
+           pend:ITEMS.filter(i=>i.g==="pend").length,fold:ITEMS.filter(i=>i.g==="fold").length};
+
+let tab = "all";
+let course = "all";
+let kind = "all";
+
+function board(title, sub, counters, meta){
+  return `<header class="board">
+    <div class="meta"><span>${meta}</span>
+      <div class="acts">
+        <button class="btn">立即同步</button>
+        <button class="btn pri">标记本次已查看</button>
+      </div>
+    </div>
+    <div class="board-main">
+      <div><h1>${title}</h1><p class="sub">${sub}</p></div>
+      <div class="counters">${counters.map(([v,l,hot])=>`
+        <div class="counter${hot?" hot":""}"><div class="flap"><b>${v}</b></div><span>${l}</span></div>`).join("")}
+      </div>
+    </div>
+  </header>`;
+}
+
+function row(it){
+  return `<article class="row">
+    <div class="age">${it.age}</div>
+    <div class="who"><b>${it.src}</b><span>${it.course}</span></div>
+    <div>
+      <h3><a href="#brief">${it.title}</a></h3>
+      <p class="quote">“${it.quote}”</p>
+      <div class="foot">
+        ${it.tags.map(t=>`<span class="tag${t==="要求变更"?" hot":""}">${t}</span>`).join("")}
+        <a class="open" href="#brief">查看原文</a>
+      </div>
+    </div>
+    <div class="state">
+      <span class="mark ${it.g}"></span>
+      <b class="${it.g==="crit"?"crit":""}">${LABEL[it.g]}</b>
+    </div>
+  </article>`;
+}
+
+function brief(){
+  const rows = tab==="all" ? ITEMS : ITEMS.filter(i=>i.g===tab);
+  const head = board("自上次查看",
+    `过去 23 小时，从 <em>3</em> 个来源整理出 <em>${C.all}</em> 条更新；其中 <em>${C.crit}</em> 条需要你决定，<em>${C.pend}</em> 条还拿不准，<em>${C.fold}</em> 条读过即可。`,
+    [[C.all,"更新"],[C.crit,"要处理",1],[C.fold,"已折叠"]],
+    "11月6日 周五 <span class='sep'>/</span> 20:01 更新");
+  const tabs = `<div class="filters"><div class="tabs">
+    ${TABS.map(([k,l])=>`<button class="tab" data-tab="${k}" aria-selected="${tab===k}">${l}<u>${C[k]}</u></button>`).join("")}
+  </div></div>`;
+  const body = rows.length ? GROUPS.map(([g,title,note])=>{
+    const list = rows.filter(i=>i.g===g);
+    if(!list.length) return "";
+    return `<div class="sec"><h2>${title}</h2><i>${list.length} 条</i><em>${note}</em></div>${list.map(row).join("")}`;
+  }).join("") : `<div class="empty"><p>没有符合当前筛选的条目。</p><button class="btn" onclick="tab='all';render()">清除筛选</button></div>`;
+  return head + tabs + `<div class="list">${body}</div>`;
+}
+
+function deadlines(){
+  const head = board("接下来要交什么",
+    "只列出会被系统判定的截止：作业、测验、有明确日期的要求变更。学生讨论和通知不进来。",
+    [[DUE.filter(d=>d.soon).length,"48h 内",1],[DUE.length,"总计"]],
+    "截止时间 <span class='sep'>/</span> 按到期排序");
+  const groups = ["24 小时内","三天内","更晚"];
+  const body = groups.map(g=>{
+    const list = DUE.filter(d=>d.grp===g);
+    if(!list.length) return "";
+    return `<div class="sec"><h2>${g}</h2><i>${list.length} 项</i></div>` +
+      list.map(d=>`<div class="due">
+        <span class="when">${d.when}</span>
+        <div><h3>${d.title}</h3><span class="hint">${d.quote}</span></div>
+        <span class="count${d.soon?" soon":""}">${d.count}</span>
+      </div>`).join("");
+  }).join("");
+  return head + `<div class="list">${body}
+    <p class="note">示例数据：日期按样本的「距今小时数」推算，用来展示排序和倒计时排版，不是真实截止时间。</p>
+  </div>`;
+}
+
+function materials(){
+  const rows = MAT.filter(m=>
+    (course==="all" || m.course===course) && (kind==="all" || m.kind===kind));
+  const weeks = [...new Set(rows.map(r=>r.week))].sort(
+    (a,b)=>parseInt(a.replace(/\D/g,""))-parseInt(b.replace(/\D/g,"")));
+
+  const head = board("本周材料",
+    "按课程和周次排好的资料表：讲义、录像、作业说明、通知。点开直接回原平台。",
+    [[MAT.length,"条材料"],[new Set(MAT.map(m=>m.course)).size,"门课"]],
+    "资料 <span class='sep'>/</span> 第 9–12 周 <span class='sep'>/</span> 按周分组");
+
+  const courses = ["all", ...new Set(MAT.map(m=>m.course))];
+  const kinds = ["all","资料","作业","通知","讨论"];
+  const bar = `<div class="bar">
+    <span class="label">课程</span>
+    <div class="seg">${courses.map(c=>`<button data-course="${c}" aria-pressed="${course===c}">${c==="all"?"全部":c}</button>`).join("")}</div>
+    <span class="label" style="margin-left:10px">类型</span>
+    <div class="seg">${kinds.map(k=>`<button data-kind="${k}" aria-pressed="${kind===k}">${k==="all"?"全部":k}</button>`).join("")}</div>
+    <span class="count">共 ${rows.length} 条</span>
+  </div>`;
+
+  const body = rows.length ? weeks.map(w=>{
+    const list = rows.filter(r=>r.week===w);
+    return `<div class="tgroup">${w}<i>${list.length} 条</i></div>` +
+      list.map(m=>`<div class="trow">
+        <input class="box" type="checkbox" aria-label="标记 ${m.title} 为已读">
+        <span class="name"><a href="#materials">${m.title}</a></span>
+        <span class="cell mono hide-m">${m.course}</span>
+        <span class="cell kind-cell"><span class="kind ${m.kind==="作业"?"work":(m.kind==="通知"||m.kind==="讨论")?"soft":""}">${m.kind}</span></span>
+        <span class="cell hide-m">${m.src}</span>
+        <a class="go" href="#materials">打开</a>
+      </div>`).join("");
+  }).join("") : `<div class="empty"><p>没有符合当前筛选的资料。</p></div>`;
+
+  return head + `<div class="list">${bar}
+    <div class="table">
+      <div class="thead">
+        <span></span><span>标题</span><span>课程</span><span>类型</span><span>来源</span><span style="text-align:right">操作</span>
+      </div>
+      ${body}
+    </div>
+    <p class="note">示例数据：条目取自匿名样本并归入周次，周次与类型是演示用的归类，不代表真实课程结构。</p>
+  </div>`;
+}
+
+function plain(title, copy){
+  return `<div class="list" style="max-width:680px">
+    <h1 style="margin:40px 0 14px;font-size:26px">${title}</h1>
+    <p class="note" style="border:0;padding:0;margin:0 0 12px;font-size:14px">${copy}</p>
+    <p class="note" style="border:0;padding:0">这一屏不在 demo 范围内，改版只覆盖简报、截止时间、资料三屏。</p>
+  </div>`;
+}
+
+function render(){
+  const view = (location.hash || "#brief").slice(1);
+  const main = document.getElementById("main");
+  if(view==="deadlines") main.innerHTML = deadlines();
+  else if(view==="materials") main.innerHTML = materials();
+  else if(view==="sources") main.innerHTML = plain("数据源","Moodle、Ed、学校邮箱三个连接器的状态与上次同步时间。");
+  else if(view==="settings") main.innerHTML = plain("设置","同步频率、保留时长、隐私与提醒。");
+  else main.innerHTML = brief();
+
+  const known = ["brief","deadlines","materials","sources","settings"];
+  const active = known.includes(view) ? view : "brief";
+  document.querySelectorAll("#nav a").forEach(a=>{
+    a.classList.toggle("on", a.getAttribute("href") === "#" + active);
+  });
+}
+
+document.addEventListener("click", e=>{
+  const t = e.target.closest(".tab");
+  if(t){ tab = t.dataset.tab; render(); return; }
+  const c = e.target.closest("[data-course]");
+  if(c){ course = c.dataset.course; render(); return; }
+  const k = e.target.closest("[data-kind]");
+  if(k){ kind = k.dataset.kind; render(); }
+});
+window.addEventListener("hashchange", render);
+render();
+</script>
+</body>
+</html>

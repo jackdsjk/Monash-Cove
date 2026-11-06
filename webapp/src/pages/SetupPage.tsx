@@ -233,7 +233,7 @@ export default function SetupPage() {
           <Card
             className="setup-card"
             title={<Space><GoogleOutlined /> Gmail</Space>}
-            extra={status.gmailConnected ? <Tag color="green" icon={<CheckCircleOutlined />}>已连接</Tag> : <Tag>未连接</Tag>}
+            extra={status.gmailConnected ? <Tag color="success" icon={<CheckCircleOutlined />}>已连接</Tag> : <Tag>未连接</Tag>}
           >
             <Typography.Paragraph type="secondary">
               通过 Google 官方 OAuth 只读连接；Monash Cove 不接触密码。授权后自动刷新 token。
@@ -248,7 +248,7 @@ export default function SetupPage() {
           <Card
             className="setup-card"
             title={<Space><LoginOutlined /> Ed</Space>}
-            extra={status.edConnected ? <Tag color="green" icon={<CheckCircleOutlined />}>已连接</Tag> : <Tag>未连接</Tag>}
+            extra={status.edConnected ? <Tag color="success" icon={<CheckCircleOutlined />}>已连接</Tag> : <Tag>未连接</Tag>}
           >
             {status.edConnected ? (
               <Typography.Paragraph type="secondary">Ed token 已保存在本机 Keychain。</Typography.Paragraph>
@@ -279,7 +279,7 @@ export default function SetupPage() {
           <Card
             className="setup-card"
             title={<Space><LockOutlined /> Moodle</Space>}
-            extra={status.moodleConnected ? <Tag color="green" icon={<CheckCircleOutlined />}>已连接</Tag> : <Tag>未连接</Tag>}
+            extra={status.moodleConnected ? <Tag color="success" icon={<CheckCircleOutlined />}>已连接</Tag> : <Tag>未连接</Tag>}
           >
             {status.moodleConnected && assistant.status !== "waiting_login" ? (
               <Typography.Paragraph type="secondary">MoodleSession 已保存在本机 Keychain。</Typography.Paragraph>
