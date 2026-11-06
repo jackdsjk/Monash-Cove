@@ -3,9 +3,9 @@ import { Alert, App as AntApp, Badge, Button, Card, Col, Descriptions, Form, Inp
 import { useCallback, useEffect, useState } from "react";
 import CoveLoader from "../components/CoveLoader";
 import { Link } from "react-router-dom";
-import { fetchSources } from "../data/repository";
+import { cancelMoodleAssistant, fetchMoodleAssistant, fetchSources, startMoodleAssistant } from "../data/repository";
 import { SOURCE_LABELS } from "../lib/triage";
-import type { Source, SourceStatus } from "../types";
+import type { MoodleAssistantState, Source, SourceStatus } from "../types";
 
 const sources: Array<{ source: Source; status: "success" | "warning"; lastSync: string; scope: string }> = [
   { source: "gmail", status: "success", lastSync: "12 分钟前", scope: "只读邮件与线程" },
@@ -19,6 +19,9 @@ export default function SourcesPage() {
   const [connectSource, setConnectSource] = useState<Source | null>(null);
   const [loading, setLoading] = useState(true);
   const [form] = Form.useForm();
+  const [manualMoodle, setManualMoodle] = useState(false);
+  const [moodleAssistant, setMoodleAssistant] = useState<MoodleAssistantState | null>(null);
+  const [assistantStarting, setAssistantStarting] = useState(false);
 
   const loadStatuses = useCallback(async () => {
     try {
@@ -38,6 +41,21 @@ export default function SourcesPage() {
     };
   }, [loadStatuses]);
 
+  useEffect(() => {
+    if (connectSource !== "moodle" || moodleAssistant?.status !== "waiting_login") return;
+    const timer = window.setInterval(() => {
+      void fetchMoodleAssistant().then((next) => {
+        setMoodleAssistant(next);
+        if (next.status === "connected") {
+          message.success("Moodle 已连接");
+          setConnectSource(null);
+          void loadStatuses();
+        }
+      }).catch(() => undefined);
+    }, 1_500);
+    return () => window.clearInterval(timer);
+  }, [connectSource, loadStatuses, message, moodleAssistant?.status]);
+
   const syncSource = async (source: Source) => {
     const response = await fetch("/api/sync", {
       method: "POST",
@@ -56,9 +74,28 @@ export default function SourcesPage() {
 
   const openConnect = (source: Source) => {
     setConnectSource(source);
+    setManualMoodle(false);
     form.resetFields();
     if (source === "ed") form.setFieldsValue({ region: "au" });
-    if (source === "moodle") form.setFieldsValue({ baseUrl: "https://learning.monash.edu" });
+    if (source === "moodle") {
+      form.setFieldsValue({ baseUrl: "https://learning.monash.edu" });
+      void fetchMoodleAssistant().then(setMoodleAssistant).catch(() => undefined);
+    }
+  };
+
+  const startMoodle = async () => {
+    setAssistantStarting(true);
+    try {
+      setMoodleAssistant(await startMoodleAssistant());
+    } catch (cause) {
+      message.error(cause instanceof Error ? cause.message : "登录助手启动失败");
+    } finally {
+      setAssistantStarting(false);
+    }
+  };
+
+  const cancelMoodle = async () => {
+    setMoodleAssistant(await cancelMoodleAssistant());
   };
 
   const saveCredentials = async (values: Record<string, string>) => {
@@ -183,9 +220,31 @@ export default function SourcesPage() {
         cancelText="取消"
         onCancel={() => setConnectSource(null)}
         onOk={() => form.submit()}
+        footer={connectSource === "moodle" && !manualMoodle ? null : undefined}
         destroyOnHidden
       >
-        <Form form={form} layout="vertical" onFinish={saveCredentials} requiredMark={false}>
+        {connectSource === "moodle" && !manualMoodle ? (
+          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+              点下面的按钮会打开一个 Chrome 窗口。在窗口里完成 Monash 登录后，助手会自动捕获 cookie 并保存到本机 Keychain，你不需要手动复制任何东西。
+            </Typography.Paragraph>
+            {moodleAssistant?.status === "waiting_login" ? (
+              <Alert type="info" showIcon message="请在打开的 Chrome 窗口完成 Monash 登录" description={moodleAssistant.message} />
+            ) : null}
+            {moodleAssistant?.status === "error" ? <Alert type="error" showIcon message="连接失败" description={moodleAssistant.message} /> : null}
+            <Space wrap>
+              {moodleAssistant?.status === "waiting_login" ? (
+                <Button danger onClick={() => void cancelMoodle()}>取消登录</Button>
+              ) : (
+                <Button type="primary" loading={assistantStarting} onClick={() => void startMoodle()}>打开登录助手</Button>
+              )}
+              <Button type="link" onClick={() => { setManualMoodle(true); form.setFieldsValue({ baseUrl: "https://learning.monash.edu" }); }}>
+                改为手动填写 cookie
+              </Button>
+            </Space>
+          </Space>
+        ) : null}
+        <Form form={form} layout="vertical" onFinish={saveCredentials} requiredMark={false} style={connectSource === "moodle" && !manualMoodle ? { display: "none" } : undefined}>
           {connectSource === "ed" ? (
             <>
               <Form.Item name="token" label="Ed API token" rules={[{ required: true, message: "请输入 token" }]}>
