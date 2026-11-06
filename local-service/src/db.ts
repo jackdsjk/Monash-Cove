@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS items (
   url TEXT NOT NULL DEFAULT '',
   due_at TEXT,
   deadline_kind TEXT,
+  completed_at TEXT,
   content_hash TEXT NOT NULL,
   content_type TEXT NOT NULL,
   importance TEXT NOT NULL,
@@ -123,6 +124,7 @@ export class CoveDatabase {
     );
     if (!columns.has("due_at")) this.db.exec("ALTER TABLE items ADD COLUMN due_at TEXT");
     if (!columns.has("deadline_kind")) this.db.exec("ALTER TABLE items ADD COLUMN deadline_kind TEXT");
+    if (!columns.has("completed_at")) this.db.exec("ALTER TABLE items ADD COLUMN completed_at TEXT");
     const contentColumns = new Set(
       (this.db.prepare("PRAGMA table_info(moodle_content)").all() as Array<{ name?: string }>).map((column) => column.name),
     );
@@ -220,9 +222,9 @@ export class CoveDatabase {
       .prepare(`
         INSERT INTO items (
           id, source, source_item_id, course, title, author_role, published_at, updated_at, url,
-          due_at, deadline_kind, content_hash, content_type, importance, action_required, open_original, triage_version,
+          due_at, deadline_kind, completed_at, content_hash, content_type, importance, action_required, open_original, triage_version,
           model, first_seen_at, last_seen_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           course = excluded.course,
           title = excluded.title,
@@ -232,6 +234,7 @@ export class CoveDatabase {
           url = excluded.url,
           due_at = excluded.due_at,
           deadline_kind = excluded.deadline_kind,
+          completed_at = excluded.completed_at,
           content_hash = excluded.content_hash,
           content_type = excluded.content_type,
           importance = excluded.importance,
@@ -254,6 +257,7 @@ export class CoveDatabase {
         item.url,
         item.dueAt ?? null,
         item.deadlineKind ?? null,
+        item.completedAt ?? null,
         item.contentHash,
         item.contentType,
         item.importance,
@@ -506,6 +510,7 @@ function toStoredItem(row: Record<string, unknown>): StoredItem {
     url: String(row.url ?? ""),
     dueAt: row.due_at ? String(row.due_at) : null,
     deadlineKind: row.deadline_kind ? String(row.deadline_kind) : null,
+    completedAt: row.completed_at ? String(row.completed_at) : null,
     ageHours: Math.max(0, (Date.now() - Date.parse(String(row.published_at))) / 3_600_000),
     contentHash: String(row.content_hash),
     contentType: String(row.content_type) as StoredItem["contentType"],

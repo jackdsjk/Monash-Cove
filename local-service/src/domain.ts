@@ -42,6 +42,8 @@ export interface StoredItem {
   ageHours: number;
   dueAt: string | null;
   deadlineKind: string | null;
+  /** Set once Moodle reports the submission as sent or graded. */
+  completedAt: string | null;
   contentHash: string;
   contentType: ContentType;
   importance: Importance;
@@ -71,6 +73,7 @@ export interface NewItem {
   url: string;
   dueAt?: string | null;
   deadlineKind?: string | null;
+  completedAt?: string | null;
   contentHash: string;
   contentType: ContentType;
   importance: Importance;

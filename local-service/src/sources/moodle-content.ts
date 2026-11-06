@@ -7,16 +7,17 @@ export class MoodleContentClient {
   private sesskey: string | null = null;
   private readonly discussionCache = new Map<string, { title: string; text: string }>();
 
+  /** `cookie` is the full Cookie header for Moodle (see `moodleCookieHeader`). */
   constructor(
     baseUrl: string,
-    private readonly session: string,
+    private readonly cookie: string,
     private readonly fetcher: typeof fetch = fetch,
   ) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
   }
 
   private headers() {
-    return { cookie: `MoodleSession=${this.session}` };
+    return { cookie: this.cookie };
   }
 
   private async getSesskey() {

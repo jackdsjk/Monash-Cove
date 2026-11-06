@@ -35,7 +35,7 @@ export default function DeadlinesPage() {
   }, [hydrate, message]);
 
   const count = useMemo(
-    () => items.filter((item) => item.source === "moodle" && item.dueAt && !state.corrections[item.id]?.dismissed).length,
+    () => items.filter((item) => item.source === "moodle" && item.dueAt && !item.completedAt && !state.corrections[item.id]?.dismissed).length,
     [items, state.corrections],
   );
 

@@ -19,6 +19,7 @@ interface RawSourceItem {
   url: string;
   dueAt?: string | null;
   deadlineKind?: string | null;
+  completedAt?: string | null;
   kind?: "assessment" | "forum";
 }
 
@@ -38,6 +39,7 @@ async function persist(db: CoveDatabase, source: Source, raw: RawSourceItem[], m
       url: item.url,
       dueAt: item.dueAt ?? null,
       deadlineKind: item.deadlineKind ?? null,
+      completedAt: item.completedAt ?? null,
       contentHash: hash,
       contentType: result.contentType,
       importance: result.importance,

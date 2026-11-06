@@ -202,6 +202,8 @@ export interface BriefItem extends DemoItem {
   url?: string;
   dueAt?: string | null;
   deadlineKind?: string | null;
+  /** Moodle 已确认提交/评分的时间；有值时不再是待办 */
+  completedAt?: string | null;
   contentHash?: string;
   triageVersion?: string;
   model?: string;

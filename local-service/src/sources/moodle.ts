@@ -1,3 +1,5 @@
+import { parse } from "node-html-parser";
+
 export interface MoodleCourseSummary {
   id: number;
   shortname: string;
@@ -16,6 +18,7 @@ export interface MoodleRawItem {
   url: string;
   dueAt?: string | null;
   deadlineKind?: string | null;
+  completedAt?: string | null;
   kind?: "assessment" | "forum";
 }
 
@@ -130,10 +133,45 @@ export class MoodleClient {
     if (!Array.isArray(envelope) || envelope.length !== 2) throw new Error("Moodle AJAX returned an invalid batch response.");
     if (envelope.some((entry) => entry.error)) throw new Error("Moodle AJAX returned an error.");
     const events = envelope[1]?.data?.events ?? [];
-    return events
+    const items = events
       .filter((event) => event.purpose === "assessment" || ASSESSMENT_MODULES.has(event.modulename ?? event.modname ?? ""))
       .map((event) => this.mapAssessment(event))
       .filter((item): item is MoodleRawItem => item !== null);
+    return this.markSubmitted(items);
+  }
+
+  /**
+   * The calendar feed keeps reporting an assignment until its due date even
+   * after it was handed in, so ask the activity page for the submission state.
+   * A failed lookup leaves the item untouched rather than guessing.
+   */
+  private async markSubmitted(items: MoodleRawItem[]): Promise<MoodleRawItem[]> {
+    return Promise.all(items.map(async (item) => {
+      if (!item.url || !/\/mod\/assign\/view\.php/.test(item.url)) return item;
+      const status = await this.submissionStatus(item.url).catch(() => "unknown" as const);
+      if (status !== "submitted" && status !== "graded") return item;
+      return { ...item, completedAt: item.updatedAt };
+    }));
+  }
+
+  async submissionStatus(url: string): Promise<"submitted" | "graded" | "none" | "unknown"> {
+    const response = await this.fetcher(url, {
+      headers: this.headers(),
+      redirect: "follow",
+      signal: AbortSignal.timeout(15_000),
+    }).catch(() => null);
+    if (!response?.ok) return "unknown";
+    const root = parse(await response.text());
+    const label = root.querySelectorAll("td, th").find((cell) => cell.text.replace(/\s+/g, " ").trim().toLowerCase() === "submission status");
+    if (!label) return "unknown";
+    const row = label.parentNode;
+    const cells = row ? row.querySelectorAll("td") : [];
+    const value = (cells[1]?.text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (!value) return "unknown";
+    if (/no submissions?/.test(value) || /nothing submitted/.test(value)) return "none";
+    if (/graded/.test(value)) return "graded";
+    if (/submitted/.test(value)) return "submitted";
+    return "none";
   }
 
   private mapAssessment(event: MoodleEvent): MoodleRawItem | null {
