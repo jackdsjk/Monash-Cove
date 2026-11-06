@@ -3247,3 +3247,55 @@ a {
   padding: 6px 16px 8px;
   text-align: center;
 }
+
+/* 反馈可读性：完整评论 + 按任务筛选 */
+.ot-select {
+  background: #fff;
+  border: 1px solid #cddeeb;
+  border-radius: 6px;
+  color: #3d5364;
+  font-family: inherit;
+  font-size: 12.5px;
+  height: 28px;
+  margin-left: auto;
+  max-width: 260px;
+  padding: 0 8px;
+}
+
+.ot-select:focus-visible {
+  outline: 2px solid #2f7fd1;
+  outline-offset: 1px;
+}
+
+.ot-trow--feedback {
+  align-items: start;
+  padding-bottom: 10px;
+  padding-top: 10px;
+}
+
+.ot-comment {
+  color: #3d5364;
+  display: -webkit-box;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow: hidden;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  word-break: break-word;
+}
+
+.ot-comment--open {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+
+.ot-trow--feedback .ot-actions {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.ot-trow--feedback .ot-name {
+  white-space: normal;
+}

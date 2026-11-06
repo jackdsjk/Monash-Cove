@@ -41,7 +41,9 @@ export default function OnTrackPage() {
   const [tasks, setTasks] = useState<OnTrackTaskView[]>([]);
   const [feedback, setFeedback] = useState<BriefItem[]>([]);
   const [onlyOpen, setOnlyOpen] = useState(false);
-  const [feedbackLimit, setFeedbackLimit] = useState(12);
+  const [feedbackLimit, setFeedbackLimit] = useState(20);
+  const [taskFilter, setTaskFilter] = useState<string>("all");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let active = true;
@@ -81,6 +83,28 @@ export default function OnTrackPage() {
   }, [onlyOpen, tasks]);
 
   const openCount = useMemo(() => tasks.filter((task) => task.status !== "complete").length, [tasks]);
+
+  const taskLabel = (task: OnTrackTaskView) => [task.abbreviation, task.name].filter(Boolean).join(" ");
+
+  const feedbackFor = useMemo(() => {
+    if (taskFilter === "all") return feedback;
+    const task = tasks.find((entry) => String(entry.taskDefinitionId) === taskFilter);
+    if (!task) return feedback;
+    const label = taskLabel(task);
+    return feedback.filter((item) => item.title.includes(label));
+  }, [feedback, taskFilter, tasks]);
+
+  const filterOptions = useMemo(() => {
+    const options = tasks
+      .map((task) => ({
+        value: String(task.taskDefinitionId),
+        label: taskLabel(task),
+        count: feedback.filter((item) => item.title.includes(taskLabel(task))).length,
+      }))
+      .filter((option) => option.count > 0)
+      .sort((a, b) => b.count - a.count);
+    return [{ value: "all", label: "全部任务", count: feedback.length }, ...options];
+  }, [feedback, tasks]);
 
   const handleDownload = (task: OnTrackTaskView, kind: "resources" | "submission") => {
     message.info(kind === "resources" ? "正在准备任务资源…" : "正在准备提交 PDF…");
@@ -206,10 +230,25 @@ export default function OnTrackPage() {
 
           <div className="ot-toolbar">
             <b>导师反馈</b>
-            <span>{feedback.length} 条</span>
+            <span>{feedbackFor.length} 条</span>
+            <select
+              className="ot-select"
+              value={taskFilter}
+              onChange={(event) => {
+                setTaskFilter(event.target.value);
+                setFeedbackLimit(20);
+              }}
+              aria-label="按任务筛选反馈"
+            >
+              {filterOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}（{option.count}）
+                </option>
+              ))}
+            </select>
           </div>
 
-          {feedback.length === 0 ? (
+          {feedbackFor.length === 0 ? (
             <Typography.Paragraph type="secondary">
               还没有抓取到导师反馈。同步一次之后，导师的评语和自动评分会出现在这里。
             </Typography.Paragraph>
@@ -221,22 +260,44 @@ export default function OnTrackPage() {
                 <span>内容</span>
                 <span className="ot-right">操作</span>
               </div>
-              {feedback.slice(0, feedbackLimit).map((item) => (
-                <div className="ot-trow ot-trow--feedback" key={item.id}>
-                  <span className="ot-due">{formatDay(item.publishedAt?.slice(0, 10) ?? null)}</span>
-                  <span className="ot-name">{item.title.replace(/：.*$/, "")}</span>
-                  <span className="ot-quote">{item.evidenceQuote}</span>
-                  <span className="ot-actions">
-                    <Button type="link" size="small" icon={<LinkOutlined />} href={item.url} target="_blank" rel="noreferrer">
-                      查看
-                    </Button>
-                  </span>
-                </div>
-              ))}
-              {feedback.length > feedbackLimit ? (
+              {feedbackFor.slice(0, feedbackLimit).map((item) => {
+                const open = expanded.has(item.id);
+                const long = (item.text ?? "").length > 180;
+                return (
+                  <div className="ot-trow ot-trow--feedback" key={item.id}>
+                    <span className="ot-due">{formatDay(item.publishedAt?.slice(0, 10) ?? null)}</span>
+                    <span className="ot-name" title={item.title.replace(/：.*$/, "")}>
+                      {item.title.replace(/：.*$/, "").replace(/^FIT\d+\s+/, "")}
+                    </span>
+                    <span className={`ot-comment${open ? " ot-comment--open" : ""}`}>{item.text || item.evidenceQuote}</span>
+                    <span className="ot-actions">
+                      {long ? (
+                        <Button
+                          type="link"
+                          size="small"
+                          onClick={() =>
+                            setExpanded((current) => {
+                              const next = new Set(current);
+                              if (next.has(item.id)) next.delete(item.id);
+                              else next.add(item.id);
+                              return next;
+                            })
+                          }
+                        >
+                          {open ? "收起" : "展开"}
+                        </Button>
+                      ) : null}
+                      <Button type="link" size="small" icon={<LinkOutlined />} href={item.url} target="_blank" rel="noreferrer">
+                        原文
+                      </Button>
+                    </span>
+                  </div>
+                );
+              })}
+              {feedbackFor.length > feedbackLimit ? (
                 <div className="ot-more">
                   <Button type="link" size="small" onClick={() => setFeedbackLimit((value) => value + 20)}>
-                    再显示 {Math.min(20, feedback.length - feedbackLimit)} 条
+                    再显示 {Math.min(20, feedbackFor.length - feedbackLimit)} 条
                   </Button>
                 </div>
               ) : null}
