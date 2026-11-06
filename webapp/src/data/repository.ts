@@ -225,6 +225,24 @@ export async function startMoodleAssistant(): Promise<MoodleAssistantState> {
   return body?.assistant ?? { status: "error", message: "Moodle assistant did not start" };
 }
 
+export async function startOnTrackAssistant(): Promise<MoodleAssistantState> {
+  const response = await request("/setup/ontrack/start", { method: "POST" });
+  const body = (await response.json().catch(() => null)) as { assistant?: MoodleAssistantState; error?: { message?: string } } | null;
+  if (!response.ok) throw new Error(body?.error?.message ?? `OnTrack assistant returned ${response.status}`);
+  return body?.assistant ?? { status: "error", message: "OnTrack assistant did not start" };
+}
+
+export async function fetchOnTrackAssistant(): Promise<MoodleAssistantState> {
+  const data = await getJson<{ assistant: MoodleAssistantState }>("/setup/ontrack/status");
+  return data.assistant;
+}
+
+export async function cancelOnTrackAssistant(): Promise<MoodleAssistantState> {
+  const response = await request("/setup/ontrack/cancel", { method: "POST" });
+  const data = (await response.json()) as { assistant: MoodleAssistantState };
+  return data.assistant;
+}
+
 export async function fetchMoodleAssistant(): Promise<MoodleAssistantState> {
   const data = await getJson<{ assistant: MoodleAssistantState }>("/setup/moodle/status");
   return data.assistant;

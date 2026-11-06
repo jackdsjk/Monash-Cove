@@ -27,9 +27,10 @@ import { AssetFetchError, fetchAsset } from "./safe-download.js";
 import { withTimeout } from "./http.js";
 import { attendanceScanKey } from "./attendance/scan-key.js";
 import type { ApiError, ChangesResponse, Source } from "./domain.js";
-import { fetchOnTrackAccount, fetchOnTrackArtifact, fetchOnTrackComments, fetchOnTrackProjects, fetchOnTrackTasks } from "./sources/ontrack.js";
+import { configureOnTrackCredentials, fetchOnTrackAccount, fetchOnTrackArtifact, fetchOnTrackComments, fetchOnTrackProjects, fetchOnTrackTasks } from "./sources/ontrack.js";
 import { getRuntimeStatus } from "./runtime.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
+import { OnTrackLoginAssistant } from "./setup/ontrack-assistant.js";
 import { AttendanceLoginAssistant } from "./attendance/assistant.js";
 import { discoverAttendanceSessions, fillAttendance, validateAttendance, type AttendanceCredentials } from "./attendance/client.js";
 import { parseAttendanceRows } from "./attendance/parser.js";
@@ -149,6 +150,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const orchestrator = new SyncOrchestrator(db, secrets, google, fetcher);
   const fullSyncJobs = new FullSyncJobs();
   const moodleAssistant = new MoodleLoginAssistant(secrets, db);
+  configureOnTrackCredentials(secrets);
+  const onTrackAssistant = new OnTrackLoginAssistant(secrets, db);
   const attendanceAssistant = new AttendanceLoginAssistant(secrets);
   const mcpSessions = new Map<string, StreamableHTTPServerTransport>();
   if (options.autoSync) {
@@ -1052,6 +1055,12 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.get("/api/setup/moodle/status", async () => ({ assistant: moodleAssistant.get() }));
 
   app.post("/api/setup/moodle/cancel", async () => ({ assistant: await moodleAssistant.cancel() }));
+
+  app.post("/api/setup/ontrack/start", async () => ({ assistant: await onTrackAssistant.start() }));
+
+  app.get("/api/setup/ontrack/status", async () => ({ assistant: onTrackAssistant.get() }));
+
+  app.post("/api/setup/ontrack/cancel", async () => ({ assistant: await onTrackAssistant.cancel() }));
 
   app.get("/api/sync/status", async () => ({
     fullSyncCompleted: Boolean(db.getSetting("full_sync_completed_at")),

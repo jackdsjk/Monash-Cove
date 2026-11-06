@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { SecretStore } from "../secrets.js";
 
 /**
  * Read-only OnTrack (Doubtfire) client.
@@ -73,6 +74,59 @@ interface BrowserStateFile {
 
 const SESSION_LIMIT_MARGIN_MS = 60_000;
 
+let secrets: SecretStore | null = null;
+interface MintedAuth {
+  token: string;
+  expiresAt: number;
+  user: { id?: number; username?: string; email?: string; first_name?: string; last_name?: string } | null;
+}
+let cachedAuth: { baseUrl: string; username: string } & MintedAuth | null = null;
+
+/** The login assistant stores a refresh cookie; the CLI session is a fallback. */
+export function configureOnTrackCredentials(store: SecretStore) {
+  secrets = store;
+}
+
+interface StoredCredentials {
+  baseUrl: string;
+  username: string;
+  refreshToken: string;
+}
+
+async function storedCredentials(): Promise<StoredCredentials | null> {
+  if (!secrets) return null;
+  const raw = await secrets.get("ontrack-credentials");
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredCredentials>;
+    if (!parsed.baseUrl || !parsed.username || !parsed.refreshToken) return null;
+    return { baseUrl: parsed.baseUrl, username: parsed.username, refreshToken: parsed.refreshToken };
+  } catch {
+    return null;
+  }
+}
+
+async function mintAccessToken(stored: StoredCredentials): Promise<MintedAuth> {
+  const response = await fetch(`${stored.baseUrl.replace(/\/+$/, "")}/auth/access-token`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Cookie: `refresh_token=${stored.refreshToken.replace(/[;\r\n]/g, "")}; username=${stored.username.replace(/[;\r\n]/g, "")}`,
+    },
+  });
+  if (!response.ok) throw new Error("OnTrack 登录已失效，请在数据源页重新连接。");
+  const body = (await response.json().catch(() => null)) as
+    | { auth_token?: string; auth_token_expiry?: string; user?: MintedAuth["user"] }
+    | null;
+  if (!body?.auth_token) throw new Error("OnTrack 登录已失效，请在数据源页重新连接。");
+  const expiresAt = body.auth_token_expiry ? Date.parse(body.auth_token_expiry) : Date.now() + 5 * 60_000;
+  return {
+    token: body.auth_token,
+    expiresAt: Number.isFinite(expiresAt) ? expiresAt : Date.now() + 5 * 60_000,
+    user: body.user ?? null,
+  };
+}
+
 function configRoot() {
   return process.env.ONTRACK_CONFIG_DIR ?? join(homedir(), ".config", "ontrack-cli");
 }
@@ -121,6 +175,17 @@ async function refresh(baseUrl: string, username: string): Promise<Credentials |
 }
 
 async function credentials(): Promise<Credentials> {
+  const stored = await storedCredentials();
+  if (stored) {
+    const baseUrl = stored.baseUrl.replace(/\/+$/, "");
+    if (cachedAuth && cachedAuth.baseUrl === baseUrl && cachedAuth.expiresAt - Date.now() > SESSION_LIMIT_MARGIN_MS) {
+      return { baseUrl, username: stored.username, token: cachedAuth.token };
+    }
+    const minted = await mintAccessToken(stored);
+    cachedAuth = { baseUrl, username: stored.username, ...minted };
+    return { baseUrl, username: stored.username, token: minted.token };
+  }
+
   const session = await readSessionFile();
   const baseUrl = session?.baseUrl?.replace(/\/+$/, "");
   const username = session?.username;
@@ -158,6 +223,24 @@ async function getJson<T>(auth: Credentials, path: string): Promise<T> {
 
 /** The account the OnTrack credential belongs to, for showing who is connected. */
 export async function fetchOnTrackAccount(): Promise<OnTrackAccount | null> {
+  const stored = await storedCredentials();
+  if (stored) {
+    const baseUrl = stored.baseUrl.replace(/\/+$/, "");
+    const fresh = cachedAuth?.baseUrl === baseUrl && cachedAuth.expiresAt - Date.now() > SESSION_LIMIT_MARGIN_MS;
+    const auth = fresh && cachedAuth ? cachedAuth : { baseUrl, username: stored.username, ...(await mintAccessToken(stored)) };
+    if (!fresh) cachedAuth = auth;
+    const user = auth.user;
+    return {
+      userId: user?.id ?? 0,
+      username: user?.username ?? stored.username,
+      firstName: user?.first_name ?? "",
+      lastName: user?.last_name ?? "",
+      email: user?.email ?? "",
+      expiresAt: new Date(auth.expiresAt).toISOString(),
+      refreshedAt: new Date().toISOString(),
+    };
+  }
+
   const session = await readSessionFile();
   if (!session?.user?.id) return null;
   return {

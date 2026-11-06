@@ -1,9 +1,18 @@
-import { ApiOutlined, CheckCircleOutlined, CopyOutlined, ProfileOutlined, ReloadOutlined } from "@ant-design/icons";
+import { ApiOutlined, CheckCircleOutlined, ProfileOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Alert, App as AntApp, Badge, Button, Card, Col, Descriptions, Form, Input, Modal, Row, Select, Space, Tag, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import CoveLoader from "../components/CoveLoader";
 import { Link } from "react-router-dom";
-import { cancelMoodleAssistant, fetchMoodleAssistant, fetchOnTrackAccount, fetchSources, startMoodleAssistant } from "../data/repository";
+import {
+  cancelMoodleAssistant,
+  cancelOnTrackAssistant,
+  fetchMoodleAssistant,
+  fetchOnTrackAccount,
+  fetchOnTrackAssistant,
+  fetchSources,
+  startMoodleAssistant,
+  startOnTrackAssistant,
+} from "../data/repository";
 import { SOURCE_LABELS } from "../lib/triage";
 import type { MoodleAssistantState, OnTrackAccount, Source, SourceStatus } from "../types";
 
@@ -18,6 +27,7 @@ export default function SourcesPage() {
   const [statuses, setStatuses] = useState<SourceStatus[]>([]);
   const [onTrack, setOnTrack] = useState<OnTrackAccount | null>(null);
   const [onTrackChecking, setOnTrackChecking] = useState(false);
+  const [onTrackAssistant, setOnTrackAssistant] = useState<MoodleAssistantState>({ status: "idle", message: "未开始" });
   const [connectSource, setConnectSource] = useState<Source | null>(null);
   const [loading, setLoading] = useState(true);
   const [form] = Form.useForm();
@@ -143,18 +153,39 @@ export default function SourcesPage() {
     void refreshOnTrack();
   }, [refreshOnTrack]);
 
+  const connectOnTrack = async () => {
+    setOnTrackAssistant({ status: "waiting_login", message: "正在打开浏览器窗口…" });
+    try {
+      setOnTrackAssistant(await startOnTrackAssistant());
+    } catch (cause) {
+      setOnTrackAssistant({ status: "error", message: cause instanceof Error ? cause.message : "登录助手启动失败" });
+    }
+  };
+
+  const disconnectOnTrack = async () => {
+    try {
+      setOnTrackAssistant(await cancelOnTrackAssistant());
+    } catch {
+      setOnTrackAssistant({ status: "cancelled", message: "已取消登录" });
+    }
+  };
+
+  useEffect(() => {
+    if (onTrackAssistant.status !== "waiting_login") return;
+    const timer = window.setInterval(() => {
+      void fetchOnTrackAssistant()
+        .then((state) => {
+          setOnTrackAssistant(state);
+          if (state.status === "connected") void refreshOnTrack();
+        })
+        .catch(() => undefined);
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [onTrackAssistant.status, refreshOnTrack]);
+
   if (loading) {
     return <CoveLoader label="正在读取本地来源" />;
   }
-
-  const copyLoginCommand = async () => {
-    try {
-      await navigator.clipboard.writeText("ontrack login");
-      message.success("命令已复制，在终端里运行即可");
-    } catch {
-      message.info("复制失败，请手动输入：ontrack login");
-    }
-  };
 
   return (
     <>
@@ -265,35 +296,41 @@ export default function SourcesPage() {
               { key: "mail", label: "邮箱", children: onTrack.email },
               {
                 key: "expiry",
-                label: "会话到期",
-                children: onTrack.expiresAt ? new Date(onTrack.expiresAt).toLocaleString("zh-CN") : "由登录助手维护",
+                label: "会话状态",
+                children: onTrack.expiresAt ? `有效至 ${new Date(onTrack.expiresAt).toLocaleString("zh-CN")}，过期会自动续期` : "由登录助手自动续期",
               },
             ]}
           />
         ) : (
           <Typography.Paragraph type="secondary" className="ot-login-note">
-            还没登录。OnTrack 的登录由本地 CLI 完成，密码和 MFA 都在你自己的终端里输入，不会经过这个页面。
+            还没登录。点下面的按钮会打开一个 Chrome 窗口，在里面完成 Monash 登录即可，助手会把登录凭据保存到本机 Keychain，你不需要手动复制任何东西。
           </Typography.Paragraph>
         )}
 
-        <div className="ot-login-steps">
-          <b>怎么登录</b>
-          <ol>
-            <li>打开终端</li>
-            <li>
-              运行 <code>ontrack login</code>，在弹出的浏览器里完成 Monash 登录
-            </li>
-            <li>回到这里点「重新检测」</li>
-          </ol>
-        </div>
+        {onTrackAssistant.status === "waiting_login" ? (
+          <Alert type="info" showIcon message="请在打开的 Chrome 窗口完成 Monash 登录" description={onTrackAssistant.message} className="ot-login-alert" />
+        ) : null}
+        {onTrackAssistant.status === "error" ? (
+          <Alert type="error" showIcon message="连接失败" description={onTrackAssistant.message} className="ot-login-alert" />
+        ) : null}
 
         <Space className="source-actions" wrap>
           <Tag color="success" icon={<CheckCircleOutlined />}>
             只读
           </Tag>
-          <Button size="small" icon={<CopyOutlined />} onClick={() => void copyLoginCommand()}>
-            复制登录命令
+          <Button
+            size="small"
+            type="primary"
+            loading={onTrackAssistant.status === "waiting_login"}
+            onClick={() => void connectOnTrack()}
+          >
+            {onTrack ? "重新登录 OnTrack" : "连接 OnTrack"}
           </Button>
+          {onTrackAssistant.status === "waiting_login" ? (
+            <Button size="small" onClick={() => void disconnectOnTrack()}>
+              取消
+            </Button>
+          ) : null}
           <Button size="small" icon={<ReloadOutlined />} loading={onTrackChecking} onClick={() => void refreshOnTrack()}>
             重新检测
           </Button>
