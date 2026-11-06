@@ -268,3 +268,9 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 助手失败时给出具体原因（HTTP 状态 + 当前跳转域名），不再只显示"等待登录超时"。
 - 兼容旧凭据：只有 `session` 值的旧记录仍可用，新记录额外保存 `cookie` 头。
 - Chrome profile 被上次崩溃锁住时自动清理 SingletonLock 后重试一次。
+
+## 2026-11-06（手动提交状态）
+
+- 倒计时卡片新增「我已提交（外部提交）」：有些作业在 Moodle 以外的界面提交，Moodle 日历不会反映。点击后写入 `completed_source = 'user'`，倒计时移除。
+- 提交状态有两个来源：`moodle`（自动识别）与 `user`（手动标记）。**手动标记优先**，之后的同步不会覆盖它；详情抽屉里可以「撤销标记」恢复倒计时。
+- 接口：`PATCH /api/items/:id/completed`，body `{ completed: true | false | null }`。

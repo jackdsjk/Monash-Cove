@@ -19,6 +19,8 @@ interface ItemDrawerProps {
   onTogglePin: (id: string) => void;
   onDismiss: (id: string) => void;
   onFeedback: (item: BriefItem) => void;
+  /** 手动标记提交状态（有些作业在 Moodle 之外的界面提交） */
+  onToggleCompleted?: (id: string, completed: boolean) => void;
 }
 
 function roleLabel(role: "staff" | "student" | "unknown") {
@@ -47,7 +49,7 @@ function highlighted(text: string, quote: string) {
   );
 }
 
-export default function ItemDrawer({ item, open, correction = {}, onClose, onTogglePin, onDismiss, onFeedback }: ItemDrawerProps) {
+export default function ItemDrawer({ item, open, correction = {}, onClose, onTogglePin, onDismiss, onFeedback, onToggleCompleted }: ItemDrawerProps) {
   const screens = Grid.useBreakpoint();
   const [detail, setDetail] = useState<ItemSourceDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -105,6 +107,16 @@ export default function ItemDrawer({ item, open, correction = {}, onClose, onTog
             <Tag>{OPEN_LABELS[item.openOriginal]}</Tag>
             {correction.feedback ? <Tag color="blue">已反馈</Tag> : null}
           </Space>
+
+          {item.dueAt ? (
+            <Space wrap className="drawer-submit-state">
+              <Tag color={item.completedAt ? "green" : "default"}>{item.completedAt ? "已提交" : "未提交"}</Tag>
+              <Button size="small" onClick={() => onToggleCompleted?.(item.id, !item.completedAt)}>
+                {item.completedAt ? "撤销标记（恢复倒计时）" : "标记为已提交"}
+              </Button>
+              <Typography.Text type="secondary">在 Moodle 以外提交的作业，可以手动标记。</Typography.Text>
+            </Space>
+          ) : null}
 
           <section className="drawer-section">
             <Space wrap>

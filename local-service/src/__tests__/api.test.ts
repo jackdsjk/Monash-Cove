@@ -125,6 +125,23 @@ describe("local API", () => {
     expect(response.json().error.code).toBe("invalid_source");
   });
 
+  it("lets the user mark an assignment as submitted and undo it", async () => {
+    const marked = await app.inject({ method: "PATCH", url: "/api/items/gmail-001/completed", payload: { completed: true } });
+    expect(marked.statusCode).toBe(200);
+    expect(marked.json().completedAt).toBeTruthy();
+    expect(marked.json().completedSource).toBe("user");
+
+    const cleared = await app.inject({ method: "PATCH", url: "/api/items/gmail-001/completed", payload: { completed: null } });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().completedAt).toBeNull();
+
+    const invalid = await app.inject({ method: "PATCH", url: "/api/items/gmail-001/completed", payload: { completed: "yes" } });
+    expect(invalid.statusCode).toBe(400);
+
+    const missing = await app.inject({ method: "PATCH", url: "/api/items/nope/completed", payload: { completed: true } });
+    expect(missing.statusCode).toBe(404);
+  });
+
   it("accepts a captured Moodle cookie jar or a pasted session", async () => {
     const baseUrl = "https://learning.monash.edu";
     const cookieOnly = await app.inject({

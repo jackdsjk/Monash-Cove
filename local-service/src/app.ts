@@ -498,6 +498,18 @@ export function buildApp(options: AppOptions): FastifyInstance {
     return { ok: true, lastCheckedAt: db.getSetting("last_checked_at") };
   });
 
+  app.patch<{ Params: { id: string }; Body: { completed?: boolean | null } }>("/api/items/:id/completed", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!("completed" in body) || (body.completed !== null && typeof body.completed !== "boolean")) {
+      return reply.code(400).send({ error: { code: "invalid_request", message: "completed must be true, false, or null.", retryable: false } } satisfies ApiError);
+    }
+    if (!db.getItem(request.params.id)) {
+      return reply.code(404).send({ error: { code: "not_found", message: "Item not found", retryable: false } } satisfies ApiError);
+    }
+    db.setItemUserCompleted(request.params.id, body.completed);
+    return db.getItem(request.params.id);
+  });
+
   app.patch<{ Params: { id: string } }>("/api/items/:id/correction", async (request, reply) => {
     const parsed = correctionSchema.safeParse(request.body ?? {});
     if (!parsed.success) {

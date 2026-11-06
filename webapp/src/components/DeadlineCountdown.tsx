@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Tag, Typography } from "antd";
+import { Button, Space, Tag, Typography } from "antd";
 import { ClockCircleOutlined, RightOutlined } from "@ant-design/icons";
 import type { BriefItem, Correction } from "../types";
 
@@ -7,10 +7,12 @@ interface DeadlineCountdownProps {
   items: BriefItem[];
   corrections: Record<string, Correction>;
   onOpen: (id: string) => void;
+  /** 用户手动标记为已提交（有些作业不在 Moodle 上提交） */
+  onMarkSubmitted?: (id: string) => void;
   showHeading?: boolean;
 }
 
-export default function DeadlineCountdown({ items, corrections, onOpen, showHeading = true }: DeadlineCountdownProps) {
+export default function DeadlineCountdown({ items, corrections, onOpen, onMarkSubmitted, showHeading = true }: DeadlineCountdownProps) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -88,7 +90,14 @@ export default function DeadlineCountdown({ items, corrections, onOpen, showHead
 
         <div className="countdown-hero-footer">
           <span>点击查看作业详情</span>
-          <RightOutlined />
+          <Space size="small" onClick={(event) => event.stopPropagation()}>
+            {onMarkSubmitted ? (
+              <Button size="small" type="text" onClick={() => onMarkSubmitted(hero.id)}>
+                我已提交（外部提交）
+              </Button>
+            ) : null}
+            <RightOutlined />
+          </Space>
         </div>
       </article>
 
@@ -121,7 +130,14 @@ export default function DeadlineCountdown({ items, corrections, onOpen, showHead
             </div>
             <div className="countdown-tile-foot">
               <span>截止 {formatDue(item.dueAt)}</span>
-              <RightOutlined />
+              <Space size="small" onClick={(event) => event.stopPropagation()}>
+                {onMarkSubmitted ? (
+                  <Button size="small" type="link" onClick={() => onMarkSubmitted(item.id)}>
+                    我已提交
+                  </Button>
+                ) : null}
+                <RightOutlined />
+              </Space>
             </div>
           </article>
         );

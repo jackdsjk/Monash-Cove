@@ -42,8 +42,10 @@ export interface StoredItem {
   ageHours: number;
   dueAt: string | null;
   deadlineKind: string | null;
-  /** Set once Moodle reports the submission as sent or graded. */
+  /** Set once Moodle reports the submission as sent or graded, or by the user. */
   completedAt: string | null;
+  /** "moodle" = 自动识别，"user" = 手动标记 */
+  completedSource: string | null;
   contentHash: string;
   contentType: ContentType;
   importance: Importance;

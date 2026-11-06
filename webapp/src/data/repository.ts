@@ -52,6 +52,19 @@ export async function fetchItemDetail(id: string): Promise<ItemSourceDetail> {
   return getJson<ItemSourceDetail>(`/items/${encodeURIComponent(id)}/detail`);
 }
 
+export async function setItemCompleted(id: string, completed: boolean | null): Promise<BriefItem> {
+  const response = await request(`/items/${encodeURIComponent(id)}/completed`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ completed }),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+    throw new Error(body?.error?.message ?? `更新完成状态失败（HTTP ${response.status}）`);
+  }
+  return response.json() as Promise<BriefItem>;
+}
+
 export async function fetchSources(): Promise<SourceStatus[]> {
   const data = await getJson<{ sources: SourceStatus[] }>("/sources");
   return data.sources;

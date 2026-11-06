@@ -102,3 +102,53 @@ describe("attendance code storage", () => {
     expect(db.listAttendanceCodes()).toHaveLength(0);
   });
 });
+
+describe("manual submission marks", () => {
+  const base = {
+    id: "moodle:assessment:9",
+    source: "moodle" as const,
+    sourceItemId: "assessment:9",
+    course: "ETW2001",
+    title: "Assignment 3",
+    authorRole: "system",
+    publishedAt: "2026-11-01T00:00:00.000Z",
+    updatedAt: "2026-11-01T00:00:00.000Z",
+    url: "https://learning.monash.edu/mod/assign/view.php?id=9",
+    dueAt: "2026-11-20T00:00:00.000Z",
+    deadlineKind: "assign",
+    contentHash: "h",
+    contentType: "assessment_fact" as const,
+    importance: "critical" as const,
+    actionRequired: "yes" as const,
+    openOriginal: "required" as const,
+    evidenceQuote: "q",
+    text: "deadline",
+    triageVersion: "v",
+    model: "m",
+  };
+
+  it("keeps a manual mark when the next sync reports no submission", () => {
+    db.upsertItem({ ...base, completedAt: null });
+    db.setItemUserCompleted(base.id, true);
+    expect(db.getItem(base.id)?.completedAt).toBeTruthy();
+
+    db.upsertItem({ ...base, completedAt: null });
+    expect(db.getItem(base.id)?.completedSource).toBe("user");
+    expect(db.getItem(base.id)?.completedAt).toBeTruthy();
+  });
+
+  it("does not let Moodle detection overwrite a manual mark", () => {
+    db.upsertItem({ ...base, completedAt: null });
+    db.setItemUserCompleted(base.id, true);
+    db.setItemCompleted(base.id, null);
+    expect(db.getItem(base.id)?.completedAt).toBeTruthy();
+  });
+
+  it("clears the manual mark when the user undoes it", () => {
+    db.upsertItem({ ...base, completedAt: null });
+    db.setItemUserCompleted(base.id, true);
+    db.setItemUserCompleted(base.id, null);
+    expect(db.getItem(base.id)?.completedAt).toBeNull();
+    expect(db.getItem(base.id)?.completedSource).toBeNull();
+  });
+});

@@ -4,7 +4,7 @@ import { ClockCircleOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import DeadlineCountdown from "../components/DeadlineCountdown";
 import CoveLoader from "../components/CoveLoader";
-import { fetchBrief } from "../data/repository";
+import { fetchBrief, setItemCompleted } from "../data/repository";
 import { useDemoStore } from "../state/DemoStateContext";
 import type { BriefItem } from "../types";
 
@@ -33,6 +33,16 @@ export default function DeadlinesPage() {
       active = false;
     };
   }, [hydrate, message]);
+
+  const markSubmitted = async (id: string) => {
+    try {
+      await setItemCompleted(id, true);
+      setItems(await fetchBrief().then((data) => data.items));
+      message.success("已标记为提交完成，倒计时已移除");
+    } catch (cause) {
+      message.error(cause instanceof Error ? cause.message : "标记失败");
+    }
+  };
 
   const count = useMemo(
     () => items.filter((item) => item.source === "moodle" && item.dueAt && !item.completedAt && !state.corrections[item.id]?.dismissed).length,
@@ -80,6 +90,7 @@ export default function DeadlinesPage() {
           corrections={state.corrections}
           showHeading={false}
           onOpen={(id) => navigate("/", { state: { openItemId: id } })}
+          onMarkSubmitted={(id) => void markSubmitted(id)}
         />
       )}
     </>

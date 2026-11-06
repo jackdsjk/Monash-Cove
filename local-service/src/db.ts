@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS items (
   due_at TEXT,
   deadline_kind TEXT,
   completed_at TEXT,
+  completed_source TEXT,
   content_hash TEXT NOT NULL,
   content_type TEXT NOT NULL,
   importance TEXT NOT NULL,
@@ -145,6 +146,7 @@ export class CoveDatabase {
     if (!columns.has("due_at")) this.db.exec("ALTER TABLE items ADD COLUMN due_at TEXT");
     if (!columns.has("deadline_kind")) this.db.exec("ALTER TABLE items ADD COLUMN deadline_kind TEXT");
     if (!columns.has("completed_at")) this.db.exec("ALTER TABLE items ADD COLUMN completed_at TEXT");
+    if (!columns.has("completed_source")) this.db.exec("ALTER TABLE items ADD COLUMN completed_source TEXT");
     const contentColumns = new Set(
       (this.db.prepare("PRAGMA table_info(moodle_content)").all() as Array<{ name?: string }>).map((column) => column.name),
     );
@@ -242,9 +244,9 @@ export class CoveDatabase {
       .prepare(`
         INSERT INTO items (
           id, source, source_item_id, course, title, author_role, published_at, updated_at, url,
-          due_at, deadline_kind, completed_at, content_hash, content_type, importance, action_required, open_original, triage_version,
+          due_at, deadline_kind, completed_at, completed_source, content_hash, content_type, importance, action_required, open_original, triage_version,
           model, first_seen_at, last_seen_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           course = excluded.course,
           title = excluded.title,
@@ -254,7 +256,9 @@ export class CoveDatabase {
           url = excluded.url,
           due_at = excluded.due_at,
           deadline_kind = excluded.deadline_kind,
-          completed_at = excluded.completed_at,
+          -- 用户手动标记优先，同步不得覆盖
+          completed_at = CASE WHEN items.completed_source = 'user' THEN items.completed_at ELSE excluded.completed_at END,
+          completed_source = CASE WHEN items.completed_source = 'user' THEN items.completed_source ELSE excluded.completed_source END,
           content_hash = excluded.content_hash,
           content_type = excluded.content_type,
           importance = excluded.importance,
@@ -278,6 +282,7 @@ export class CoveDatabase {
         item.dueAt ?? null,
         item.deadlineKind ?? null,
         item.completedAt ?? null,
+        item.completedAt ? "moodle" : null,
         item.contentHash,
         item.contentType,
         item.importance,
@@ -449,8 +454,22 @@ export class CoveDatabase {
       .all(sinceIso) as Array<{ id: string; url: string }>;
   }
 
+  /** Moodle-detected completion; never overrides an explicit user decision. */
   setItemCompleted(id: string, completedAt: string | null) {
-    this.db.prepare("UPDATE items SET completed_at = ? WHERE id = ?").run(completedAt, id);
+    this.db
+      .prepare("UPDATE items SET completed_at = ?, completed_source = 'moodle' WHERE id = ? AND (completed_source IS NULL OR completed_source = 'moodle')")
+      .run(completedAt, id);
+  }
+
+  /** Manual override: true = done, false = explicitly not done, null = let Moodle decide. */
+  setItemUserCompleted(id: string, completed: boolean | null) {
+    if (completed === null) {
+      this.db.prepare("UPDATE items SET completed_at = NULL, completed_source = NULL WHERE id = ?").run(id);
+      return;
+    }
+    this.db
+      .prepare("UPDATE items SET completed_at = ?, completed_source = 'user' WHERE id = ?")
+      .run(completed ? new Date().toISOString() : null, id);
   }
 
   /** Attendance codes are append-only so history survives sync windows. */
@@ -643,6 +662,7 @@ function toStoredItem(row: Record<string, unknown>): StoredItem {
     dueAt: row.due_at ? String(row.due_at) : null,
     deadlineKind: row.deadline_kind ? String(row.deadline_kind) : null,
     completedAt: row.completed_at ? String(row.completed_at) : null,
+    completedSource: row.completed_source ? String(row.completed_source) : null,
     ageHours: Math.max(0, (Date.now() - Date.parse(String(row.published_at))) / 3_600_000),
     contentHash: String(row.content_hash),
     contentType: String(row.content_type) as StoredItem["contentType"],

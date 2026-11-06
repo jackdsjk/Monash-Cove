@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { HistoryOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { Alert, App as AntApp, Button, Card, Col, Collapse, Empty, Input, Row, Segmented, Select, Space, Statistic, Switch, Tag, Typography } from "antd";
-import { fetchBrief, fetchSyncStatus, startFullSync } from "../data/repository";
+import { fetchBrief, fetchSyncStatus, setItemCompleted, startFullSync } from "../data/repository";
 import ItemCard from "../components/ItemCard";
 import ItemDrawer from "../components/ItemDrawer";
 import FeedbackModal from "../components/FeedbackModal";
@@ -216,6 +216,16 @@ export default function BriefPage() {
     }
     message.success("反馈已保存，仅在本机生效");
     setFeedbackItem(null);
+  };
+
+  const handleToggleCompleted = async (id: string, completed: boolean) => {
+    try {
+      const updated = await setItemCompleted(id, completed);
+      setItems((previous) => previous.map((entry) => (entry.id === id ? { ...entry, ...updated } : entry)));
+      message.success(completed ? "已标记为提交完成" : "已恢复为未提交");
+    } catch (cause) {
+      message.error(cause instanceof Error ? cause.message : "更新提交状态失败");
+    }
   };
 
   const handleCorrection = async (id: string, key: "pinned" | "dismissed") => {
@@ -486,6 +496,7 @@ export default function BriefPage() {
         onTogglePin={(id) => void handleCorrection(id, "pinned")}
         onDismiss={(id) => void handleCorrection(id, "dismissed")}
         onFeedback={setFeedbackItem}
+        onToggleCompleted={(id, completed) => void handleToggleCompleted(id, completed)}
       />
 
       <FeedbackModal
