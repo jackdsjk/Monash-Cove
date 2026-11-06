@@ -85,7 +85,7 @@ export default function DeadlineCountdown({ items, corrections, onOpen, onMarkSu
   const deadlines = useMemo(
     () =>
       items
-        .filter((item) => item.source === "moodle" && item.dueAt && !item.completedAt && !corrections[item.id]?.dismissed)
+        .filter((item) => (item.source === "moodle" || item.source === "ontrack") && item.dueAt && !item.completedAt && !corrections[item.id]?.dismissed)
         .filter((item) => Number.isFinite(Date.parse(item.dueAt ?? "")))
         .sort((a, b) => Date.parse(a.dueAt ?? "") - Date.parse(b.dueAt ?? "")),
     [corrections, items],

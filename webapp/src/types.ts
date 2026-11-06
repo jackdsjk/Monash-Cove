@@ -1,4 +1,4 @@
-export type Source = "gmail" | "ed" | "moodle";
+export type Source = "gmail" | "ed" | "moodle" | "ontrack";
 
 export type ContentType =
   | "required_action"
@@ -196,6 +196,17 @@ export interface MoodleContentItem {
   text: string;
   updatedAt: string;
   campus?: "malaysia" | "australia" | "indonesia" | "shared";
+}
+
+/** 已连接的 OnTrack 账号，用于在界面上显示"现在是谁在用"。 */
+export interface OnTrackAccount {
+  userId: number;
+  username: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  expiresAt: string | null;
+  refreshedAt: string | null;
 }
 
 export type ChangeField = "due_at" | "title" | "course" | "text";

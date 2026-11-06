@@ -311,7 +311,7 @@ export default function SetupPage() {
         </Typography.Paragraph>
         {job ? (
           <div className="setup-sync-progress">
-            {(["gmail", "ed", "moodle"] as const).map((source) => {
+            {(["gmail", "ed", "moodle", "ontrack"] as const).map((source) => {
               const progress = job.sources[source];
               const percent = progress.total ? Math.round((progress.processed / progress.total) * 100) : progress.status === "done" ? 100 : 0;
               return (

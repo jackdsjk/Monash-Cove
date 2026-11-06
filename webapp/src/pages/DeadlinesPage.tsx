@@ -49,7 +49,7 @@ export default function DeadlinesPage() {
     () =>
       items.filter(
         (item) =>
-          item.source === "moodle" &&
+          (item.source === "moodle" || item.source === "ontrack") &&
           item.dueAt &&
           Number.isFinite(Date.parse(item.dueAt)) &&
           !item.completedAt &&
@@ -78,7 +78,7 @@ export default function DeadlinesPage() {
             截止倒计时
           </Typography.Title>
           <Typography.Paragraph className="page-subtitle" type="secondary">
-            根据 Moodle 作业的截止时间自动生成；这里只处理有结构化截止时间的条目。
+            来自 Moodle 和 OnTrack 的截止时间；这里只处理有结构化截止日期的条目。
           </Typography.Paragraph>
         </div>
         <div className="page-header__side">

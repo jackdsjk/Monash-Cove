@@ -2991,3 +2991,50 @@ a {
     white-space: normal;
   }
 }
+
+/* 顶栏账号标识：随时确认现在是谁的账号 */
+.account-chip {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e3ecf3;
+  border-radius: 999px;
+  color: #3d5364;
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-size: 12px;
+  gap: 7px;
+  height: 26px;
+  padding: 0 11px;
+}
+
+.account-chip:hover {
+  border-color: #cddeeb;
+  background: #f7fbff;
+}
+
+.account-chip__name {
+  color: #13212c;
+  font-weight: 600;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-chip__meta {
+  color: #5c7182;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.account-chip--off .account-chip__name {
+  color: #8b9daa;
+  font-weight: 500;
+}
+
+.source-dot--off {
+  background: #c3d2dd;
+}

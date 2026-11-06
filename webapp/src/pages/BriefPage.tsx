@@ -20,6 +20,7 @@ const sourceOptions = [
   { label: "Gmail", value: "gmail" },
   { label: "Ed", value: "ed" },
   { label: "Moodle", value: "moodle" },
+  { label: "OnTrack", value: "ontrack" },
 ];
 
 const typeOptions = [
@@ -181,7 +182,7 @@ export default function BriefPage() {
       }
 
       const failures: string[] = [];
-      for (const itemSource of ["gmail", "ed", "moodle"] as const) {
+      for (const itemSource of ["gmail", "ed", "moodle", "ontrack"] as const) {
         try {
           const response = await fetch("/api/sync", {
             method: "POST",

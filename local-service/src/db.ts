@@ -4,8 +4,8 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import type { BriefResponse, ChangeField, FixtureItem, ItemChange, MoodleContentRow, NewItem, Source, SourceStatus, StoredItem } from "./domain.js";
 
-const SOURCE_LABELS: Record<Source, string> = { gmail: "Gmail", ed: "Ed", moodle: "Moodle" };
-const SOURCE_IDS: Source[] = ["gmail", "ed", "moodle"];
+const SOURCE_LABELS: Record<Source, string> = { gmail: "Gmail", ed: "Ed", moodle: "Moodle", ontrack: "OnTrack" };
+const SOURCE_IDS: Source[] = ["gmail", "ed", "moodle", "ontrack"];
 const MAX_BRIEF_ITEMS = 5000;
 const CHANGE_TEXT_LIMIT = 400;
 

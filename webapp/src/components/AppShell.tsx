@@ -2,11 +2,11 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ApiOutlined, BookOutlined, CheckSquareOutlined, ClockCircleOutlined, InboxOutlined, ReadOutlined, SettingOutlined } from "@ant-design/icons";
 import { Badge, Layout, Menu, Space, Typography } from "antd";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { fetchSources, fetchSyncStatus } from "../data/repository";
+import { fetchOnTrackAccount, fetchSources, fetchSyncStatus } from "../data/repository";
 import CommandPalette from "./CommandPalette";
 import UpdateBanner from "./UpdateBanner";
 import { SOURCE_LABELS } from "../lib/triage";
-import type { Source } from "../types";
+import type { OnTrackAccount, Source } from "../types";
 
 const { Sider, Content } = Layout;
 
@@ -24,8 +24,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const [counts, setCounts] = useState<Record<Source, number>>({ gmail: 0, ed: 0, moodle: 0 });
+  const [counts, setCounts] = useState<Record<Source, number>>({ gmail: 0, ed: 0, moodle: 0, ontrack: 0 });
   const [moodleContentCount, setMoodleContentCount] = useState(0);
+  const [account, setAccount] = useState<OnTrackAccount | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -37,7 +38,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         const last = Number(window.sessionStorage.getItem(key) ?? 0);
         if (Date.now() - last < 5 * 60_000) return;
         window.sessionStorage.setItem(key, String(Date.now()));
-        for (const source of ["gmail", "ed", "moodle"] as const) {
+        for (const source of ["gmail", "ed", "moodle", "ontrack"] as const) {
           await fetch("/api/sync", {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -56,10 +57,24 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
+    void fetchOnTrackAccount()
+      .then((result) => {
+        if (active) setAccount(result.connected ? result.account : null);
+      })
+      .catch(() => {
+        if (active) setAccount(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [location.pathname]);
+
+  useEffect(() => {
+    let active = true;
     void fetchSources()
       .then((sources) => {
         if (!active) return;
-        const next: Record<Source, number> = { gmail: 0, ed: 0, moodle: 0 };
+        const next: Record<Source, number> = { gmail: 0, ed: 0, moodle: 0, ontrack: 0 };
         for (const source of sources) {
           next[source.id] = source.itemCount;
           if (source.id === "moodle") setMoodleContentCount(source.contentCount ?? 0);
@@ -144,6 +159,24 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <Typography.Text type="secondary">{title}</Typography.Text>
             <Space size={12} align="center">
               <CommandPalette />
+              <button
+                type="button"
+                className={`account-chip${account ? "" : " account-chip--off"}`}
+                onClick={() => navigate("/sources")}
+                title={account ? `${account.email} · 在终端运行 ontrack login 可切换账号` : "在终端运行 ontrack login 连接 OnTrack"}
+              >
+                <span className={`source-dot source-dot--${account ? "ontrack" : "off"}`} />
+                {account ? (
+                  <>
+                    <span className="account-chip__name">
+                      {`${account.firstName} ${account.lastName}`.trim() || account.username}
+                    </span>
+                    <span className="account-chip__meta">OnTrack</span>
+                  </>
+                ) : (
+                  <span className="account-chip__name">OnTrack 未连接</span>
+                )}
+              </button>
               <Typography.Text type="secondary">本地模式 · 仅本机存储</Typography.Text>
             </Space>
           </header>

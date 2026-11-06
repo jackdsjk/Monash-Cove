@@ -6,6 +6,8 @@ import { moodleCookieHeader } from "../moodle-download.js";
 import { syncGmail } from "./gmail.js";
 import { syncEd, syncMoodle, syncMoodleForum } from "./sources.js";
 import { syncAllMoodleContent } from "./moodle-content.js";
+import { fetchOnTrackAccount } from "../sources/ontrack.js";
+import { syncOnTrack } from "./ontrack.js";
 
 export class SyncOrchestrator {
   private progress?: (source: "gmail" | "ed" | "moodle", processed: number, total: number | null) => void;
@@ -26,6 +28,12 @@ export class SyncOrchestrator {
       if (!raw) throw new Error("Ed token is not configured.");
       const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
       return syncEd(this.db, credentials.token, credentials.region, this.fetcher);
+    }
+    if (source === "ontrack") {
+      const account = await fetchOnTrackAccount();
+      if (!account) throw new Error("OnTrack 还没有登录。在终端运行 ontrack login。");
+      const result = await syncOnTrack(this.db, account);
+      return { synced: result.synced };
     }
     const raw = await this.secrets.get("moodle-credentials");
     if (!raw) throw new Error("Moodle session is not configured.");
@@ -62,13 +70,13 @@ export class SyncOrchestrator {
     return { ok: true, sources: starts };
   }
 
-  onProgress(handler: (source: "gmail" | "ed" | "moodle", processed: number, total: number | null) => void) {
+  onProgress(handler: (source: Source, processed: number, total: number | null) => void) {
     this.progress = handler;
     return this;
   }
 
   async syncAll() {
-    const sources: Source[] = ["gmail", "ed", "moodle"];
+    const sources: Source[] = ["gmail", "ed", "moodle", "ontrack"];
     const results: Array<{ source: Source; ok: boolean; message?: string }> = [];
     for (const source of sources) {
       try {

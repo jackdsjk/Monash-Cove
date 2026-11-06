@@ -1,4 +1,4 @@
-export type Source = "gmail" | "ed" | "moodle";
+export type Source = "gmail" | "ed" | "moodle" | "ontrack";
 export type ContentType =
   | "required_action"
   | "requirement_change"

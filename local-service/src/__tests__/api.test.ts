@@ -29,7 +29,7 @@ describe("local API", () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.items).toHaveLength(55);
-    expect(body.sources.map((source: { id: string }) => source.id)).toEqual(["ed", "gmail", "moodle"]);
+    expect(body.sources.map((source: { id: string }) => source.id)).toEqual(["ed", "gmail", "moodle", "ontrack"]);
     expect(body.items[0].text.length).toBeGreaterThan(20);
     expect(body.items[0].evidenceQuote.length).toBeGreaterThan(5);
   });

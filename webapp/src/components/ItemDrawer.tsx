@@ -49,8 +49,16 @@ function highlighted(text: string, quote: string) {
   );
 }
 
+/** OnTrack items link to the task page; the download routes need both ids. */
+function parseOnTrackTarget(url: string | undefined) {
+  const match = url?.match(/#\/projects\/(\d+)\/tasks\/(\d+)/);
+  if (!match) return null;
+  return { project: match[1], task: match[2] };
+}
+
 export default function ItemDrawer({ item, open, correction = {}, onClose, onTogglePin, onDismiss, onFeedback, onToggleCompleted }: ItemDrawerProps) {
   const screens = Grid.useBreakpoint();
+  const ontrackTarget = item?.source === "ontrack" ? parseOnTrackTarget(item.url) : null;
   const [detail, setDetail] = useState<ItemSourceDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
@@ -130,6 +138,16 @@ export default function ItemDrawer({ item, open, correction = {}, onClose, onTog
               <Button type="primary" href={detail?.url || item.url} target="_blank" rel="noreferrer">
                 查看原文
               </Button>
+              {ontrackTarget ? (
+                <>
+                  <Button href={`/api/ontrack/artifact?project=${ontrackTarget.project}&task=${ontrackTarget.task}&kind=resources`} download>
+                    下载任务资源
+                  </Button>
+                  <Button href={`/api/ontrack/artifact?project=${ontrackTarget.project}&task=${ontrackTarget.task}&kind=submission`} download>
+                    下载提交 PDF
+                  </Button>
+                </>
+              ) : null}
               <Typography.Text type="secondary" className="drawer-caption">
                 高亮句是模型判断引用的原文片段。
               </Typography.Text>

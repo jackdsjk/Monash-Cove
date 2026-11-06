@@ -27,6 +27,7 @@ import { AssetFetchError, fetchAsset } from "./safe-download.js";
 import { withTimeout } from "./http.js";
 import { attendanceScanKey } from "./attendance/scan-key.js";
 import type { ApiError, ChangesResponse, Source } from "./domain.js";
+import { fetchOnTrackAccount, fetchOnTrackArtifact, fetchOnTrackProjects } from "./sources/ontrack.js";
 import { getRuntimeStatus } from "./runtime.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
 import { AttendanceLoginAssistant } from "./attendance/assistant.js";
@@ -48,7 +49,15 @@ let updateCache: { at: number; value: UpdateStatus } | null = null;
 const gzipAsync = promisify(gzipCallback);
 
 
-const sourceSchema = z.enum(["gmail", "ed", "moodle"]);
+const sourceSchema = z.enum(["gmail", "ed", "moodle", "ontrack"]);
+
+/** Task sheets and resources are addressed by unit, not by project. */
+async function resolveOnTrackUnitId(projectId: number): Promise<number> {
+  const projects = await fetchOnTrackProjects();
+  const match = projects.find((project) => project.id === projectId);
+  if (!match) throw new Error("找不到这个 OnTrack 项目，可能没有权限。");
+  return match.unitId;
+}
 
 /** GET routes that trigger OCR, a browser capture, or an outbound fetch. */
 const SIDE_EFFECTING_GETS = new Set([
@@ -495,6 +504,42 @@ export function buildApp(options: AppOptions): FastifyInstance {
       return reply.code(400).send({ error: { code: "invalid_limit", message: "limit must be a positive integer.", retryable: false } } satisfies ApiError);
     }
     return db.brief({ since, source: source as Source | undefined, query: q, limit: parsedLimit });
+  });
+
+  app.get<{ Querystring: { project?: string; task?: string; kind?: string } }>("/api/ontrack/artifact", async (request, reply) => {
+    const projectId = Number(request.query.project);
+    const taskDefinitionId = Number(request.query.task);
+    const kind = request.query.kind ?? "task";
+    if (!Number.isInteger(projectId) || !Number.isInteger(taskDefinitionId)) {
+      return reply.code(400).send({ error: { code: "invalid_target", message: "project and task are required.", retryable: false } } satisfies ApiError);
+    }
+
+    try {
+      const unitId = await resolveOnTrackUnitId(projectId);
+      const path =
+        kind === "resources"
+          ? `/units/${unitId}/task_definitions/${taskDefinitionId}/task_resources.json`
+          : kind === "submission"
+            ? `/projects/${projectId}/task_def_id/${taskDefinitionId}/submission?as_attachment=true`
+            : `/units/${unitId}/task_definitions/${taskDefinitionId}/task_pdf.json?as_attachment=true`;
+
+      const artifact = await fetchOnTrackArtifact(path);
+      const filename = `ontrack-${kind}-${taskDefinitionId}.${kind === "resources" ? "zip" : "pdf"}`;
+      return reply
+        .header("content-type", artifact.contentType)
+        .header("content-disposition", `attachment; filename="${filename}"`)
+        .send(artifact.body);
+    } catch (error) {
+      return reply.code(502).send({
+        error: { code: "ontrack_download_failed", message: error instanceof Error ? error.message : "OnTrack download failed.", retryable: true },
+      } satisfies ApiError);
+    }
+  });
+
+  app.get("/api/ontrack/account", async () => {
+    const account = await fetchOnTrackAccount();
+    if (!account) return { connected: false, account: null };
+    return { connected: true, account };
   });
 
   app.get<{ Querystring: { since?: string; limit?: string } }>("/api/changes", async (request, reply) => {

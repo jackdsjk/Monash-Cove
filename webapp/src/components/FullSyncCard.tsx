@@ -69,7 +69,7 @@ export default function FullSyncCard() {
 
       {syncStatus?.job ? (
         <div className="full-sync-progress">
-          {(["gmail", "ed", "moodle"] as Source[]).map((source) => {
+          {(["gmail", "ed", "moodle", "ontrack"] as Source[]).map((source) => {
             const progress = syncStatus.job?.sources[source];
             if (!progress) return null;
             const percent = progress.total ? Math.round((progress.processed / progress.total) * 100) : progress.status === "done" ? 100 : 0;
