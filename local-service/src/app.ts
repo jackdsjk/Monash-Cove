@@ -27,7 +27,7 @@ import { AssetFetchError, fetchAsset } from "./safe-download.js";
 import { withTimeout } from "./http.js";
 import { attendanceScanKey } from "./attendance/scan-key.js";
 import type { ApiError, ChangesResponse, Source } from "./domain.js";
-import { fetchOnTrackAccount, fetchOnTrackArtifact, fetchOnTrackProjects } from "./sources/ontrack.js";
+import { fetchOnTrackAccount, fetchOnTrackArtifact, fetchOnTrackProjects, fetchOnTrackTasks } from "./sources/ontrack.js";
 import { getRuntimeStatus } from "./runtime.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
 import { AttendanceLoginAssistant } from "./attendance/assistant.js";
@@ -506,6 +506,28 @@ export function buildApp(options: AppOptions): FastifyInstance {
     return db.brief({ since, source: source as Source | undefined, query: q, limit: parsedLimit });
   });
 
+  app.get("/api/ontrack/overview", async () => {
+    const account = await fetchOnTrackAccount();
+    if (!account) return { connected: false, account: null, projects: [] };
+
+    try {
+      const projects = await fetchOnTrackProjects();
+      const overview = [];
+      for (const project of projects) {
+        const tasks = await fetchOnTrackTasks(project.id);
+        overview.push({ ...project, tasks });
+      }
+      return { connected: true, account, projects: overview };
+    } catch (error) {
+      return {
+        connected: true,
+        account,
+        projects: [],
+        error: error instanceof Error ? error.message : "读取 OnTrack 失败",
+      };
+    }
+  });
+
   app.get<{ Querystring: { project?: string; task?: string; kind?: string } }>("/api/ontrack/artifact", async (request, reply) => {
     const projectId = Number(request.query.project);
     const taskDefinitionId = Number(request.query.task);
@@ -532,6 +554,23 @@ export function buildApp(options: AppOptions): FastifyInstance {
     } catch (error) {
       return reply.code(502).send({
         error: { code: "ontrack_download_failed", message: error instanceof Error ? error.message : "OnTrack download failed.", retryable: true },
+      } satisfies ApiError);
+    }
+  });
+
+  app.get("/api/ontrack/tasks", async (_request, reply) => {
+    try {
+      const projects = await fetchOnTrackProjects();
+      const tasks: Array<Record<string, unknown>> = [];
+      for (const project of projects) {
+        for (const task of await fetchOnTrackTasks(project.id)) {
+          tasks.push({ ...task, projectId: project.id, unitCode: project.unitCode, unitName: project.unitName });
+        }
+      }
+      return { projects, tasks };
+    } catch (error) {
+      return reply.code(502).send({
+        error: { code: "ontrack_unavailable", message: error instanceof Error ? error.message : "OnTrack is unavailable.", retryable: true },
       } satisfies ApiError);
     }
   });

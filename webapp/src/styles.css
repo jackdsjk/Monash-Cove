@@ -59,6 +59,7 @@ a {
 .brand {
   color: #2568b3;
   font-size: 28px;
+  white-space: nowrap;
   font-weight: 600;
   letter-spacing: -0.04em;
   line-height: 1;
@@ -3037,4 +3038,212 @@ a {
 
 .source-dot--off {
   background: #c3d2dd;
+}
+
+/* OnTrack 独立页 */
+.ot-account {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e3ecf3;
+  border-radius: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 10px 14px;
+}
+
+.ot-account__name {
+  color: #13212c;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ot-account__mail {
+  color: #5c7182;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+}
+
+.ot-account__tag {
+  margin-left: auto;
+  margin-inline-end: 0;
+}
+
+.ot-toolbar {
+  align-items: baseline;
+  display: flex;
+  gap: 10px;
+  padding: 6px 0 10px;
+}
+
+.ot-toolbar b {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.ot-toolbar span {
+  color: #5c7182;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+}
+
+.ot-toggle {
+  background: none;
+  border: 0;
+  color: #1f5fa8;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-left: auto;
+  padding: 0;
+}
+
+.ot-toggle:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ot-table {
+  background: #fff;
+  border: 1px solid #e3ecf3;
+  border-radius: 10px;
+  margin-bottom: 26px;
+  overflow: hidden;
+}
+
+.ot-thead,
+.ot-trow {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 56px minmax(0, 1fr) 88px 64px 56px 190px;
+  padding: 0 16px;
+}
+
+.ot-thead {
+  background: #f7fbfe;
+  border-bottom: 1px solid #e3ecf3;
+  color: #5c7182;
+  font-size: 11.5px;
+  font-weight: 700;
+  height: 38px;
+  letter-spacing: 0.04em;
+}
+
+.ot-trow {
+  border-bottom: 1px solid #e3ecf3;
+  font-size: 13.5px;
+  min-height: 46px;
+  padding-bottom: 7px;
+  padding-top: 7px;
+}
+
+.ot-trow:last-child {
+  border-bottom: 0;
+}
+
+.ot-trow:hover {
+  background: #f7fbff;
+}
+
+.ot-abbr,
+.ot-due,
+.ot-weight {
+  color: #3d5364;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.ot-name {
+  color: #13212c;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ot-assessed {
+  color: #5c7182;
+  font-size: 11.5px;
+  font-style: normal;
+  font-weight: 500;
+  margin-left: 8px;
+}
+
+.ot-status {
+  border: 0;
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  margin-inline-end: 0;
+}
+
+.ot-status--done {
+  background: #e6f4f6;
+  color: #177b8a;
+}
+
+.ot-status--open {
+  background: #fdf0d9;
+  color: #a8630a;
+}
+
+.ot-status--active {
+  background: #eaf3fc;
+  color: #1f5fa8;
+}
+
+.ot-status--idle {
+  background: #eef2f5;
+  color: #5c7182;
+}
+
+.ot-actions {
+  display: flex;
+  gap: 2px;
+  justify-content: flex-end;
+}
+
+.ot-actions .ant-btn-link {
+  font-size: 12px;
+  height: auto;
+  padding: 0 4px;
+}
+
+.ot-thead--feedback,
+.ot-trow--feedback {
+  grid-template-columns: 64px minmax(0, 0.9fr) minmax(0, 1.4fr) 72px;
+}
+
+.ot-quote {
+  color: #3d5364;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1000px) {
+  .ot-thead {
+    display: none;
+  }
+
+  .ot-trow {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 4px;
+    padding: 12px 14px;
+  }
+
+  .ot-actions {
+    justify-content: flex-start;
+  }
+}
+
+.ot-more {
+  border-top: 1px solid #e3ecf3;
+  padding: 6px 16px 8px;
+  text-align: center;
 }

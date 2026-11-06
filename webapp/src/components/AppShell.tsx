@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ApiOutlined, BookOutlined, CheckSquareOutlined, ClockCircleOutlined, InboxOutlined, ReadOutlined, SettingOutlined } from "@ant-design/icons";
+import { ApiOutlined, BookOutlined, CheckSquareOutlined, ClockCircleOutlined, InboxOutlined, ProfileOutlined, ReadOutlined, SettingOutlined } from "@ant-design/icons";
 import { Badge, Layout, Menu, Space, Typography } from "antd";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { fetchOnTrackAccount, fetchSources, fetchSyncStatus } from "../data/repository";
@@ -14,6 +14,7 @@ const menuItems = [
   { key: "/", icon: <InboxOutlined />, label: "简报" },
   { key: "/deadlines", icon: <ClockCircleOutlined />, label: "倒计时" },
   { key: "/materials", icon: <BookOutlined />, label: "每周资料" },
+  { key: "/ontrack", icon: <ProfileOutlined />, label: "OnTrack" },
   { key: "/ed", icon: <ReadOutlined />, label: "Ed 学习" },
   { key: "/attendance", icon: <CheckSquareOutlined />, label: "签到" },
   { key: "/sources", icon: <ApiOutlined />, label: "数据源" },
@@ -88,7 +89,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   const selectedKey = location.pathname === "/" ? "/" : location.pathname;
-  const title = location.pathname === "/sources" ? "数据源" : location.pathname === "/settings" ? "设置" : location.pathname === "/deadlines" ? "倒计时" : location.pathname === "/materials" ? "每周资料" : location.pathname === "/ed" ? "Ed 学习" : location.pathname === "/attendance" ? "签到" : location.pathname === "/setup" ? "首次设置" : "简报";
+  const title = location.pathname === "/sources" ? "数据源" : location.pathname === "/settings" ? "设置" : location.pathname === "/deadlines" ? "倒计时" : location.pathname === "/materials" ? "每周资料" : location.pathname === "/ontrack" ? "OnTrack" : location.pathname === "/ed" ? "Ed 学习" : location.pathname === "/attendance" ? "签到" : location.pathname === "/setup" ? "首次设置" : "简报";
 
   useEffect(() => {
     document.title = `Monash Cove · ${title}`;

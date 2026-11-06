@@ -9,6 +9,7 @@ import SourcesPage from "./pages/SourcesPage";
 import SettingsPage from "./pages/SettingsPage";
 import SetupPage from "./pages/SetupPage";
 import AttendancePage from "./pages/AttendancePage";
+import OnTrackPage from "./pages/OnTrackPage";
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/setup" element={<SetupPage />} />
         <Route path="/attendance" element={<AttendancePage />} />
+        <Route path="/ontrack" element={<OnTrackPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>

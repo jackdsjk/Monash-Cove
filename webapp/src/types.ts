@@ -209,6 +209,63 @@ export interface OnTrackAccount {
   refreshedAt: string | null;
 }
 
+/** OnTrack 任务，来自只读 overview 接口。 */
+export interface OnTrackTaskRow {
+  id: number;
+  taskDefinitionId: number;
+  abbreviation: string;
+  name: string;
+  description: string;
+  status: string;
+  dueDate: string | null;
+  targetDueDate: string | null;
+  submissionDate: string | null;
+  completionDate: string | null;
+  weighting: number | null;
+  timesAssessed: number;
+  numNewComments: number;
+}
+
+export interface OnTrackOverview {
+  connected: boolean;
+  account: OnTrackAccount | null;
+  projects: Array<{
+    id: number;
+    unitId: number;
+    unitCode: string;
+    unitName: string;
+    tasks: OnTrackTaskRow[];
+  }>;
+  error?: string;
+}
+
+/** 一个 OnTrack 任务，来自实时只读接口（不是简报条目）。 */
+export interface OnTrackTaskView {
+  id: number;
+  taskDefinitionId: number;
+  abbreviation: string;
+  name: string;
+  description: string;
+  status: string;
+  dueDate: string | null;
+  targetDueDate: string | null;
+  submissionDate: string | null;
+  completionDate: string | null;
+  weighting: number | null;
+  timesAssessed: number;
+  numNewComments: number;
+  projectId: number;
+  unitCode: string;
+  unitName: string;
+}
+
+export interface OnTrackProjectView {
+  id: number;
+  unitId: number;
+  unitCode: string;
+  unitName: string;
+}
+
 export type ChangeField = "due_at" | "title" | "course" | "text";
 
 /** 一条源头内容的变化，用于「自上次查看，哪几条改过」。 */

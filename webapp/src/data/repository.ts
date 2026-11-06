@@ -1,4 +1,4 @@
-import type { OnTrackAccount, AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
+import type { OnTrackAccount, OnTrackProjectView, OnTrackTaskView, OnTrackOverview, AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
 
 export interface BriefData {
   items: BriefItem[];
@@ -30,9 +30,19 @@ export async function fetchBrief(): Promise<BriefData> {
   return getJson<BriefData>("/brief");
 }
 
+/** Live OnTrack tasks grouped by project, for the OnTrack page. */
+export async function fetchOnTrackOverview(): Promise<OnTrackOverview> {
+  return getJson<OnTrackOverview>("/ontrack/overview");
+}
+
 /** The OnTrack account the local credential belongs to, if one is connected. */
 export async function fetchOnTrackAccount(): Promise<{ connected: boolean; account: OnTrackAccount | null }> {
   return getJson<{ connected: boolean; account: OnTrackAccount | null }>("/ontrack/account");
+}
+
+/** Live task list straight from OnTrack; used by the OnTrack page. */
+export async function fetchOnTrackTasks(): Promise<{ projects: OnTrackProjectView[]; tasks: OnTrackTaskView[] }> {
+  return getJson<{ projects: OnTrackProjectView[]; tasks: OnTrackTaskView[] }>("/ontrack/tasks");
 }
 
 /** Field-level changes recorded since a timestamp; empty when nothing changed. */
