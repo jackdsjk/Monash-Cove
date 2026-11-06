@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { HistoryOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { Alert, App as AntApp, Button, Collapse, Empty, Input, Segmented, Select, Space, Switch, Tag, Typography } from "antd";
-import { fetchBrief, fetchSyncStatus, setItemCompleted, startFullSync } from "../data/repository";
+import { fetchBrief, fetchChanges, fetchSyncStatus, setItemCompleted, startFullSync } from "../data/repository";
 import ItemCard from "../components/ItemCard";
 import ItemDrawer from "../components/ItemDrawer";
 import FeedbackModal from "../components/FeedbackModal";
 import CoveLoader from "../components/CoveLoader";
 import { useDemoStore } from "../state/DemoStateContext";
 import { filterItems, formatWindow, groupBySection, summarize } from "../lib/triage";
-import type { BriefItem, Feedback, Source } from "../types";
+import type { BriefItem, ChangeField, Feedback, ItemChange, Source } from "../types";
 
 type ViewMode = "since" | "all";
 type SourceFilter = "all" | Source;
@@ -52,6 +52,8 @@ export default function BriefPage() {
   const [syncing, setSyncing] = useState(false);
   const [pastOpen, setPastOpen] = useState(false);
   const [pastLimit, setPastLimit] = useState(20);
+  const [changes, setChanges] = useState<ItemChange[]>([]);
+  const [changesOpen, setChangesOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,6 +62,7 @@ export default function BriefPage() {
       const data = await fetchBrief();
       setItems(data.items);
       hydrate(data.items);
+      setChanges(await fetchChanges(data.lastCheckedAt).catch(() => []));
     } catch {
       setError("无法读取本地数据。请确认本地服务正在运行。");
     } finally {
@@ -233,6 +236,25 @@ export default function BriefPage() {
     if (!saved) message.error("操作没有保存成功，请确认本地服务正在运行");
   };
 
+  const changeFieldLabel: Record<ChangeField, string> = {
+    due_at: "截止时间",
+    title: "标题",
+    course: "课程",
+    text: "正文",
+  };
+
+  const formatChange = (field: ChangeField, value: string | null) => {
+    if (!value) return "（空）";
+    if (field === "due_at") {
+      const parsed = Date.parse(value);
+      if (Number.isFinite(parsed)) {
+        return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(parsed));
+      }
+    }
+    if (field === "text" && value.length > 60) return `${value.slice(0, 60)}…`;
+    return value;
+  };
+
   if (loading) {
     return <CoveLoader label="正在整理简报" />;
   }
@@ -347,6 +369,39 @@ export default function BriefPage() {
           </Button>
         ) : null}
       </div>
+
+      {view === "since" && changes.length > 0 ? (
+        <section className="changes-block">
+          <button
+            type="button"
+            className="changes-head"
+            aria-expanded={changesOpen}
+            onClick={() => setChangesOpen((open) => !open)}
+          >
+            <span className="changes-count">{changes.length} 条内容自上次查看后变过</span>
+            <span className="changes-note">改的是源头，不是我们的判断</span>
+            <span className="changes-toggle">{changesOpen ? "收起" : "展开"}</span>
+          </button>
+          {changesOpen ? (
+            <ul className="changes-list">
+              {changes.slice(0, 12).map((change) => (
+                <li key={change.id} className="changes-row">
+                  <span className="changes-field">{changeFieldLabel[change.field]}</span>
+                  <button type="button" className="changes-title" onClick={() => openItem(change.itemId)}>
+                    {change.title}
+                  </button>
+                  <span className="changes-diff">
+                    <del>{formatChange(change.field, change.before)}</del>
+                    <span aria-hidden="true"> → </span>
+                    <ins>{formatChange(change.field, change.after)}</ins>
+                  </span>
+                </li>
+              ))}
+              {changes.length > 12 ? <li className="changes-more">还有 {changes.length - 12} 条未显示</li> : null}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
 
       {filtered.length === 0 ? (
         <Empty

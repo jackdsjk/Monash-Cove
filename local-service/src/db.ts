@@ -2,11 +2,26 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import type { BriefResponse, FixtureItem, MoodleContentRow, NewItem, Source, SourceStatus, StoredItem } from "./domain.js";
+import type { BriefResponse, ChangeField, FixtureItem, ItemChange, MoodleContentRow, NewItem, Source, SourceStatus, StoredItem } from "./domain.js";
 
 const SOURCE_LABELS: Record<Source, string> = { gmail: "Gmail", ed: "Ed", moodle: "Moodle" };
 const SOURCE_IDS: Source[] = ["gmail", "ed", "moodle"];
 const MAX_BRIEF_ITEMS = 5000;
+const CHANGE_TEXT_LIMIT = 400;
+
+function truncate(value: string) {
+  return value.length > CHANGE_TEXT_LIMIT ? `${value.slice(0, CHANGE_TEXT_LIMIT)}…` : value;
+}
+
+function parseJson(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === "string" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 const DEFAULT_FIXTURE = fileURLToPath(new URL("../fixtures/items.json", import.meta.url));
 
 const SCHEMA = `
@@ -48,6 +63,16 @@ CREATE TABLE IF NOT EXISTS item_content (
   text TEXT NOT NULL,
   evidence_quote TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS item_changes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id TEXT NOT NULL,
+  field TEXT NOT NULL,
+  before_json TEXT,
+  after_json TEXT,
+  changed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS item_changes_changed_at_idx ON item_changes (changed_at DESC);
+CREATE INDEX IF NOT EXISTS item_changes_item_idx ON item_changes (item_id, changed_at DESC);
 CREATE TABLE IF NOT EXISTS sync_cursors (
   source TEXT NOT NULL,
   cursor_key TEXT NOT NULL,
@@ -131,6 +156,7 @@ export class CoveDatabase {
     this.db.exec("PRAGMA synchronous = NORMAL");
     this.db.exec("PRAGMA busy_timeout = 5000");
     this.db.exec(SCHEMA);
+    this.pruneChanges();
     this.ensureColumns();
     this.ensureSources();
     if (options.seed !== false) this.seedFixture();
@@ -242,6 +268,15 @@ export class CoveDatabase {
 
   upsertItem(item: NewItem) {
     const now = new Date().toISOString();
+    // Read the row before the upsert overwrites it: a changed title or due date
+    // is only observable here, and it is what "what changed since last time" means.
+    const previous = this.db
+      .prepare(`
+        SELECT i.title AS title, i.due_at AS due_at, i.course AS course, c.text AS text
+        FROM items i LEFT JOIN item_content c ON c.item_id = i.id
+        WHERE i.id = ?
+      `)
+      .get(item.id) as { title?: string; due_at?: string | null; course?: string; text?: string } | undefined;
     this.db
       .prepare(`
         INSERT INTO items (
@@ -301,6 +336,58 @@ export class CoveDatabase {
         ON CONFLICT(item_id) DO UPDATE SET text = excluded.text, evidence_quote = excluded.evidence_quote
       `)
       .run(item.id, item.text, item.evidenceQuote);
+
+    if (previous) this.recordChanges(item, previous, now);
+  }
+
+  private recordChanges(
+    item: NewItem,
+    previous: { title?: string; due_at?: string | null; course?: string; text?: string },
+    changedAt: string,
+  ) {
+    const pairs: Array<[ChangeField, string | null, string | null]> = [
+      ["due_at", previous.due_at ?? null, item.dueAt ?? null],
+      ["title", previous.title ?? "", item.title],
+      ["course", previous.course ?? "", item.course],
+      ["text", truncate(previous.text ?? ""), truncate(item.text)],
+    ];
+
+    const insert = this.db.prepare(
+      "INSERT INTO item_changes (item_id, field, before_json, after_json, changed_at) VALUES (?, ?, ?, ?, ?)",
+    );
+    for (const [field, before, after] of pairs) {
+      if ((before ?? "") === (after ?? "")) continue;
+      insert.run(item.id, field, JSON.stringify(before), JSON.stringify(after), changedAt);
+    }
+  }
+
+  pruneChanges(retentionDays = 90) {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 3_600_000).toISOString();
+    this.db.prepare("DELETE FROM item_changes WHERE changed_at < ?").run(cutoff);
+  }
+
+  listChanges(options: { since?: string | null; limit?: number } = {}): ItemChange[] {
+    const limit = Math.min(Math.max(options.limit ?? 100, 1), 500);
+    const select = `SELECT c.id, c.item_id, c.field, c.before_json, c.after_json, c.changed_at,
+                           i.source, i.course, i.title
+                    FROM item_changes c JOIN items i ON i.id = c.item_id`;
+    const rows = (
+      options.since
+        ? this.db.prepare(`${select} WHERE c.changed_at > ? ORDER BY c.changed_at DESC LIMIT ?`).all(options.since, limit)
+        : this.db.prepare(`${select} ORDER BY c.changed_at DESC LIMIT ?`).all(limit)
+    ) as Array<Record<string, unknown>>;
+
+    return rows.map((row) => ({
+      id: Number(row.id),
+      itemId: String(row.item_id),
+      field: row.field as ChangeField,
+      before: parseJson(row.before_json),
+      after: parseJson(row.after_json),
+      changedAt: String(row.changed_at),
+      source: row.source as Source,
+      course: String(row.course ?? ""),
+      title: String(row.title ?? ""),
+    }));
   }
 
   setCursor(source: Source, key: string, value: string) {

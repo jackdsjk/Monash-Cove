@@ -26,7 +26,7 @@ import { captureMoodlePage } from "./moodle-snapshot.js";
 import { AssetFetchError, fetchAsset } from "./safe-download.js";
 import { withTimeout } from "./http.js";
 import { attendanceScanKey } from "./attendance/scan-key.js";
-import type { ApiError, Source } from "./domain.js";
+import type { ApiError, ChangesResponse, Source } from "./domain.js";
 import { getRuntimeStatus } from "./runtime.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
 import { AttendanceLoginAssistant } from "./attendance/assistant.js";
@@ -495,6 +495,16 @@ export function buildApp(options: AppOptions): FastifyInstance {
       return reply.code(400).send({ error: { code: "invalid_limit", message: "limit must be a positive integer.", retryable: false } } satisfies ApiError);
     }
     return db.brief({ since, source: source as Source | undefined, query: q, limit: parsedLimit });
+  });
+
+  app.get<{ Querystring: { since?: string; limit?: string } }>("/api/changes", async (request, reply) => {
+    const { since, limit } = request.query;
+    const parsedLimit = limit === undefined ? undefined : Number(limit);
+    if (parsedLimit !== undefined && (!Number.isInteger(parsedLimit) || parsedLimit <= 0)) {
+      return reply.code(400).send({ error: { code: "invalid_limit", message: "limit must be a positive integer.", retryable: false } } satisfies ApiError);
+    }
+    const changes = db.listChanges({ since: since ?? null, limit: parsedLimit });
+    return { changes, since: since ?? null } satisfies ChangesResponse;
   });
 
   app.get<{ Params: { id: string } }>("/api/items/:id", async (request, reply) => {

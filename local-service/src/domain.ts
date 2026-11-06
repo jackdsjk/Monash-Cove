@@ -104,6 +104,26 @@ export interface BriefResponse {
   lastCheckedAt: string | null;
 }
 
+export type ChangeField = "due_at" | "title" | "course" | "text";
+
+/** 一条源头内容的变化记录，用于「自上次查看，哪几条改过」。 */
+export interface ItemChange {
+  id: number;
+  itemId: string;
+  field: ChangeField;
+  before: string | null;
+  after: string | null;
+  changedAt: string;
+  source: Source;
+  course: string;
+  title: string;
+}
+
+export interface ChangesResponse {
+  changes: ItemChange[];
+  since: string | null;
+}
+
 export interface MoodleCourseSummary {
   id: number;
   shortname: string;

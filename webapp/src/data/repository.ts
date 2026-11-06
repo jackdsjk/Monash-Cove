@@ -1,4 +1,4 @@
-import type { AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
+import type { AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
 
 export interface BriefData {
   items: BriefItem[];
@@ -28,6 +28,13 @@ async function getJson<T>(path: string): Promise<T> {
 /** The UI contract is a list of normalized items; the service owns source access. */
 export async function fetchBrief(): Promise<BriefData> {
   return getJson<BriefData>("/brief");
+}
+
+/** Field-level changes recorded since a timestamp; empty when nothing changed. */
+export async function fetchChanges(since?: string | null): Promise<ItemChange[]> {
+  const path = since ? `/changes?since=${encodeURIComponent(since)}` : "/changes";
+  const data = await getJson<{ changes: ItemChange[] }>(path);
+  return data.changes;
 }
 
 export async function fetchUpdateStatus(refresh = false): Promise<UpdateStatus> {
