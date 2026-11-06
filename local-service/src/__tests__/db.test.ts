@@ -61,3 +61,44 @@ describe("moodle content replacement", () => {
     expect(db.listMoodleContent("42").map((row) => row.id)).toEqual(["c"]);
   });
 });
+
+describe("attendance code storage", () => {
+  const code = {
+    id: "hash-1",
+    source: "moodle",
+    course: "ETW2001",
+    week: 3,
+    session: "Workshop 1",
+    code: "AB12CD",
+    title: "Week 3 Attendance Codes",
+    url: "https://learning.monash.edu/mod/label/view.php?id=1",
+    origin: "ocr" as const,
+    publishedAt: "2026-10-30T00:00:00.000Z",
+  };
+
+  it("keeps codes after the source content is replaced", () => {
+    db.upsertAttendanceCode(code);
+    db.replaceMoodleContent("42", [contentRow("a")]);
+    expect(db.listAttendanceCodes().map((row) => row.code)).toEqual(["AB12CD"]);
+  });
+
+  it("records that a code was filled", () => {
+    db.upsertAttendanceCode(code);
+    db.markAttendanceFilled("ETW2001", 3, "Workshop 1", "AB12CD");
+    expect(db.listAttendanceCodes()[0].filledAt).toBeTruthy();
+  });
+
+  it("remembers which pages already went through OCR", () => {
+    expect(db.attendanceScanStatus(["k1"]).get("k1")).toBeUndefined();
+    db.setAttendanceScan("k1", "error", "OCR failed");
+    expect(db.attendanceScanStatus(["k1"]).get("k1")).toBe("error");
+    db.setAttendanceScan("k1", "ok");
+    expect(db.attendanceScanStatus(["k1"]).get("k1")).toBe("ok");
+  });
+
+  it("drops codes when all local data is cleared", () => {
+    db.upsertAttendanceCode(code);
+    db.clearAll();
+    expect(db.listAttendanceCodes()).toHaveLength(0);
+  });
+});

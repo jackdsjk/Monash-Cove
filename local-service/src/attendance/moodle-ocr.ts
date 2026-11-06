@@ -68,9 +68,10 @@ async function ocrImage(buffer: Buffer, worker: Worker) {
 export async function scanMoodleAttendanceImages(
   credentials: MoodleAttendanceCredentials,
   rows: MoodleContentRow[],
-): Promise<AttendanceCode[]> {
+): Promise<{ codes: AttendanceCode[]; failedRowIds: string[] }> {
   const candidates = rows.filter((row) => /attendance/i.test(`${row.title} ${row.text}`));
-  if (candidates.length === 0) return [];
+  if (candidates.length === 0) return { codes: [], failedRowIds: [] };
+  const failedRowIds: string[] = [];
   let worker: Worker | null = null;
   try {
     worker = await createOcrWorker();
@@ -101,12 +102,13 @@ export async function scanMoodleAttendanceImages(
         });
         return imageCodes.flat();
       } catch {
+        failedRowIds.push(row.id);
         return [];
       }
     });
-    return results.flat();
+    return { codes: results.flat(), failedRowIds };
   } catch {
-    return [];
+    return { codes: [], failedRowIds: candidates.map((row) => row.id) };
   } finally {
     await worker?.terminate().catch(() => undefined);
   }

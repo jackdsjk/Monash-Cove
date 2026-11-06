@@ -81,6 +81,26 @@ CREATE TABLE IF NOT EXISTS moodle_content (
   campus TEXT NOT NULL DEFAULT 'shared'
 );
 CREATE INDEX IF NOT EXISTS moodle_content_course ON moodle_content(course_id, section_number);
+CREATE TABLE IF NOT EXISTS attendance_codes (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  course TEXT NOT NULL,
+  week INTEGER NOT NULL,
+  session TEXT NOT NULL,
+  code TEXT NOT NULL,
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  origin TEXT NOT NULL DEFAULT 'text',
+  published_at TEXT NOT NULL,
+  first_seen_at TEXT NOT NULL,
+  filled_at TEXT
+);
+CREATE TABLE IF NOT EXISTS attendance_scans (
+  key TEXT PRIMARY KEY,
+  status TEXT NOT NULL,
+  detail TEXT,
+  scanned_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -417,6 +437,118 @@ export class CoveDatabase {
     }
   }
 
+  /** Moodle assignments that still show a countdown and could be re-checked. */
+  listOpenMoodleAssignments(sinceIso: string): Array<{ id: string; url: string }> {
+    return this.db
+      .prepare(`
+        SELECT id, url FROM items
+        WHERE source = 'moodle' AND deleted_at IS NULL AND completed_at IS NULL
+          AND due_at IS NOT NULL AND due_at >= ? AND url LIKE '%/mod/assign/view.php%'
+        ORDER BY due_at
+      `)
+      .all(sinceIso) as Array<{ id: string; url: string }>;
+  }
+
+  setItemCompleted(id: string, completedAt: string | null) {
+    this.db.prepare("UPDATE items SET completed_at = ? WHERE id = ?").run(completedAt, id);
+  }
+
+  /** Attendance codes are append-only so history survives sync windows. */
+  upsertAttendanceCode(code: {
+    id: string;
+    source: string;
+    course: string;
+    week: number;
+    session: string;
+    code: string;
+    title: string;
+    url: string;
+    origin: "text" | "ocr";
+    publishedAt: string;
+  }) {
+    this.db
+      .prepare(`
+        INSERT INTO attendance_codes (id, source, course, week, session, code, title, url, origin, published_at, first_seen_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          title = excluded.title,
+          url = excluded.url,
+          published_at = excluded.published_at
+      `)
+      .run(
+        code.id,
+        code.source,
+        code.course,
+        code.week,
+        code.session,
+        code.code,
+        code.title,
+        code.url,
+        code.origin,
+        code.publishedAt,
+        new Date().toISOString(),
+      );
+  }
+
+  listAttendanceCodes(): Array<{
+    id: string;
+    source: string;
+    course: string;
+    week: number;
+    session: string;
+    code: string;
+    title: string;
+    url: string;
+    origin: string;
+    publishedAt: string;
+    filledAt: string | null;
+  }> {
+    const rows = this.db
+      .prepare("SELECT * FROM attendance_codes ORDER BY week DESC, course, session")
+      .all() as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      source: String(row.source),
+      course: String(row.course),
+      week: Number(row.week),
+      session: String(row.session),
+      code: String(row.code),
+      title: String(row.title),
+      url: String(row.url),
+      origin: String(row.origin),
+      publishedAt: String(row.published_at),
+      filledAt: row.filled_at ? String(row.filled_at) : null,
+    }));
+  }
+
+  markAttendanceCodeFilled(id: string, at = new Date().toISOString()) {
+    this.db.prepare("UPDATE attendance_codes SET filled_at = ? WHERE id = ?").run(at, id);
+  }
+
+  markAttendanceFilled(course: string, week: number, session: string, code: string, at = new Date().toISOString()) {
+    this.db
+      .prepare("UPDATE attendance_codes SET filled_at = ? WHERE course = ? AND week = ? AND session = ? AND code = ?")
+      .run(at, course, week, session, code);
+  }
+
+  attendanceScanStatus(keys: string[]): Map<string, string> {
+    if (keys.length === 0) return new Map();
+    const placeholders = keys.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(`SELECT key, status FROM attendance_scans WHERE key IN (${placeholders})`)
+      .all(...keys) as Array<{ key: string; status: string }>;
+    return new Map(rows.map((row) => [row.key, row.status]));
+  }
+
+  setAttendanceScan(key: string, status: "ok" | "error", detail: string | null = null) {
+    this.db
+      .prepare(`
+        INSERT INTO attendance_scans (key, status, detail, scanned_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET status = excluded.status, detail = excluded.detail, scanned_at = excluded.scanned_at
+      `)
+      .run(key, status, detail, new Date().toISOString());
+  }
+
   listAttendanceItems(): Array<{ id: string; source: "gmail" | "ed"; course: string; title: string; text: string; url: string; publishedAt: string }> {
     const rows = this.db.prepare(`
       SELECT i.id, i.source, i.course, i.title, i.published_at, i.url, c.text
@@ -476,7 +608,7 @@ export class CoveDatabase {
   }
 
   clearAll() {
-    this.db.exec("DELETE FROM corrections; DELETE FROM reads; DELETE FROM sync_cursors; DELETE FROM settings; DELETE FROM item_content; DELETE FROM items; DELETE FROM moodle_content;");
+    this.db.exec("DELETE FROM corrections; DELETE FROM reads; DELETE FROM sync_cursors; DELETE FROM settings; DELETE FROM item_content; DELETE FROM items; DELETE FROM moodle_content; DELETE FROM attendance_codes; DELETE FROM attendance_scans;");
     for (const source of SOURCE_IDS) {
       this.setSourceStatus(source, "disconnected", null, null);
     }

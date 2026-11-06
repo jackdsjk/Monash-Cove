@@ -100,7 +100,7 @@ export interface EdLessonDetail {
 
 export interface AttendanceCode {
   id: string;
-  source: "gmail" | "moodle" | "ed";
+  source: "gmail" | "moodle" | "ed" | string;
   course: string;
   week: number;
   session: string;
@@ -108,6 +108,9 @@ export interface AttendanceCode {
   title: string;
   url: string;
   publishedAt: string;
+  /** "text" 来自正文正则，"ocr" 来自图片识别，需要人工核对 */
+  origin?: "text" | "ocr";
+  filledAt?: string | null;
 }
 
 export interface AttendancePreferenceCourse {

@@ -33,6 +33,8 @@ interface GroupedCode {
   code: string;
   sources: AttendanceCode[];
   publishedAt: string;
+  /** 至少一条来自图片 OCR，需要人工核对 */
+  fromOcr: boolean;
 }
 
 function groupCodes(codes: AttendanceCode[]): GroupedCode[] {
@@ -52,6 +54,7 @@ function groupCodes(codes: AttendanceCode[]): GroupedCode[] {
         code: item.code,
         sources: [item],
         publishedAt: item.publishedAt,
+        fromOcr: item.origin === "ocr",
       });
     }
   }
@@ -76,16 +79,17 @@ export default function AttendancePage() {
   const [draftPreferences, setDraftPreferences] = useState<AttendancePreferenceCourse[]>([]);
   const autoDetected = useRef(false);
 
-  const load = async (refresh = false) => {
+  const load = async (refresh = false, rescan = false) => {
     const [status, nextCodes, nextPreferences] = await Promise.all([
       fetchAttendanceStatus(),
-      fetchAttendanceCodes(refresh),
+      fetchAttendanceCodes(refresh, rescan),
       fetchAttendancePreferences(),
     ]);
     setConnected(status.connected);
     setAssistant(status.assistant);
-    setCodes(nextCodes);
+    setCodes(nextCodes.codes);
     setPreferences(nextPreferences);
+    return nextCodes;
   };
 
   useEffect(() => {
@@ -104,7 +108,7 @@ export default function AttendancePage() {
       const detected = await detectAttendancePreferences();
       const saved = await saveAttendancePreferences(detected);
       setPreferences(saved);
-      setCodes(await fetchAttendanceCodes());
+      setCodes((await fetchAttendanceCodes()).codes);
       message.success(`已识别你的签到班次：${saved.courses.length} 门课程`);
     } catch (cause) {
       message.warning(cause instanceof Error ? cause.message : "自动识别签到班次失败，可以手动调整");
@@ -148,11 +152,16 @@ export default function AttendancePage() {
     setAssistant(await cancelAttendanceAssistant());
   };
 
-  const refresh = async () => {
+  const refresh = async (rescan = false) => {
     setRefreshing(true);
     try {
-      await load(true);
-      message.success("已刷新 Attendance code（含 Moodle 图片 OCR）");
+      const result = await load(true, rescan);
+      if (result?.ocr && result.ocr.scanned > 0) {
+        const failed = result.ocr.failed > 0 ? `，${result.ocr.failed} 张图片识别失败（下次刷新会重试）` : "";
+        message.success(`识别了 ${result.ocr.scanned} 个新页面${failed}`);
+      } else {
+        message.success("没有需要重新识别的页面，已使用本机保存的签到码");
+      }
     } catch (cause) {
       message.error(cause instanceof Error ? cause.message : "刷新失败");
     } finally {
@@ -268,6 +277,9 @@ export default function AttendancePage() {
           <Button icon={<ReloadOutlined />} loading={refreshing} onClick={() => void refresh()}>
             刷新 code
           </Button>
+          <Button loading={refreshing} onClick={() => void refresh(true)}>
+            重新识别全部
+          </Button>
           <Button type="link" href="https://attendance.monash.edu.my/student/" target="_blank">
             打开 Attendance
           </Button>
@@ -379,6 +391,7 @@ export default function AttendancePage() {
                     <Typography.Text strong>{item.course}</Typography.Text>
                     <Tag>{item.session}</Tag>
                     <Typography.Text code className="attendance-code">{item.code}</Typography.Text>
+                    {item.fromOcr ? <Tag color="orange">OCR 识别，请核对</Tag> : null}
                   </Space>
                   <Typography.Paragraph type="secondary" className="attendance-source-note">
                     来源：{item.sources.map((source) => source.source === "moodle" ? "Moodle" : source.source === "gmail" ? "Gmail" : "Ed").join(" / ")}

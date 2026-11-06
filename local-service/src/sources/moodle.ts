@@ -162,11 +162,17 @@ export class MoodleClient {
     }).catch(() => null);
     if (!response?.ok) return "unknown";
     const root = parse(await response.text());
-    const label = root.querySelectorAll("td, th").find((cell) => cell.text.replace(/\s+/g, " ").trim().toLowerCase() === "submission status");
-    if (!label) return "unknown";
-    const row = label.parentNode;
-    const cells = row ? row.querySelectorAll("td") : [];
-    const value = (cells[1]?.text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+    // Moodle renders the table as <tr><th>Submission status</th><td>…</td></tr>;
+    // the label is a th, so the value is every remaining cell in that row.
+    const value = root
+      .querySelectorAll("tr")
+      .map((row) => row.querySelectorAll("th, td"))
+      .filter((cells) => cells.length > 1 && cells[0].text.replace(/\s+/g, " ").trim().toLowerCase() === "submission status")
+      .map((cells) => cells.slice(1).map((cell) => cell.text).join(" "))
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
     if (!value) return "unknown";
     if (/no submissions?/.test(value) || /nothing submitted/.test(value)) return "none";
     if (/graded/.test(value)) return "graded";

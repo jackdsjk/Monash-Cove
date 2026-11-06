@@ -4,7 +4,13 @@ import { MoodleClient } from "../sources/moodle.js";
 const DASHBOARD = `<html><script>{"sesskey":"abc123"}</script></html>`;
 
 function assignmentPage(status: string) {
-  return `<table class="submissionstatustable"><tr><td class="cell c0">Submission status</td><td class="cell c1 lastcol">${status}</td></tr></table>`;
+  // Shape copied from a real Monash Moodle 4 page: the label is a th inside the
+  // same row, and the heading above it repeats the words "Submission status".
+  return `<div class="submissionstatustable"><h3>Submission status</h3>
+    <table class="generaltable"><caption class="accesshide">Submission status</caption><tbody>
+    <tr><th class="cell c0" scope="row">Attempt number</th><td class="cell c1 lastcol">This is attempt 1.</td></tr>
+    <tr><th class="cell c0" scope="row">Submission status</th><td class="submissionstatussubmitted cell c1 lastcol">${status}</td></tr>
+    </tbody></table></div>`;
 }
 
 function calendarPayload(events: unknown[]) {

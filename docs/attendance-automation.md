@@ -281,3 +281,13 @@ Tesseract CLI。
 - 单条失败不会中断整批。
 
 实测当前（学期结束）批量结果是 `inactive`，因为不存在 active code 输入框。
+
+## 2026-11-06：签到码持久化与增量识别
+
+- 新表 `attendance_codes`：解析出的 code 落库（`origin = text | ocr`），不再只存在于一次响应里；即使原始公告滚动出同步窗口，历史 code 仍然可查。
+- 新表 `attendance_scans`：按「行 id + 标题 + 正文 + URL」的内容哈希记录每张图片是否已识别。`?refresh=1` 只处理从未识别过或上次失败的行，第二次刷新约 0.1 秒返回（首次约 30 秒）。
+- `?rescan=1` 强制全量重识别；前端「重新识别全部」按钮走这条路径。
+- 解析规则保持严格（`Workshop 3: ABC123` 形式），不做模糊匹配；OCR 来源的 code 在界面上标注「OCR 识别，请核对」。
+- 同一 code 从 Moodle 与 Gmail 各出现一次时按 `course + week + session + code` 去重。
+- 填写成功（`status = filled`）后写入 `filled_at`，保留填写历史。
+- `DELETE /api/data` 会一并清空签到码与扫描记录。

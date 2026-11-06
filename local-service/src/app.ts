@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { createDatabase, type CoveDatabase } from "./db.js";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { gzip as gzipCallback } from "node:zlib";
 import { promisify } from "node:util";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -45,6 +45,11 @@ const CURRENT_VERSION = (() => {
 let updateCache: { at: number; value: UpdateStatus } | null = null;
 
 const gzipAsync = promisify(gzipCallback);
+
+/** Stable identity for an OCR source row: same content means no re-scan. */
+function attendanceScanKey(row: { id: string; title: string; text: string; url: string }) {
+  return createHash("sha1").update(`${row.id}:${row.title}:${row.text}:${row.url}`).digest("hex");
+}
 
 const sourceSchema = z.enum(["gmail", "ed", "moodle"]);
 
@@ -139,7 +144,6 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const fullSyncJobs = new FullSyncJobs();
   const moodleAssistant = new MoodleLoginAssistant(secrets, db);
   const attendanceAssistant = new AttendanceLoginAssistant(secrets);
-  let attendanceOcrCache: { at: number; codes: ReturnType<typeof parseAttendanceRows> } | null = null;
   const mcpSessions = new Map<string, StreamableHTTPServerTransport>();
   if (options.autoSync) {
     const timer = setInterval(() => void orchestrator.syncAll(), 60 * 60 * 1000);
@@ -261,7 +265,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
   });
 
-  app.get<{ Querystring: { refresh?: string } }>("/api/attendance/codes", async (request) => {
+  app.get<{ Querystring: { refresh?: string; rescan?: string } }>("/api/attendance/codes", async (request) => {
     const moodleRows = db.listAllMoodleContent();
     const rows = [
       ...db.listAttendanceItems().map((row) => ({
@@ -283,7 +287,15 @@ export function buildApp(options: AppOptions): FastifyInstance {
         publishedAt: row.updatedAt,
       })),
     ];
-    const textCodes = parseAttendanceRows(rows);
+    // Text codes are cheap to re-derive; keep them in the attendance table so
+    // history survives even after the source item scrolls out of the window.
+    for (const code of parseAttendanceRows(rows)) {
+      db.upsertAttendanceCode({ ...code, origin: "text" });
+    }
+
+    // OCR is the expensive part: only scan rows that were never scanned, or
+    // that failed last time. `rescan=1` forces a full pass.
+    let ocr: { scanned: number; failed: number; pending: number } | null = null;
     if (request.query.refresh === "1") {
       const raw = await secrets.get("moodle-credentials");
       if (raw) {
@@ -311,19 +323,35 @@ export function buildApp(options: AppOptions): FastifyInstance {
               }];
             });
           const seen = new Set<string>();
-          const ocrRows = [...moodleRows, ...forumRows].filter((row) => {
+          const candidates = [...moodleRows, ...forumRows].filter((row) => {
             const key = `${row.courseName}:${row.url}:${row.title}`;
             if (seen.has(key)) return false;
             seen.add(key);
             return true;
           });
-          attendanceOcrCache = { at: Date.now(), codes: await scanMoodleAttendanceImages(credentials, ocrRows) };
-        } catch {
-          attendanceOcrCache = { at: Date.now(), codes: [] };
+          const scanKeys = new Map(candidates.map((row) => [row.id, attendanceScanKey(row)]));
+          const known = request.query.rescan === "1" ? new Map<string, string>() : db.attendanceScanStatus([...scanKeys.values()]);
+          const pending = candidates.filter((row) => known.get(scanKeys.get(row.id) ?? "") !== "ok");
+          if (pending.length > 0) {
+            const { codes, failedRowIds } = await scanMoodleAttendanceImages(credentials, pending);
+            for (const code of codes) db.upsertAttendanceCode({ ...code, origin: "ocr" });
+            const failed = new Set(failedRowIds);
+            for (const row of pending) {
+              const key = scanKeys.get(row.id) ?? attendanceScanKey(row);
+              if (failed.has(row.id)) db.setAttendanceScan(key, "error", "OCR failed");
+              else db.setAttendanceScan(key, "ok");
+            }
+            db.setSetting("attendance_scan_at", new Date().toISOString());
+            ocr = { scanned: pending.length, failed: failed.size, pending: 0 };
+          } else {
+            ocr = { scanned: 0, failed: 0, pending: 0 };
+          }
+        } catch (error) {
+          ocr = { scanned: 0, failed: 1, pending: 0 };
+          db.setSetting("attendance_scan_error", error instanceof Error ? error.message : "scan failed");
         }
       }
     }
-    const allCodes = [...textCodes, ...(attendanceOcrCache?.codes ?? [])];
     const rawPreferences = db.getSetting("attendance_preferences");
     let preferences = { courses: [] as Array<{ course: string; sessions: string[] }> };
     try {
@@ -331,7 +359,18 @@ export function buildApp(options: AppOptions): FastifyInstance {
     } catch {
       preferences = { courses: [] };
     }
-    return { codes: allCodes.filter((code) => matchesPreferredSession(preferences, code.course, code.session)) };
+    const seen = new Set<string>();
+    const codes = db
+      .listAttendanceCodes()
+      .filter((code) => matchesPreferredSession(preferences, code.course, code.session))
+      // The same code usually arrives twice (Moodle content plus a Gmail copy).
+      .filter((code) => {
+        const key = `${code.course}|${code.week}|${code.session}|${code.code}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    return { codes, ocr, lastScanAt: db.getSetting("attendance_scan_at") };
   });
 
   app.post<{ Body: { items?: Array<{ course?: string; week?: number; session?: string; code?: string }> } }>("/api/attendance/fill-all", async (request, reply) => {
@@ -352,7 +391,10 @@ export function buildApp(options: AppOptions): FastifyInstance {
       for (const item of items) {
         try {
           const result = await fillAttendance({ course: item.course!, week: Number(item.week), session: item.session!, code: item.code! }, credentials);
-          if (result.status === "filled") filled += 1;
+          if (result.status === "filled") {
+            filled += 1;
+            db.markAttendanceFilled(item.course!, Number(item.week), item.session!, item.code!);
+          }
           else if (result.status === "inactive") inactive += 1;
           else notFound += 1;
           results.push({ course: item.course, week: item.week, session: item.session, code: item.code, ...result });
@@ -378,6 +420,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
       const valid = await validateAttendance(credentials);
       if (!valid) return reply.code(409).send({ error: { code: "attendance_expired", message: "Attendance session expired; reconnect Attendance.", retryable: false } } satisfies ApiError);
       const result = await fillAttendance({ course: body.course, week: Number(body.week), session: body.session, code: body.code }, credentials);
+      if (result.status === "filled") db.markAttendanceFilled(body.course, Number(body.week), body.session, body.code);
       return result;
     } catch (error) {
       return reply.code(502).send({ error: { code: "attendance_fill_failed", message: error instanceof Error ? error.message : "Attendance fill failed.", retryable: true } } satisfies ApiError);

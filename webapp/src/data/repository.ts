@@ -61,9 +61,24 @@ export async function fetchAttendanceStatus(): Promise<AttendanceStatus> {
   return getJson<AttendanceStatus>("/attendance/status");
 }
 
-export async function fetchAttendanceCodes(refresh = false): Promise<AttendanceCode[]> {
-  const data = await getJson<{ codes: AttendanceCode[] }>(`/attendance/codes${refresh ? "?refresh=1" : ""}`);
-  return data.codes;
+export interface AttendanceOcrStats {
+  scanned: number;
+  failed: number;
+  pending: number;
+}
+
+export interface AttendanceCodesResult {
+  codes: AttendanceCode[];
+  ocr: AttendanceOcrStats | null;
+  lastScanAt: string | null;
+}
+
+export async function fetchAttendanceCodes(refresh = false, rescan = false): Promise<AttendanceCodesResult> {
+  const params = new URLSearchParams();
+  if (refresh) params.set("refresh", "1");
+  if (rescan) params.set("rescan", "1");
+  const query = params.toString();
+  return getJson<AttendanceCodesResult>(`/attendance/codes${query ? `?${query}` : ""}`);
 }
 
 export async function startAttendanceAssistant(): Promise<AttendanceAssistantState> {
