@@ -1,11 +1,11 @@
-import { ApiOutlined, CheckCircleOutlined } from "@ant-design/icons";
+import { ApiOutlined, CheckCircleOutlined, CopyOutlined, ProfileOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Alert, App as AntApp, Badge, Button, Card, Col, Descriptions, Form, Input, Modal, Row, Select, Space, Tag, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import CoveLoader from "../components/CoveLoader";
 import { Link } from "react-router-dom";
-import { cancelMoodleAssistant, fetchMoodleAssistant, fetchSources, startMoodleAssistant } from "../data/repository";
+import { cancelMoodleAssistant, fetchMoodleAssistant, fetchOnTrackAccount, fetchSources, startMoodleAssistant } from "../data/repository";
 import { SOURCE_LABELS } from "../lib/triage";
-import type { MoodleAssistantState, Source, SourceStatus } from "../types";
+import type { MoodleAssistantState, OnTrackAccount, Source, SourceStatus } from "../types";
 
 const sources: Array<{ source: Source; status: "success" | "warning"; lastSync: string; scope: string }> = [
   { source: "gmail", status: "success", lastSync: "12 分钟前", scope: "只读邮件与线程" },
@@ -16,6 +16,8 @@ const sources: Array<{ source: Source; status: "success" | "warning"; lastSync: 
 export default function SourcesPage() {
   const { message } = AntApp.useApp();
   const [statuses, setStatuses] = useState<SourceStatus[]>([]);
+  const [onTrack, setOnTrack] = useState<OnTrackAccount | null>(null);
+  const [onTrackChecking, setOnTrackChecking] = useState(false);
   const [connectSource, setConnectSource] = useState<Source | null>(null);
   const [loading, setLoading] = useState(true);
   const [form] = Form.useForm();
@@ -125,9 +127,34 @@ export default function SourcesPage() {
     window.location.href = body.url;
   };
 
+  const refreshOnTrack = useCallback(async () => {
+    setOnTrackChecking(true);
+    try {
+      const result = await fetchOnTrackAccount();
+      setOnTrack(result.connected ? result.account : null);
+    } catch {
+      setOnTrack(null);
+    } finally {
+      setOnTrackChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshOnTrack();
+  }, [refreshOnTrack]);
+
   if (loading) {
     return <CoveLoader label="正在读取本地来源" />;
   }
+
+  const copyLoginCommand = async () => {
+    try {
+      await navigator.clipboard.writeText("ontrack login");
+      message.success("命令已复制，在终端里运行即可");
+    } catch {
+      message.info("复制失败，请手动输入：ontrack login");
+    }
+  };
 
   return (
     <>
@@ -212,6 +239,71 @@ export default function SourcesPage() {
           );
         })}
       </Row>
+
+      <Card
+        className="source-card ot-login-card"
+        title={
+          <Space>
+            <ProfileOutlined />
+            <span>OnTrack</span>
+          </Space>
+        }
+        extra={
+          <Badge
+            status={onTrack ? "success" : "default"}
+            text={onTrack ? "已登录" : "未登录"}
+          />
+        }
+      >
+        {onTrack ? (
+          <Descriptions
+            size="small"
+            column={1}
+            colon={false}
+            items={[
+              { key: "who", label: "当前账号", children: `${onTrack.firstName} ${onTrack.lastName}`.trim() || onTrack.username },
+              { key: "mail", label: "邮箱", children: onTrack.email },
+              {
+                key: "expiry",
+                label: "会话到期",
+                children: onTrack.expiresAt ? new Date(onTrack.expiresAt).toLocaleString("zh-CN") : "由登录助手维护",
+              },
+            ]}
+          />
+        ) : (
+          <Typography.Paragraph type="secondary" className="ot-login-note">
+            还没登录。OnTrack 的登录由本地 CLI 完成，密码和 MFA 都在你自己的终端里输入，不会经过这个页面。
+          </Typography.Paragraph>
+        )}
+
+        <div className="ot-login-steps">
+          <b>怎么登录</b>
+          <ol>
+            <li>打开终端</li>
+            <li>
+              运行 <code>ontrack login</code>，在弹出的浏览器里完成 Monash 登录
+            </li>
+            <li>回到这里点「重新检测」</li>
+          </ol>
+        </div>
+
+        <Space className="source-actions" wrap>
+          <Tag color="success" icon={<CheckCircleOutlined />}>
+            只读
+          </Tag>
+          <Button size="small" icon={<CopyOutlined />} onClick={() => void copyLoginCommand()}>
+            复制登录命令
+          </Button>
+          <Button size="small" icon={<ReloadOutlined />} loading={onTrackChecking} onClick={() => void refreshOnTrack()}>
+            重新检测
+          </Button>
+          {onTrack ? (
+            <Button size="small" onClick={() => void syncSource("ontrack" as Source)}>
+              立即同步
+            </Button>
+          ) : null}
+        </Space>
+      </Card>
 
       <Modal
         open={Boolean(connectSource)}

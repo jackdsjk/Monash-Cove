@@ -3299,3 +3299,186 @@ a {
 .ot-trow--feedback .ot-name {
   white-space: normal;
 }
+
+/* 任务等级筛选（P / C / D / HD） */
+.ot-grades {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0 12px;
+}
+
+.ot-grade {
+  align-items: baseline;
+  background: #fff;
+  border: 1px solid #e3ecf3;
+  border-radius: 6px;
+  color: #3d5364;
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-size: 12.5px;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+}
+
+.ot-grade:hover {
+  border-color: #cddeeb;
+  background: #f7fbff;
+}
+
+.ot-grade[aria-selected="true"] {
+  background: #e4f0fb;
+  border-color: #bcd9f2;
+  color: #1f5fa8;
+  font-weight: 700;
+}
+
+.ot-grade em {
+  color: #8b9daa;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.ot-grade span {
+  color: #8b9daa;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 11px;
+}
+
+.ot-grade[aria-selected="true"] em,
+.ot-grade[aria-selected="true"] span {
+  color: #1f5fa8;
+}
+
+.ot-trow--task {
+  cursor: pointer;
+}
+
+/* 任务对话抽屉 */
+.ot-thread-title {
+  align-items: baseline;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.ot-thread-title .ot-abbr {
+  color: #1f5fa8;
+  font-size: 12px;
+}
+
+.ot-thread-meta {
+  align-items: center;
+  border-bottom: 1px solid #e3ecf3;
+  color: #5c7182;
+  display: flex;
+  font-size: 12px;
+  gap: 12px;
+  padding-bottom: 12px;
+}
+
+.ot-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 16px 0 0;
+}
+
+.ot-thread__system {
+  align-items: baseline;
+  background: #f7fbfe;
+  border-radius: 6px;
+  color: #5c7182;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  gap: 8px;
+  padding: 6px 10px;
+}
+
+.ot-thread__system b {
+  color: #3d5364;
+  font-weight: 600;
+}
+
+.ot-thread__msg {
+  background: #fff;
+  border: 1px solid #e3ecf3;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.ot-thread__msg--mine {
+  background: #f2f8fe;
+  border-color: #d6e8f8;
+}
+
+.ot-thread__who {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.ot-thread__who b {
+  color: #13212c;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.ot-thread__who span {
+  color: #8b9daa;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 11px;
+}
+
+.ot-thread__body {
+  color: #3d5364;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 数据源页：OnTrack 登录助手 */
+.ot-login-card {
+  margin-top: 16px;
+}
+
+.ot-login-note {
+  margin-bottom: 12px !important;
+}
+
+.ot-login-steps {
+  background: #f7fbfe;
+  border-radius: 8px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+}
+
+.ot-login-steps b {
+  color: #13212c;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.ot-login-steps ol {
+  color: #3d5364;
+  font-size: 12.5px;
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.ot-login-steps code {
+  background: #eaf3fc;
+  border-radius: 4px;
+  color: #1f5fa8;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  padding: 1px 5px;
+}

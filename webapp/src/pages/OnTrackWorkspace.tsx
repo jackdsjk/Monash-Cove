@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { Alert, App as AntApp, Button, Empty, Tag, Typography } from "antd";
-import { DownloadOutlined, LinkOutlined } from "@ant-design/icons";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, App as AntApp, Button, Drawer, Empty, Tag, Typography } from "antd";
+import { DownloadOutlined, LinkOutlined, MessageOutlined } from "@ant-design/icons";
 import CoveLoader from "../components/CoveLoader";
-import { fetchBrief, fetchOnTrackAccount, fetchOnTrackTasks } from "../data/repository";
-import type { BriefItem, OnTrackAccount, OnTrackProjectView, OnTrackTaskView } from "../types";
+import { fetchBrief, fetchOnTrackAccount, fetchOnTrackComments, fetchOnTrackTasks } from "../data/repository";
+import type { BriefItem, OnTrackAccount, OnTrackCommentView, OnTrackProjectView, OnTrackTaskView } from "../types";
 
 const STATUS_LABELS: Record<string, string> = {
   complete: "已完成",
@@ -17,6 +17,22 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const ONTRACK_ORIGIN = "https://ontrack.infotech.monash.edu";
+
+/** OnTrack names pass/credit/distinction tasks by their first letter. */
+const GRADES = [
+  { key: "P", label: "Pass" },
+  { key: "C", label: "Credit" },
+  { key: "D", label: "Distinction" },
+  { key: "HD", label: "High Distinction" },
+] as const;
+
+function gradeOf(task: OnTrackTaskView): string {
+  const first = (task.abbreviation || "").trim().toUpperCase().slice(0, 1);
+  if (first === "H") return "HD";
+  return first || "P";
+}
+
+const GRADE_KEYS = ["P", "C", "D", "HD"];
 
 function statusTone(status: string) {
   if (status === "complete") return "done";
@@ -32,7 +48,18 @@ function formatDay(value: string | null) {
   return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(new Date(parsed));
 }
 
-export default function OnTrackPage() {
+function formatMoment(value: string) {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(parsed));
+}
+
+export default function OnTrackWorkspace() {
   const { message } = AntApp.useApp();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,9 +68,15 @@ export default function OnTrackPage() {
   const [tasks, setTasks] = useState<OnTrackTaskView[]>([]);
   const [feedback, setFeedback] = useState<BriefItem[]>([]);
   const [onlyOpen, setOnlyOpen] = useState(false);
-  const [feedbackLimit, setFeedbackLimit] = useState(20);
+  const [gradeFilter, setGradeFilter] = useState<string>("all");
   const [taskFilter, setTaskFilter] = useState<string>("all");
+  const [feedbackLimit, setFeedbackLimit] = useState(20);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const [threadTask, setThreadTask] = useState<OnTrackTaskView | null>(null);
+  const [thread, setThread] = useState<OnTrackCommentView[]>([]);
+  const [viewerId, setViewerId] = useState<number | null>(null);
+  const [threadLoading, setThreadLoading] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -77,34 +110,74 @@ export default function OnTrackPage() {
     };
   }, []);
 
+  const taskLabel = useCallback((task: OnTrackTaskView) => [task.abbreviation, task.name].filter(Boolean).join(" "), []);
+
+  const gradeCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: tasks.length, P: 0, C: 0, D: 0, HD: 0, other: 0 };
+    for (const task of tasks) {
+      const key = gradeOf(task);
+      counts[GRADE_KEYS.includes(key) ? key : "other"] += 1;
+    }
+    return counts;
+  }, [tasks]);
+
+  const gradeTasks = useMemo(
+    () =>
+      gradeFilter === "all"
+        ? tasks
+        : tasks.filter((task) =>
+            gradeFilter === "other" ? !GRADE_KEYS.includes(gradeOf(task)) : gradeOf(task) === gradeFilter,
+          ),
+    [gradeFilter, tasks],
+  );
+
   const visibleTasks = useMemo(() => {
-    const list = onlyOpen ? tasks.filter((task) => task.status !== "complete") : tasks;
+    const list = onlyOpen ? gradeTasks.filter((task) => task.status !== "complete") : gradeTasks;
     return [...list].sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"));
-  }, [onlyOpen, tasks]);
+  }, [gradeTasks, onlyOpen]);
 
   const openCount = useMemo(() => tasks.filter((task) => task.status !== "complete").length, [tasks]);
 
-  const taskLabel = (task: OnTrackTaskView) => [task.abbreviation, task.name].filter(Boolean).join(" ");
+  const feedbackPool = useMemo(() => {
+    if (gradeFilter === "all") return feedback;
+    const allowed = gradeTasks.map(taskLabel).filter(Boolean);
+    return feedback.filter((item) => allowed.some((label) => item.title.includes(label)));
+  }, [feedback, gradeFilter, gradeTasks, taskLabel]);
 
   const feedbackFor = useMemo(() => {
-    if (taskFilter === "all") return feedback;
+    if (taskFilter === "all") return feedbackPool;
     const task = tasks.find((entry) => String(entry.taskDefinitionId) === taskFilter);
-    if (!task) return feedback;
+    if (!task) return feedbackPool;
     const label = taskLabel(task);
-    return feedback.filter((item) => item.title.includes(label));
-  }, [feedback, taskFilter, tasks]);
+    return feedbackPool.filter((item) => item.title.includes(label));
+  }, [feedbackPool, taskFilter, taskLabel, tasks]);
 
   const filterOptions = useMemo(() => {
-    const options = tasks
+    const options = gradeTasks
       .map((task) => ({
         value: String(task.taskDefinitionId),
         label: taskLabel(task),
-        count: feedback.filter((item) => item.title.includes(taskLabel(task))).length,
+        count: feedbackPool.filter((item) => item.title.includes(taskLabel(task))).length,
       }))
       .filter((option) => option.count > 0)
       .sort((a, b) => b.count - a.count);
-    return [{ value: "all", label: "全部任务", count: feedback.length }, ...options];
-  }, [feedback, tasks]);
+    return [{ value: "all", label: "全部任务", count: feedbackPool.length }, ...options];
+  }, [feedbackPool, gradeTasks, taskLabel]);
+
+  const openThread = async (task: OnTrackTaskView) => {
+    setThreadTask(task);
+    setThread([]);
+    setThreadLoading(true);
+    try {
+      const result = await fetchOnTrackComments(task.projectId, task.taskDefinitionId);
+      setThread(result.comments);
+      setViewerId(result.viewerId);
+    } catch (cause) {
+      message.error(cause instanceof Error ? cause.message : "无法读取对话记录");
+    } finally {
+      setThreadLoading(false);
+    }
+  };
 
   const handleDownload = (task: OnTrackTaskView, kind: "resources" | "submission") => {
     message.info(kind === "resources" ? "正在准备任务资源…" : "正在准备提交 PDF…");
@@ -167,7 +240,7 @@ export default function OnTrackPage() {
           type="warning"
           showIcon
           message="OnTrack 暂时不可用"
-          description={`${error}。在终端运行 ontrack login 可以恢复。`}
+          description={`${error}。到数据源页可以查看登录方式。`}
         />
       ) : null}
 
@@ -175,9 +248,47 @@ export default function OnTrackPage() {
         <Empty className="brief-empty" description={<Typography.Text type="secondary">OnTrack 里还没有任务。</Typography.Text>} />
       ) : (
         <>
-          <div className="ot-toolbar">
-            <b>任务</b>
-            <span>{visibleTasks.length} 条</span>
+          <div className="ot-grades" role="tablist" aria-label="按任务等级筛选">
+            <button
+              type="button"
+              className="ot-grade"
+              aria-selected={gradeFilter === "all"}
+              onClick={() => {
+                setGradeFilter("all");
+                setTaskFilter("all");
+              }}
+            >
+              全部<span>{gradeCounts.all}</span>
+            </button>
+            {GRADES.map((grade) => (
+              <button
+                key={grade.key}
+                type="button"
+                className="ot-grade"
+                aria-selected={gradeFilter === grade.key}
+                onClick={() => {
+                  setGradeFilter(grade.key);
+                  setTaskFilter("all");
+                }}
+              >
+                {grade.key}
+                <em>{grade.label}</em>
+                <span>{gradeCounts[grade.key] ?? 0}</span>
+              </button>
+            ))}
+            {gradeCounts.other > 0 ? (
+              <button
+                type="button"
+                className="ot-grade"
+                aria-selected={gradeFilter === "other"}
+                onClick={() => {
+                  setGradeFilter("other");
+                  setTaskFilter("all");
+                }}
+              >
+                其他<span>{gradeCounts.other}</span>
+              </button>
+            ) : null}
             <button type="button" className="ot-toggle" onClick={() => setOnlyOpen((value) => !value)}>
               {onlyOpen ? "显示全部" : "只看未完成"}
             </button>
@@ -193,7 +304,16 @@ export default function OnTrackPage() {
               <span className="ot-right">操作</span>
             </div>
             {visibleTasks.map((task) => (
-              <div className="ot-trow" key={task.id}>
+              <div
+                className="ot-trow ot-trow--task"
+                key={task.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => void openThread(task)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") void openThread(task);
+                }}
+              >
                 <span className="ot-abbr">{task.abbreviation || "—"}</span>
                 <span className="ot-name">
                   {task.name || "未命名任务"}
@@ -206,7 +326,10 @@ export default function OnTrackPage() {
                 </span>
                 <span className="ot-due">{formatDay(task.dueDate)}</span>
                 <span className="ot-weight">{task.weighting ? `${task.weighting}%` : "—"}</span>
-                <span className="ot-actions">
+                <span className="ot-actions" onClick={(event) => event.stopPropagation()}>
+                  <Button type="link" size="small" icon={<MessageOutlined />} onClick={() => void openThread(task)}>
+                    对话
+                  </Button>
                   <Button type="link" size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(task, "resources")}>
                     资源
                   </Button>
@@ -305,6 +428,65 @@ export default function OnTrackPage() {
           )}
         </>
       )}
+
+      <Drawer
+        open={Boolean(threadTask)}
+        onClose={() => setThreadTask(null)}
+        width={560}
+        title={
+          threadTask ? (
+            <span className="ot-thread-title">
+              <span className="ot-abbr">{threadTask.abbreviation}</span>
+              {threadTask.name}
+            </span>
+          ) : null
+        }
+      >
+        {threadTask ? (
+          <>
+            <div className="ot-thread-meta">
+              <Tag className={`ot-status ot-status--${statusTone(threadTask.status)}`}>
+                {STATUS_LABELS[threadTask.status] ?? threadTask.status}
+              </Tag>
+              <span>截止 {formatDay(threadTask.dueDate)}</span>
+              <span>权重 {threadTask.weighting ? `${threadTask.weighting}%` : "—"}</span>
+            </div>
+
+            {threadLoading ? (
+              <Typography.Text type="secondary">正在读取对话…</Typography.Text>
+            ) : thread.length === 0 ? (
+              <Typography.Text type="secondary">这个任务还没有评论。</Typography.Text>
+            ) : (
+              <ol className="ot-thread">
+                {[...thread]
+                  .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
+                  .map((comment) => {
+                    const mine = viewerId !== null && comment.authorId === viewerId;
+                    const system = ["status", "plan", "grade", "assessment"].includes(comment.type);
+                    if (system) {
+                      return (
+                        <li key={comment.id} className="ot-thread__system">
+                          <span>{formatMoment(comment.createdAt)}</span>
+                          <span>{comment.authorName || "系统"}</span>
+                          <b>{comment.comment}</b>
+                        </li>
+                      );
+                    }
+                    return (
+                      <li key={comment.id} className={`ot-thread__msg${mine ? " ot-thread__msg--mine" : ""}`}>
+                        <div className="ot-thread__who">
+                          <b>{comment.authorName || (mine ? "我" : "未知")}</b>
+                          <span>{formatMoment(comment.createdAt)}</span>
+                        </div>
+                        <div className="ot-thread__body">{comment.comment}</div>
+                      </li>
+                    );
+                  })}
+              </ol>
+            )}
+          </>
+        ) : null}
+      </Drawer>
     </>
   );
 }

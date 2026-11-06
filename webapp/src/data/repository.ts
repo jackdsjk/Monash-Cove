@@ -1,4 +1,4 @@
-import type { OnTrackAccount, OnTrackProjectView, OnTrackTaskView, OnTrackOverview, AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
+import type { OnTrackAccount, OnTrackCommentView, OnTrackProjectView, OnTrackTaskView, OnTrackOverview, AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
 
 export interface BriefData {
   items: BriefItem[];
@@ -43,6 +43,16 @@ export async function fetchOnTrackAccount(): Promise<{ connected: boolean; accou
 /** Live task list straight from OnTrack; used by the OnTrack page. */
 export async function fetchOnTrackTasks(): Promise<{ projects: OnTrackProjectView[]; tasks: OnTrackTaskView[] }> {
   return getJson<{ projects: OnTrackProjectView[]; tasks: OnTrackTaskView[] }>("/ontrack/tasks");
+}
+
+/** The full comment thread for one task, oldest first. */
+export async function fetchOnTrackComments(projectId: number, taskDefinitionId: number): Promise<{
+  comments: OnTrackCommentView[];
+  viewerId: number | null;
+}> {
+  return getJson<{ comments: OnTrackCommentView[]; viewerId: number | null }>(
+    `/ontrack/comments?project=${projectId}&task=${taskDefinitionId}`,
+  );
 }
 
 /** Field-level changes recorded since a timestamp; empty when nothing changed. */

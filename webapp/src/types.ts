@@ -266,6 +266,16 @@ export interface OnTrackProjectView {
   unitName: string;
 }
 
+/** 一条 OnTrack 评论，用于任务对话抽屉。 */
+export interface OnTrackCommentView {
+  id: string;
+  type: string;
+  comment: string;
+  createdAt: string;
+  authorId: number | null;
+  authorName: string;
+}
+
 export type ChangeField = "due_at" | "title" | "course" | "text";
 
 /** 一条源头内容的变化，用于「自上次查看，哪几条改过」。 */

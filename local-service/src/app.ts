@@ -27,7 +27,7 @@ import { AssetFetchError, fetchAsset } from "./safe-download.js";
 import { withTimeout } from "./http.js";
 import { attendanceScanKey } from "./attendance/scan-key.js";
 import type { ApiError, ChangesResponse, Source } from "./domain.js";
-import { fetchOnTrackAccount, fetchOnTrackArtifact, fetchOnTrackProjects, fetchOnTrackTasks } from "./sources/ontrack.js";
+import { fetchOnTrackAccount, fetchOnTrackArtifact, fetchOnTrackComments, fetchOnTrackProjects, fetchOnTrackTasks } from "./sources/ontrack.js";
 import { getRuntimeStatus } from "./runtime.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
 import { AttendanceLoginAssistant } from "./attendance/assistant.js";
@@ -568,6 +568,23 @@ export function buildApp(options: AppOptions): FastifyInstance {
         }
       }
       return { projects, tasks };
+    } catch (error) {
+      return reply.code(502).send({
+        error: { code: "ontrack_unavailable", message: error instanceof Error ? error.message : "OnTrack is unavailable.", retryable: true },
+      } satisfies ApiError);
+    }
+  });
+
+  app.get<{ Querystring: { project?: string; task?: string } }>("/api/ontrack/comments", async (request, reply) => {
+    const projectId = Number(request.query.project);
+    const taskDefinitionId = Number(request.query.task);
+    if (!Number.isInteger(projectId) || !Number.isInteger(taskDefinitionId)) {
+      return reply.code(400).send({ error: { code: "invalid_target", message: "project and task are required.", retryable: false } } satisfies ApiError);
+    }
+    try {
+      const account = await fetchOnTrackAccount();
+      const comments = await fetchOnTrackComments(projectId, taskDefinitionId);
+      return { comments, viewerId: account?.userId ?? null };
     } catch (error) {
       return reply.code(502).send({
         error: { code: "ontrack_unavailable", message: error instanceof Error ? error.message : "OnTrack is unavailable.", retryable: true },
