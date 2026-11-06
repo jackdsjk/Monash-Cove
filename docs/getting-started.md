@@ -102,7 +102,7 @@ http://127.0.0.1:4317
 
 - **Gmail**：Google OAuth；
 - **Ed**：Ed API token；
-- **Moodle**：Chrome 登录助手，保存本地 session。
+- **Moodle**：Chrome 登录助手，点一下按钮后在窗口里完成 Monash 登录，助手自动捕获整组 cookie（`MoodleSession` + `MDL_SSP_SessID`），不需要手动复制。
 
 Monash Cove 不保存密码，只保存本机凭据 / session。
 

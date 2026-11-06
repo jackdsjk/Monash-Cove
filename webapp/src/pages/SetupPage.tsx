@@ -290,7 +290,7 @@ export default function SetupPage() {
                 </Typography.Paragraph>
                 {assistantRunning ? (
                   <Space direction="vertical" style={{ width: "100%" }}>
-                    <Alert type="info" showIcon message="请在打开的 Chrome 窗口中完成 Monash 登录" />
+                    <Alert type="info" showIcon message="请在打开的 Chrome 窗口中完成 Monash 登录" description={assistant.message} />
                     <Button onClick={() => void cancelMoodle()}>取消登录</Button>
                   </Space>
                 ) : (

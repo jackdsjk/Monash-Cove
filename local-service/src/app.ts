@@ -21,7 +21,7 @@ import { FullSyncJobs } from "./sync/jobs.js";
 import { MoodleClient } from "./sources/moodle.js";
 import { EdClient } from "./sources/ed.js";
 import { syncMoodleContent } from "./sync/moodle-content.js";
-import { downloadMoodleResource, MoodleDownloadError, safeDownloadName } from "./moodle-download.js";
+import { downloadMoodleResource, MoodleDownloadError, moodleCookieHeader, safeDownloadName } from "./moodle-download.js";
 import { captureMoodlePage } from "./moodle-snapshot.js";
 import { AssetFetchError, fetchAsset } from "./safe-download.js";
 import { withTimeout } from "./http.js";
@@ -502,7 +502,15 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
 
   const edCredentials = z.object({ token: z.string().min(1), region: z.enum(["us", "au", "eu"]).default("us") });
-  const moodleCredentials = z.object({ baseUrl: z.string().url(), session: z.string().min(1) });
+  const moodleCredentials = z
+  .object({
+    baseUrl: z.string().url(),
+    /** Raw MoodleSession value; still accepted for older saved credentials. */
+    session: z.string().min(1).optional(),
+    /** Full Cookie header captured by the login assistant. */
+    cookie: z.string().min(1).optional(),
+  })
+  .refine((value) => Boolean(value.session || value.cookie), { message: "session or cookie is required" });
 
   app.post<{ Params: { source: string } }>("/api/sources/:source/credentials", async (request, reply) => {
     const source = sourceSchema.safeParse(request.params.source);
@@ -540,7 +548,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const client = new MoodleClient(credentials.baseUrl, credentials.session, fetcher);
+      const client = new MoodleClient(credentials.baseUrl, moodleCookieHeader(credentials), fetcher);
       return { courses: await client.listCourses() };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Moodle course list failed.";
@@ -557,7 +565,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const result = await syncMoodleContent(db, credentials.baseUrl, credentials.session, courseId, fetcher);
+      const result = await syncMoodleContent(db, credentials.baseUrl, moodleCookieHeader(credentials), courseId, fetcher);
       db.setSourceStatus("moodle", "connected", new Date().toISOString(), null);
       return { ok: true, ...result };
     } catch (error) {
@@ -796,7 +804,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (rawMoodle) {
       try {
         const credentials = moodleCredentials.parse(JSON.parse(rawMoodle));
-        moodle = await new MoodleClient(credentials.baseUrl, credentials.session, fetcher).validateSession();
+        moodle = await new MoodleClient(credentials.baseUrl, moodleCookieHeader(credentials), fetcher).validateSession();
         if (!moodle) db.setSourceStatus("moodle", "degraded", null, "Moodle session expired; reconnect");
       } catch {
         moodle = false;
@@ -864,9 +872,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
         const raw = await secrets.get("moodle-credentials");
         if (!raw) throw new Error("Moodle session is not configured.");
         const credentials = moodleCredentials.parse(JSON.parse(raw));
-        const assessments = await syncMoodle(db, credentials.baseUrl, credentials.session, fetcher);
-        const forum = await syncMoodleForum(db, credentials.baseUrl, credentials.session, fetcher);
-        const content = await syncAllMoodleContent(db, credentials.baseUrl, credentials.session, fetcher, (processed, total) => {
+        const assessments = await syncMoodle(db, credentials.baseUrl, moodleCookieHeader(credentials), fetcher);
+        const forum = await syncMoodleForum(db, credentials.baseUrl, moodleCookieHeader(credentials), fetcher);
+        const content = await syncAllMoodleContent(db, credentials.baseUrl, moodleCookieHeader(credentials), fetcher, (processed, total) => {
           fullSyncJobs.update("moodle", { processed, total });
         });
         fullSyncJobs.update("moodle", { status: "done", processed: content.courses, total: content.courses, message: `${assessments.synced + forum.synced} 条简报，${content.items} 条资料` });

@@ -2,6 +2,7 @@ import type { CoveDatabase } from "../db.js";
 import type { Source } from "../domain.js";
 import type { GoogleOAuth } from "../oauth/google.js";
 import type { SecretStore } from "../secrets.js";
+import { moodleCookieHeader } from "../moodle-download.js";
 import { syncGmail } from "./gmail.js";
 import { syncEd, syncMoodle, syncMoodleForum } from "./sources.js";
 import { syncAllMoodleContent } from "./moodle-content.js";
@@ -29,8 +30,8 @@ export class SyncOrchestrator {
     const raw = await this.secrets.get("moodle-credentials");
     if (!raw) throw new Error("Moodle session is not configured.");
     const credentials = JSON.parse(raw) as { baseUrl: string; session: string };
-    const assessments = await syncMoodle(this.db, credentials.baseUrl, credentials.session, this.fetcher);
-    const posts = await syncMoodleForum(this.db, credentials.baseUrl, credentials.session, this.fetcher);
+    const assessments = await syncMoodle(this.db, credentials.baseUrl, moodleCookieHeader(credentials), this.fetcher);
+    const posts = await syncMoodleForum(this.db, credentials.baseUrl, moodleCookieHeader(credentials), this.fetcher);
     return { synced: assessments.synced + posts.synced };
   }
 
@@ -52,9 +53,9 @@ export class SyncOrchestrator {
     const moodleRaw = await this.secrets.get("moodle-credentials");
     if (!moodleRaw) throw new Error("Moodle session is not configured.");
     const moodleCreds = JSON.parse(moodleRaw) as { baseUrl: string; session: string };
-    const assessments = await syncMoodle(this.db, moodleCreds.baseUrl, moodleCreds.session, this.fetcher);
-    const forum = await syncMoodleForum(this.db, moodleCreds.baseUrl, moodleCreds.session, this.fetcher);
-    const content = await syncAllMoodleContent(this.db, moodleCreds.baseUrl, moodleCreds.session, this.fetcher, (processed, total) => this.progress?.("moodle", processed, total));
+    const assessments = await syncMoodle(this.db, moodleCreds.baseUrl, moodleCookieHeader(moodleCreds), this.fetcher);
+    const forum = await syncMoodleForum(this.db, moodleCreds.baseUrl, moodleCookieHeader(moodleCreds), this.fetcher);
+    const content = await syncAllMoodleContent(this.db, moodleCreds.baseUrl, moodleCookieHeader(moodleCreds), this.fetcher, (processed, total) => this.progress?.("moodle", processed, total));
     starts.push(`moodle:${assessments.synced + forum.synced + content.items}`);
     this.db.setSetting("moodle_full_synced_at", new Date().toISOString());
     this.db.setSetting("full_sync_completed_at", new Date().toISOString());

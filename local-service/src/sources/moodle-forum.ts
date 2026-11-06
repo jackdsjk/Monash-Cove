@@ -11,7 +11,7 @@ export class MoodleForumClient {
 
   constructor(
     baseUrl: string,
-    private readonly session: string,
+    private readonly cookie: string,
     private readonly fetcher: typeof fetch = fetch,
   ) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
@@ -19,7 +19,7 @@ export class MoodleForumClient {
 
   private async html(path: string): Promise<HTMLElement> {
     const response = await this.fetcher(`${this.baseUrl}${path}`, {
-      headers: { cookie: `MoodleSession=${this.session}` },
+      headers: { cookie: this.cookie },
       signal: AbortSignal.timeout(20_000),
     });
     if (!response.ok) throw new Error(`Moodle page returned HTTP ${response.status}.`);

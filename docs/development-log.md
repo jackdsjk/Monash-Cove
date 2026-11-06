@@ -260,3 +260,11 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 修 P2：会触发 OCR / 页面抓取 / 外网请求的 GET 拒绝 `Sec-Fetch-Site: cross-site`。
 - 修 P2：纠错、反馈、清除数据改为"服务端成功后再更新界面"，失败时提示用户，不再静默失败。
 - 修 P2：5xx 统一返回固定文案，内部错误只进日志；前后端所有出站请求加超时。
+
+## 2026-11-06（登录助手）
+
+- Moodle 登录助手改为保存整组 cookie：Monash Moodle 同时依赖 `MoodleSession` 与 `MDL_SSP_SessID`，只发前者会被 SSO 弹回登录页。
+- 会话校验从"HTTP 200 即通过"改为跟随重定向后检查落地 URL：跳回 Okta / `monashuni.okta.com` 一律判为未登录，避免把 SSO 页面误当成仪表盘。
+- 助手失败时给出具体原因（HTTP 状态 + 当前跳转域名），不再只显示"等待登录超时"。
+- 兼容旧凭据：只有 `session` 值的旧记录仍可用，新记录额外保存 `cookie` 头。
+- Chrome profile 被上次崩溃锁住时自动清理 SingletonLock 后重试一次。

@@ -125,6 +125,22 @@ describe("local API", () => {
     expect(response.json().error.code).toBe("invalid_source");
   });
 
+  it("accepts a captured Moodle cookie jar or a pasted session", async () => {
+    const baseUrl = "https://learning.monash.edu";
+    const cookieOnly = await app.inject({
+      method: "POST",
+      url: "/api/sources/moodle/credentials",
+      payload: { baseUrl, cookie: "MoodleSession=a; MDL_SSP_SessID=b" },
+    });
+    expect(cookieOnly.statusCode).toBe(200);
+
+    const sessionOnly = await app.inject({ method: "POST", url: "/api/sources/moodle/credentials", payload: { baseUrl, session: "abc" } });
+    expect(sessionOnly.statusCode).toBe(200);
+
+    const empty = await app.inject({ method: "POST", url: "/api/sources/moodle/credentials", payload: { baseUrl } });
+    expect(empty.statusCode).toBe(400);
+  });
+
   it("requires Ed credentials before proxying a download", async () => {
     const response = await app.inject({
       method: "GET",

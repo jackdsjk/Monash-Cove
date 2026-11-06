@@ -40,25 +40,44 @@ interface MoodleEvent {
 export class MoodleClient {
   private readonly baseUrl: string;
 
+  /** `cookie` is the full Cookie header for Moodle (see `moodleCookieHeader`). */
   constructor(
     baseUrl: string,
-    private readonly session: string,
+    private readonly cookie: string,
     private readonly fetcher: typeof fetch = fetch,
   ) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
   }
 
   private headers() {
-    return { cookie: `MoodleSession=${this.session}` };
+    // Moodle is happier when requests look like a browser session; some sites
+    // bind sessions to a user agent.
+    return {
+      cookie: this.cookie,
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    };
+  }
+
+  /**
+   * Follows redirects and rejects anything that lands off-site or on a login
+   * page, so an SSO bounce can never be mistaken for a valid session.
+   */
+  async probeSession(): Promise<{ ok: boolean; status: number; url: string }> {
+    const response = await this.fetcher(`${this.baseUrl}/my/`, {
+      headers: this.headers(),
+      redirect: "follow",
+      signal: AbortSignal.timeout(15_000),
+    });
+    const url = response.url ?? "";
+    const offSite = url !== "" && !url.startsWith(this.baseUrl);
+    const loginPage = /\/login\//.test(url) || /okta\.com|microsoftonline\.com|idp/i.test(url);
+    return { ok: response.ok && !offSite && !loginPage, status: response.status, url };
   }
 
   async validateSession(): Promise<boolean> {
-    const response = await this.fetcher(`${this.baseUrl}/my/`, {
-      headers: this.headers(),
-      redirect: "manual",
-      signal: AbortSignal.timeout(15_000),
-    });
-    return response.ok;
+    const probe = await this.probeSession().catch(() => ({ ok: false, status: 0, url: "" }));
+    return probe.ok;
   }
 
   async listCourses(): Promise<MoodleCourseSummary[]> {

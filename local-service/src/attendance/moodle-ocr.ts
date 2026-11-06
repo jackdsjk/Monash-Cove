@@ -1,12 +1,14 @@
 import { fileURLToPath } from "node:url";
 import { createWorker, type Worker } from "tesseract.js";
 import { parse } from "node-html-parser";
+import { moodleCookieHeader } from "../moodle-download.js";
 import type { MoodleContentRow } from "../domain.js";
 import type { AttendanceCode } from "./parser.js";
 
 export interface MoodleAttendanceCredentials {
   baseUrl: string;
-  session: string;
+  session?: string;
+  cookie?: string;
 }
 
 function courseCode(value: string) {
@@ -75,7 +77,7 @@ export async function scanMoodleAttendanceImages(
     const results = await mapLimit(candidates, 4, async (row) => {
       try {
         const pageResponse = await fetch(row.url, {
-          headers: { cookie: `MoodleSession=${credentials.session}` },
+          headers: { cookie: moodleCookieHeader(credentials) },
           signal: AbortSignal.timeout(20_000),
         });
         if (!pageResponse.ok) return [];
@@ -90,7 +92,7 @@ export async function scanMoodleAttendanceImages(
           if (!src || !/pluginfile\.php/.test(src)) return [];
           const imageUrl = new URL(src, row.url).toString();
           const imageResponse = await fetch(imageUrl, {
-            headers: { cookie: `MoodleSession=${credentials.session}` },
+            headers: { cookie: moodleCookieHeader(credentials) },
             signal: AbortSignal.timeout(20_000),
           });
           if (!imageResponse.ok || !worker) return [];

@@ -10,6 +10,9 @@ docs/.miaoyan-conflicts/
 # CodeGraph 本地索引（每台机器各自生成）
 .codegraph/
 
+# Tesseract 运行时下载的语言包
+eng.traineddata
+
 # 通用
 node_modules/
 .npm-cache/
