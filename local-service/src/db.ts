@@ -101,6 +101,12 @@ export class CoveDatabase {
   constructor(options: DbOptions) {
     this.db = new DatabaseSync(options.dbPath);
     this.fixturePath = options.fixturePath ?? DEFAULT_FIXTURE;
+    // WAL lets the UI read while a sync writes; busy_timeout makes a second
+    // process (desktop app plus a CLI run) wait instead of failing instantly
+    // with SQLITE_BUSY. Both are persistent properties of the database file.
+    this.db.exec("PRAGMA journal_mode = WAL");
+    this.db.exec("PRAGMA synchronous = NORMAL");
+    this.db.exec("PRAGMA busy_timeout = 5000");
     this.db.exec(SCHEMA);
     this.ensureColumns();
     this.ensureSources();

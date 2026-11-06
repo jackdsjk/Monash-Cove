@@ -34,6 +34,14 @@ function contentRow(id: string): MoodleContentRow {
   };
 }
 
+describe("database configuration", () => {
+  it("enables WAL, a busy timeout, and relaxed fsync for file databases", () => {
+    expect((db.db.prepare("PRAGMA journal_mode").get() as { journal_mode: string }).journal_mode).toBe("wal");
+    expect((db.db.prepare("PRAGMA busy_timeout").get() as { timeout: number }).timeout).toBe(5000);
+    expect((db.db.prepare("PRAGMA synchronous").get() as { synchronous: number }).synchronous).toBe(1);
+  });
+});
+
 describe("moodle content replacement", () => {
   it("keeps the previous materials when the replacement fails", () => {
     db.replaceMoodleContent("42", [contentRow("a")]);

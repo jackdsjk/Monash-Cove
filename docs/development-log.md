@@ -245,3 +245,11 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - Moodle 复杂 label/page 增加页面布局 PNG 快照下载，作为无法直接提取文件时的 fallback。
 
 - 新增轻量更新提醒：本地后端检查 GitHub Releases（15 分钟缓存），前端启动/聚焦/每 15 分钟刷新，只提示并跳转 Release，不自动更新。
+
+## 2026-11-06
+
+- 代码审查（final 模式）后修 P1：`/api/ed/download` 与批量下载限制到 Ed 资产域并逐跳校验重定向，禁止被网页当开放代理；Ed 未连接时返回 409。
+- Moodle 课程资料替换改为事务写入（BEGIN IMMEDIATE / COMMIT / ROLLBACK），同步中断不再清空整门课资料。
+- SQLite 开启 WAL、`synchronous=NORMAL`、`busy_timeout=5000`；桌面 App 与命令行同时打开数据库时改为等待而非直接 SQLITE_BUSY。
+- `/api/brief` 增加 `limit`（上限 5000）并对大于 1 KB 的 JSON 响应启用 gzip，整份简报 4.4 MB → 约 0.94 MB。
+- 新增 `src/safe-download.ts` 与 7 条测试（Ed 下载白名单、事务回滚、gzip、limit）；`npm run check` 与 webapp e2e 均通过。
