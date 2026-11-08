@@ -7,6 +7,12 @@ dist/
 # 文档工具生成的冲突副本
 docs/.miaoyan-conflicts/
 
+# CodeGraph 本地索引（每台机器各自生成）
+.codegraph/
+
+# Tesseract 运行时下载的语言包
+eng.traineddata
+
 # 通用
 node_modules/
 .npm-cache/
@@ -23,3 +29,6 @@ desktop/node_modules/
 desktop/release/
 
 desktop/.cache/
+
+# Impeccable（设计流程工具）本地状态
+.impeccable/

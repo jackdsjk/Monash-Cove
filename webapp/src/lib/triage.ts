@@ -14,6 +14,7 @@ export const SOURCE_LABELS: Record<Source, string> = {
   gmail: "Gmail",
   ed: "Ed",
   moodle: "Moodle",
+  ontrack: "OnTrack",
 };
 
 export const CONTENT_TYPE_LABELS: Record<ContentType, string> = {
@@ -107,7 +108,7 @@ export function filterItems(
 
 export function summarize(items: DemoItem[], corrections: Record<string, Correction> = {}) {
   const summary = { total: items.length, action: 0, staff: 0, important: 0, material: 0, folded: 0 };
-  const sources: Record<Source, number> = { gmail: 0, ed: 0, moodle: 0 };
+  const sources: Record<Source, number> = { gmail: 0, ed: 0, moodle: 0, ontrack: 0 };
   for (const item of items) {
     summary[sectionFor(item, corrections[item.id])] += 1;
     sources[item.source] += 1;

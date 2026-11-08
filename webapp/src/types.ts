@@ -1,4 +1,4 @@
-export type Source = "gmail" | "ed" | "moodle";
+export type Source = "gmail" | "ed" | "moodle" | "ontrack";
 
 export type ContentType =
   | "required_action"
@@ -100,7 +100,7 @@ export interface EdLessonDetail {
 
 export interface AttendanceCode {
   id: string;
-  source: "gmail" | "moodle" | "ed";
+  source: "gmail" | "moodle" | "ed" | string;
   course: string;
   week: number;
   session: string;
@@ -108,6 +108,9 @@ export interface AttendanceCode {
   title: string;
   url: string;
   publishedAt: string;
+  /** "text" 来自正文正则，"ocr" 来自图片识别，需要人工核对 */
+  origin?: "text" | "ocr";
+  filledAt?: string | null;
 }
 
 export interface AttendancePreferenceCourse {
@@ -195,6 +198,108 @@ export interface MoodleContentItem {
   campus?: "malaysia" | "australia" | "indonesia" | "shared";
 }
 
+/** 已连接的 OnTrack 账号，用于在界面上显示"现在是谁在用"。 */
+export interface OnTrackAccount {
+  userId: number;
+  username: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  expiresAt: string | null;
+  refreshedAt: string | null;
+}
+
+/** OnTrack 任务，来自只读 overview 接口。 */
+export interface OnTrackTaskRow {
+  id: number;
+  taskDefinitionId: number;
+  abbreviation: string;
+  name: string;
+  description: string;
+  status: string;
+  dueDate: string | null;
+  targetDueDate: string | null;
+  submissionDate: string | null;
+  completionDate: string | null;
+  weighting: number | null;
+  timesAssessed: number;
+  numNewComments: number;
+}
+
+export interface OnTrackOverview {
+  connected: boolean;
+  account: OnTrackAccount | null;
+  projects: Array<{
+    id: number;
+    unitId: number;
+    unitCode: string;
+    unitName: string;
+    tasks: OnTrackTaskRow[];
+  }>;
+  error?: string;
+}
+
+/** 一个 OnTrack 任务，来自实时只读接口（不是简报条目）。 */
+export interface OnTrackTaskView {
+  id: number;
+  taskDefinitionId: number;
+  abbreviation: string;
+  name: string;
+  description: string;
+  status: string;
+  dueDate: string | null;
+  targetDueDate: string | null;
+  submissionDate: string | null;
+  completionDate: string | null;
+  weighting: number | null;
+  timesAssessed: number;
+  numNewComments: number;
+  projectId: number;
+  unitCode: string;
+  unitName: string;
+}
+
+export interface OnTrackProjectView {
+  id: number;
+  unitId: number;
+  unitCode: string;
+  unitName: string;
+}
+
+/** 一条 OnTrack 评论，用于任务对话抽屉。 */
+export interface OnTrackCommentView {
+  id: string;
+  type: string;
+  comment: string;
+  createdAt: string;
+  authorId: number | null;
+  authorName: string;
+}
+
+/** 每个来源的登录凭据有效期。 */
+export interface CredentialInfo {
+  source: Source;
+  connected: boolean;
+  expiresAt: string | null;
+  renewable: boolean;
+  note: string;
+}
+
+export type ChangeField = "due_at" | "title" | "course" | "text";
+
+/** 一条源头内容的变化，用于「自上次查看，哪几条改过」。 */
+export interface ItemChange {
+  id: number;
+  itemId: string;
+  field: ChangeField;
+  before: string | null;
+  after: string | null;
+  changedAt: string;
+  source: Source;
+  course: string;
+  title: string;
+}
+
 export interface BriefItem extends DemoItem {
   sourceItemId?: string;
   publishedAt?: string;
@@ -202,6 +307,8 @@ export interface BriefItem extends DemoItem {
   url?: string;
   dueAt?: string | null;
   deadlineKind?: string | null;
+  /** Moodle 已确认提交/评分的时间；有值时不再是待办 */
+  completedAt?: string | null;
   contentHash?: string;
   triageVersion?: string;
   model?: string;

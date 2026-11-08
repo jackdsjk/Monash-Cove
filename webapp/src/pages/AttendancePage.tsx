@@ -7,6 +7,7 @@ import {
   cancelAttendanceAssistant,
   fetchAttendanceAssistant,
   fetchAttendanceCodes,
+  fetchUnmatchedAttendance,
   fetchAttendanceStatus,
   fillAttendanceCode,
   fillAllAttendanceCodes,
@@ -16,6 +17,7 @@ import {
   startAttendanceAssistant,
 } from "../data/repository";
 import type { AttendanceAssistantState, AttendanceCode, AttendancePreferenceCourse, AttendancePreferences } from "../types";
+import type { UnmatchedAttendanceImage } from "../data/repository";
 
 function courseKey(value: string) {
   return (/^[A-Z]{2,5}\d{3,4}/i.exec(value)?.[0] ?? value).toUpperCase();
@@ -33,6 +35,8 @@ interface GroupedCode {
   code: string;
   sources: AttendanceCode[];
   publishedAt: string;
+  /** 至少一条来自图片 OCR，需要人工核对 */
+  fromOcr: boolean;
 }
 
 function groupCodes(codes: AttendanceCode[]): GroupedCode[] {
@@ -52,6 +56,7 @@ function groupCodes(codes: AttendanceCode[]): GroupedCode[] {
         code: item.code,
         sources: [item],
         publishedAt: item.publishedAt,
+        fromOcr: item.origin === "ocr",
       });
     }
   }
@@ -74,18 +79,21 @@ export default function AttendancePage() {
   const [detecting, setDetecting] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [draftPreferences, setDraftPreferences] = useState<AttendancePreferenceCourse[]>([]);
+  const [unmatched, setUnmatched] = useState<UnmatchedAttendanceImage[]>([]);
   const autoDetected = useRef(false);
 
-  const load = async (refresh = false) => {
+  const load = async (refresh = false, rescan = false) => {
     const [status, nextCodes, nextPreferences] = await Promise.all([
       fetchAttendanceStatus(),
-      fetchAttendanceCodes(refresh),
+      fetchAttendanceCodes(refresh, rescan),
       fetchAttendancePreferences(),
     ]);
     setConnected(status.connected);
     setAssistant(status.assistant);
-    setCodes(nextCodes);
+    setCodes(nextCodes.codes);
     setPreferences(nextPreferences);
+    setUnmatched(await fetchUnmatchedAttendance().catch(() => []));
+    return nextCodes;
   };
 
   useEffect(() => {
@@ -104,7 +112,7 @@ export default function AttendancePage() {
       const detected = await detectAttendancePreferences();
       const saved = await saveAttendancePreferences(detected);
       setPreferences(saved);
-      setCodes(await fetchAttendanceCodes());
+      setCodes((await fetchAttendanceCodes()).codes);
       message.success(`已识别你的签到班次：${saved.courses.length} 门课程`);
     } catch (cause) {
       message.warning(cause instanceof Error ? cause.message : "自动识别签到班次失败，可以手动调整");
@@ -148,11 +156,16 @@ export default function AttendancePage() {
     setAssistant(await cancelAttendanceAssistant());
   };
 
-  const refresh = async () => {
+  const refresh = async (rescan = false) => {
     setRefreshing(true);
     try {
-      await load(true);
-      message.success("已刷新 Attendance code（含 Moodle 图片 OCR）");
+      const result = await load(true, rescan);
+      if (result?.ocr && result.ocr.scanned > 0) {
+        const failed = result.ocr.failed > 0 ? `，${result.ocr.failed} 张图片识别失败（下次刷新会重试）` : "";
+        message.success(`识别了 ${result.ocr.scanned} 个新页面${failed}`);
+      } else {
+        message.success("没有需要重新识别的页面，已使用本机保存的签到码");
+      }
     } catch (cause) {
       message.error(cause instanceof Error ? cause.message : "刷新失败");
     } finally {
@@ -268,6 +281,9 @@ export default function AttendancePage() {
           <Button icon={<ReloadOutlined />} loading={refreshing} onClick={() => void refresh()}>
             刷新 code
           </Button>
+          <Button loading={refreshing} onClick={() => void refresh(true)}>
+            重新识别全部
+          </Button>
           <Button type="link" href="https://attendance.monash.edu.my/student/" target="_blank">
             打开 Attendance
           </Button>
@@ -307,7 +323,7 @@ export default function AttendancePage() {
         {preferences.courses.length > 0 ? (
           <Space wrap>
             {preferences.courses.map((item) => (
-              <Tag key={item.course} color="green">
+              <Tag key={item.course} color="success">
                 {item.course} · {item.sessions.join(" / ")}
               </Tag>
             ))}
@@ -375,10 +391,11 @@ export default function AttendancePage() {
               <div className="attendance-code-row">
                 <div className="attendance-code-main">
                   <Space wrap>
-                    <Tag color="green">Week {item.week}</Tag>
+                    <Tag color="success">Week {item.week}</Tag>
                     <Typography.Text strong>{item.course}</Typography.Text>
                     <Tag>{item.session}</Tag>
                     <Typography.Text code className="attendance-code">{item.code}</Typography.Text>
+                    {item.fromOcr ? <Tag color="orange">OCR 识别，请核对</Tag> : null}
                   </Space>
                   <Typography.Paragraph type="secondary" className="attendance-source-note">
                     来源：{item.sources.map((source) => source.source === "moodle" ? "Moodle" : source.source === "gmail" ? "Gmail" : "Ed").join(" / ")}
@@ -403,6 +420,40 @@ export default function AttendancePage() {
           ))}
         </div>
       )}
+
+      {unmatched.length > 0 ? (
+        <Card className="attendance-connect-card" title={`没识别出来的签到图（${unmatched.length}）`}>
+          <Typography.Paragraph type="secondary">
+            这些图片读到了，但没有匹配到 <Typography.Text code>Workshop 3: ABC123</Typography.Text> 这种格式。点开原图自己核对，格式对得上就是 OCR 认错了字。
+          </Typography.Paragraph>
+          <div className="attendance-unmatched-list">
+            {unmatched.map((entry) => (
+              <div className="attendance-unmatched-item" key={entry.id}>
+                <div>
+                  <Space wrap>
+                    {entry.week ? <Tag color="success">Week {entry.week}</Tag> : null}
+                    <Typography.Text strong>{entry.course}</Typography.Text>
+                    <Tag color={entry.status === "error" ? "red" : "orange"}>{entry.status === "error" ? "识别失败" : "格式不符"}</Tag>
+                  </Space>
+                  <Typography.Paragraph type="secondary" style={{ marginBottom: 4 }}>{entry.title}</Typography.Paragraph>
+                </div>
+                <Space wrap>
+                  {entry.images.map((image) => (
+                    <a key={image} href={`/api/moodle/asset?url=${encodeURIComponent(image)}`} target="_blank" rel="noreferrer">
+                      <img
+                        className="attendance-unmatched-thumb"
+                        src={`/api/moodle/asset?url=${encodeURIComponent(image)}`}
+                        alt={`${entry.title} 原图`}
+                        loading="lazy"
+                      />
+                    </a>
+                  ))}
+                </Space>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
 
       <Typography.Paragraph type="secondary" className="page-footnote">
         自动填写只会操作 attendance.monash.edu.my；如果当前没有 active code 表单，会提示而不是伪造提交。需要重新登录时，回到本页连接 Attendance。

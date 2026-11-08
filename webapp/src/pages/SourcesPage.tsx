@@ -1,11 +1,21 @@
-import { ApiOutlined, CheckCircleOutlined } from "@ant-design/icons";
+import { ApiOutlined, CheckCircleOutlined, ProfileOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Alert, App as AntApp, Badge, Button, Card, Col, Descriptions, Form, Input, Modal, Row, Select, Space, Tag, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import CoveLoader from "../components/CoveLoader";
 import { Link } from "react-router-dom";
-import { fetchSources } from "../data/repository";
+import {
+  cancelMoodleAssistant,
+  cancelOnTrackAssistant,
+  fetchMoodleAssistant,
+  fetchOnTrackAccount,
+  fetchOnTrackAssistant,
+  fetchCredentials,
+  fetchSources,
+  startMoodleAssistant,
+  startOnTrackAssistant,
+} from "../data/repository";
 import { SOURCE_LABELS } from "../lib/triage";
-import type { Source, SourceStatus } from "../types";
+import type { CredentialInfo, MoodleAssistantState, OnTrackAccount, Source, SourceStatus } from "../types";
 
 const sources: Array<{ source: Source; status: "success" | "warning"; lastSync: string; scope: string }> = [
   { source: "gmail", status: "success", lastSync: "12 分钟前", scope: "只读邮件与线程" },
@@ -16,9 +26,16 @@ const sources: Array<{ source: Source; status: "success" | "warning"; lastSync: 
 export default function SourcesPage() {
   const { message } = AntApp.useApp();
   const [statuses, setStatuses] = useState<SourceStatus[]>([]);
+  const [onTrack, setOnTrack] = useState<OnTrackAccount | null>(null);
+  const [onTrackChecking, setOnTrackChecking] = useState(false);
+  const [onTrackAssistant, setOnTrackAssistant] = useState<MoodleAssistantState>({ status: "idle", message: "未开始" });
+  const [credentials, setCredentials] = useState<CredentialInfo[]>([]);
   const [connectSource, setConnectSource] = useState<Source | null>(null);
   const [loading, setLoading] = useState(true);
   const [form] = Form.useForm();
+  const [manualMoodle, setManualMoodle] = useState(false);
+  const [moodleAssistant, setMoodleAssistant] = useState<MoodleAssistantState | null>(null);
+  const [assistantStarting, setAssistantStarting] = useState(false);
 
   const loadStatuses = useCallback(async () => {
     try {
@@ -38,6 +55,21 @@ export default function SourcesPage() {
     };
   }, [loadStatuses]);
 
+  useEffect(() => {
+    if (connectSource !== "moodle" || moodleAssistant?.status !== "waiting_login") return;
+    const timer = window.setInterval(() => {
+      void fetchMoodleAssistant().then((next) => {
+        setMoodleAssistant(next);
+        if (next.status === "connected") {
+          message.success("Moodle 已连接");
+          setConnectSource(null);
+          void loadStatuses();
+        }
+      }).catch(() => undefined);
+    }, 1_500);
+    return () => window.clearInterval(timer);
+  }, [connectSource, loadStatuses, message, moodleAssistant?.status]);
+
   const syncSource = async (source: Source) => {
     const response = await fetch("/api/sync", {
       method: "POST",
@@ -56,9 +88,28 @@ export default function SourcesPage() {
 
   const openConnect = (source: Source) => {
     setConnectSource(source);
+    setManualMoodle(false);
     form.resetFields();
     if (source === "ed") form.setFieldsValue({ region: "au" });
-    if (source === "moodle") form.setFieldsValue({ baseUrl: "https://learning.monash.edu" });
+    if (source === "moodle") {
+      form.setFieldsValue({ baseUrl: "https://learning.monash.edu" });
+      void fetchMoodleAssistant().then(setMoodleAssistant).catch(() => undefined);
+    }
+  };
+
+  const startMoodle = async () => {
+    setAssistantStarting(true);
+    try {
+      setMoodleAssistant(await startMoodleAssistant());
+    } catch (cause) {
+      message.error(cause instanceof Error ? cause.message : "登录助手启动失败");
+    } finally {
+      setAssistantStarting(false);
+    }
+  };
+
+  const cancelMoodle = async () => {
+    setMoodleAssistant(await cancelMoodleAssistant());
   };
 
   const saveCredentials = async (values: Record<string, string>) => {
@@ -87,6 +138,68 @@ export default function SourcesPage() {
     }
     window.location.href = body.url;
   };
+
+  const validityFor = (source: Source) => {
+    const entry = credentials.find((item) => item.source === source);
+    if (!entry || !entry.connected) return { text: "未连接", tone: "idle" as const };
+    if (!entry.expiresAt) {
+      return { text: entry.renewable ? "长期有效，自动续期" : "无固定到期，失效时才需重连", tone: "ok" as const };
+    }
+    const expiresAt = Date.parse(entry.expiresAt);
+    const left = expiresAt - Date.now();
+    const when = new Date(expiresAt).toLocaleString("zh-CN");
+    if (left <= 0) return { text: `已过期（${when}）`, tone: "bad" as const };
+    if (entry.renewable) return { text: `有效至 ${when}，到期自动续期`, tone: "ok" as const };
+    if (left < 60 * 60_000) return { text: `即将到期：${when}`, tone: "warn" as const };
+    return { text: `有效至 ${when}`, tone: "ok" as const };
+  };
+
+  const refreshOnTrack = useCallback(async () => {
+    setOnTrackChecking(true);
+    try {
+      const [result, list] = await Promise.all([fetchOnTrackAccount(), fetchCredentials().catch(() => [])]);
+      setOnTrack(result.connected ? result.account : null);
+      setCredentials(list);
+    } catch {
+      setOnTrack(null);
+    } finally {
+      setOnTrackChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshOnTrack();
+  }, [refreshOnTrack]);
+
+  const connectOnTrack = async () => {
+    setOnTrackAssistant({ status: "waiting_login", message: "正在打开浏览器窗口…" });
+    try {
+      setOnTrackAssistant(await startOnTrackAssistant());
+    } catch (cause) {
+      setOnTrackAssistant({ status: "error", message: cause instanceof Error ? cause.message : "登录助手启动失败" });
+    }
+  };
+
+  const disconnectOnTrack = async () => {
+    try {
+      setOnTrackAssistant(await cancelOnTrackAssistant());
+    } catch {
+      setOnTrackAssistant({ status: "cancelled", message: "已取消登录" });
+    }
+  };
+
+  useEffect(() => {
+    if (onTrackAssistant.status !== "waiting_login") return;
+    const timer = window.setInterval(() => {
+      void fetchOnTrackAssistant()
+        .then((state) => {
+          setOnTrackAssistant(state);
+          if (state.status === "connected") void refreshOnTrack();
+        })
+        .catch(() => undefined);
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [onTrackAssistant.status, refreshOnTrack]);
 
   if (loading) {
     return <CoveLoader label="正在读取本地来源" />;
@@ -147,10 +260,22 @@ export default function SourcesPage() {
                           : config.scope,
                     },
                     { key: "count", label: "样本数", children: `${count} 条` },
+                    {
+                      key: "validity",
+                      label: "登录有效期",
+                      children: (
+                        <span
+                          className={`cred-validity cred-validity--${validityFor(config.source).tone}`}
+                          title={credentials.find((item) => item.source === config.source)?.note}
+                        >
+                          {validityFor(config.source).text}
+                        </span>
+                      ),
+                    },
                   ]}
                 />
                 <Space className="source-actions" wrap>
-                  <Tag color="green" icon={<CheckCircleOutlined />}>
+                  <Tag color="success" icon={<CheckCircleOutlined />}>
                     只读
                   </Tag>
                   {apiStatus?.status !== "connected" ? (
@@ -176,6 +301,84 @@ export default function SourcesPage() {
         })}
       </Row>
 
+      <Card
+        className="source-card ot-login-card"
+        title={
+          <Space>
+            <ProfileOutlined />
+            <span>OnTrack</span>
+          </Space>
+        }
+        extra={
+          <Badge
+            status={onTrack ? "success" : "default"}
+            text={onTrack ? "已登录" : "未登录"}
+          />
+        }
+      >
+        {onTrack ? (
+          <Descriptions
+            size="small"
+            column={1}
+            colon={false}
+            items={[
+              { key: "who", label: "当前账号", children: `${onTrack.firstName} ${onTrack.lastName}`.trim() || onTrack.username },
+              { key: "mail", label: "邮箱", children: onTrack.email },
+              {
+                key: "expiry",
+                label: "登录有效期",
+                children: (
+                  <span
+                    className={`cred-validity cred-validity--${validityFor("ontrack").tone}`}
+                    title={credentials.find((item) => item.source === "ontrack")?.note}
+                  >
+                    {validityFor("ontrack").text}
+                  </span>
+                ),
+              },
+            ]}
+          />
+        ) : (
+          <Typography.Paragraph type="secondary" className="ot-login-note">
+            还没登录。点下面的按钮会打开一个 Chrome 窗口，在里面完成 Monash 登录即可，助手会把登录凭据保存到本机 Keychain，你不需要手动复制任何东西。
+          </Typography.Paragraph>
+        )}
+
+        {onTrackAssistant.status === "waiting_login" ? (
+          <Alert type="info" showIcon message="请在打开的 Chrome 窗口完成 Monash 登录" description={onTrackAssistant.message} className="ot-login-alert" />
+        ) : null}
+        {onTrackAssistant.status === "error" ? (
+          <Alert type="error" showIcon message="连接失败" description={onTrackAssistant.message} className="ot-login-alert" />
+        ) : null}
+
+        <Space className="source-actions" wrap>
+          <Tag color="success" icon={<CheckCircleOutlined />}>
+            只读
+          </Tag>
+          <Button
+            size="small"
+            type="primary"
+            loading={onTrackAssistant.status === "waiting_login"}
+            onClick={() => void connectOnTrack()}
+          >
+            {onTrack ? "重新登录 OnTrack" : "连接 OnTrack"}
+          </Button>
+          {onTrackAssistant.status === "waiting_login" ? (
+            <Button size="small" onClick={() => void disconnectOnTrack()}>
+              取消
+            </Button>
+          ) : null}
+          <Button size="small" icon={<ReloadOutlined />} loading={onTrackChecking} onClick={() => void refreshOnTrack()}>
+            重新检测
+          </Button>
+          {onTrack ? (
+            <Button size="small" onClick={() => void syncSource("ontrack" as Source)}>
+              立即同步
+            </Button>
+          ) : null}
+        </Space>
+      </Card>
+
       <Modal
         open={Boolean(connectSource)}
         title={connectSource ? `连接 ${SOURCE_LABELS[connectSource]}` : "连接来源"}
@@ -183,9 +386,31 @@ export default function SourcesPage() {
         cancelText="取消"
         onCancel={() => setConnectSource(null)}
         onOk={() => form.submit()}
+        footer={connectSource === "moodle" && !manualMoodle ? null : undefined}
         destroyOnHidden
       >
-        <Form form={form} layout="vertical" onFinish={saveCredentials} requiredMark={false}>
+        {connectSource === "moodle" && !manualMoodle ? (
+          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+              点下面的按钮会打开一个 Chrome 窗口。在窗口里完成 Monash 登录后，助手会自动捕获 cookie 并保存到本机 Keychain，你不需要手动复制任何东西。
+            </Typography.Paragraph>
+            {moodleAssistant?.status === "waiting_login" ? (
+              <Alert type="info" showIcon message="请在打开的 Chrome 窗口完成 Monash 登录" description={moodleAssistant.message} />
+            ) : null}
+            {moodleAssistant?.status === "error" ? <Alert type="error" showIcon message="连接失败" description={moodleAssistant.message} /> : null}
+            <Space wrap>
+              {moodleAssistant?.status === "waiting_login" ? (
+                <Button danger onClick={() => void cancelMoodle()}>取消登录</Button>
+              ) : (
+                <Button type="primary" loading={assistantStarting} onClick={() => void startMoodle()}>打开登录助手</Button>
+              )}
+              <Button type="link" onClick={() => { setManualMoodle(true); form.setFieldsValue({ baseUrl: "https://learning.monash.edu" }); }}>
+                改为手动填写 cookie
+              </Button>
+            </Space>
+          </Space>
+        ) : null}
+        <Form form={form} layout="vertical" onFinish={saveCredentials} requiredMark={false} style={connectSource === "moodle" && !manualMoodle ? { display: "none" } : undefined}>
           {connectSource === "ed" ? (
             <>
               <Form.Item name="token" label="Ed API token" rules={[{ required: true, message: "请输入 token" }]}>

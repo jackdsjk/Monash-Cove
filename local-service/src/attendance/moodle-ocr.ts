@@ -1,12 +1,14 @@
 import { fileURLToPath } from "node:url";
 import { createWorker, type Worker } from "tesseract.js";
 import { parse } from "node-html-parser";
+import { moodleCookieHeader } from "../moodle-download.js";
 import type { MoodleContentRow } from "../domain.js";
 import type { AttendanceCode } from "./parser.js";
 
 export interface MoodleAttendanceCredentials {
   baseUrl: string;
-  session: string;
+  session?: string;
+  cookie?: string;
 }
 
 function courseCode(value: string) {
@@ -63,34 +65,42 @@ async function ocrImage(buffer: Buffer, worker: Worker) {
   return result.data.text;
 }
 
+/** Fallback for rows synced before image URLs were stored. */
+async function discoverImages(credentials: MoodleAttendanceCredentials, row: MoodleContentRow): Promise<string[]> {
+  const pageResponse = await fetch(row.url, {
+    headers: { cookie: moodleCookieHeader(credentials) },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!pageResponse.ok) return [];
+  const root = parse(await pageResponse.text());
+  const images = row.module === "label"
+    ? [...root.querySelectorAll("li.activity")]
+        .filter((activity) => /attendance/i.test(activity.getAttribute("data-activityname") ?? activity.text))
+        .flatMap((activity) => activity.querySelectorAll("img"))
+    : [...root.querySelectorAll("img")].filter((image) => /\/mod_forum\/post\//.test(image.getAttribute("src") ?? ""));
+  return images
+    .map((image) => image.getAttribute("src"))
+    .filter((src): src is string => typeof src === "string" && src.includes("pluginfile.php"))
+    .map((src) => new URL(src, row.url).toString());
+}
+
 export async function scanMoodleAttendanceImages(
   credentials: MoodleAttendanceCredentials,
   rows: MoodleContentRow[],
-): Promise<AttendanceCode[]> {
+): Promise<{ codes: AttendanceCode[]; failedRowIds: string[] }> {
   const candidates = rows.filter((row) => /attendance/i.test(`${row.title} ${row.text}`));
-  if (candidates.length === 0) return [];
+  if (candidates.length === 0) return { codes: [], failedRowIds: [] };
+  const failedRowIds: string[] = [];
   let worker: Worker | null = null;
   try {
     worker = await createOcrWorker();
     const results = await mapLimit(candidates, 4, async (row) => {
       try {
-        const pageResponse = await fetch(row.url, {
-          headers: { cookie: `MoodleSession=${credentials.session}` },
-          signal: AbortSignal.timeout(20_000),
-        });
-        if (!pageResponse.ok) return [];
-        const root = parse(await pageResponse.text());
-        const images = row.module === "label"
-          ? [...root.querySelectorAll("li.activity")]
-              .filter((activity) => /attendance/i.test(activity.getAttribute("data-activityname") ?? activity.text))
-              .flatMap((activity) => activity.querySelectorAll("img"))
-          : [...root.querySelectorAll("img")].filter((image) => /\/mod_forum\/post\//.test(image.getAttribute("src") ?? ""));
-        const imageCodes = await mapLimit(images, 2, async (image) => {
-          const src = image.getAttribute("src");
-          if (!src || !/pluginfile\.php/.test(src)) return [];
-          const imageUrl = new URL(src, row.url).toString();
+        const imageUrls = row.images?.length ? row.images : await discoverImages(credentials, row);
+        if (imageUrls.length === 0) return [];
+        const imageCodes = await mapLimit(imageUrls, 2, async (imageUrl) => {
           const imageResponse = await fetch(imageUrl, {
-            headers: { cookie: `MoodleSession=${credentials.session}` },
+            headers: { cookie: moodleCookieHeader(credentials) },
             signal: AbortSignal.timeout(20_000),
           });
           if (!imageResponse.ok || !worker) return [];
@@ -99,12 +109,13 @@ export async function scanMoodleAttendanceImages(
         });
         return imageCodes.flat();
       } catch {
+        failedRowIds.push(row.id);
         return [];
       }
     });
-    return results.flat();
+    return { codes: results.flat(), failedRowIds };
   } catch {
-    return [];
+    return { codes: [], failedRowIds: candidates.map((row) => row.id) };
   } finally {
     await worker?.terminate().catch(() => undefined);
   }

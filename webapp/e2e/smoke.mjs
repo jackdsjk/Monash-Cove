@@ -62,6 +62,8 @@ try {
   await page.locator(".ant-modal").waitFor();
   await page.getByRole("button", { name: "保存反馈" }).click();
   await page.locator(".ant-message").waitFor();
+  // The modal closes only after the correction write returns.
+  await page.locator(".ant-modal").waitFor({ state: "hidden" });
   await page.locator(".ant-drawer-close").click();
 
   await page.getByRole("button", { name: "标记本次已查看" }).click();

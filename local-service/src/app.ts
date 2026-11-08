@@ -7,6 +7,8 @@ import path from "node:path";
 import { z } from "zod";
 import { createDatabase, type CoveDatabase } from "./db.js";
 import { randomUUID } from "node:crypto";
+import { gzip as gzipCallback } from "node:zlib";
+import { promisify } from "node:util";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createCoveMcpServer } from "./mcp.js";
 import { GoogleOAuth, OAuthError, type GoogleOAuthConfig } from "./oauth/google.js";
@@ -19,11 +21,17 @@ import { FullSyncJobs } from "./sync/jobs.js";
 import { MoodleClient } from "./sources/moodle.js";
 import { EdClient } from "./sources/ed.js";
 import { syncMoodleContent } from "./sync/moodle-content.js";
-import { downloadMoodleResource, MoodleDownloadError, safeDownloadName } from "./moodle-download.js";
+import { downloadMoodleResource, MoodleDownloadError, moodleCookieHeader, safeDownloadName } from "./moodle-download.js";
 import { captureMoodlePage } from "./moodle-snapshot.js";
-import type { ApiError, Source } from "./domain.js";
+import { AssetFetchError, fetchAsset } from "./safe-download.js";
+import { withTimeout } from "./http.js";
+import { attendanceScanKey } from "./attendance/scan-key.js";
+import type { ApiError, ChangesResponse, Source } from "./domain.js";
+import { describeCredentials } from "./credentials.js";
+import { configureOnTrackCredentials, fetchOnTrackAccount, fetchOnTrackArtifact, fetchOnTrackComments, fetchOnTrackProjects, fetchOnTrackTasks } from "./sources/ontrack.js";
 import { getRuntimeStatus } from "./runtime.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
+import { OnTrackLoginAssistant } from "./setup/ontrack-assistant.js";
 import { AttendanceLoginAssistant } from "./attendance/assistant.js";
 import { discoverAttendanceSessions, fillAttendance, validateAttendance, type AttendanceCredentials } from "./attendance/client.js";
 import { parseAttendanceRows } from "./attendance/parser.js";
@@ -40,7 +48,29 @@ const CURRENT_VERSION = (() => {
 })();
 let updateCache: { at: number; value: UpdateStatus } | null = null;
 
-const sourceSchema = z.enum(["gmail", "ed", "moodle"]);
+const gzipAsync = promisify(gzipCallback);
+
+
+const sourceSchema = z.enum(["gmail", "ed", "moodle", "ontrack"]);
+
+/** Task sheets and resources are addressed by unit, not by project. */
+async function resolveOnTrackUnitId(projectId: number): Promise<number> {
+  const projects = await fetchOnTrackProjects();
+  const match = projects.find((project) => project.id === projectId);
+  if (!match) throw new Error("找不到这个 OnTrack 项目，可能没有权限。");
+  return match.unitId;
+}
+
+/** GET routes that trigger OCR, a browser capture, or an outbound fetch. */
+const SIDE_EFFECTING_GETS = new Set([
+  "/api/attendance/codes",
+  "/api/moodle/page",
+  "/api/moodle/download",
+  "/api/moodle/download-batch",
+  "/api/ed/download",
+  "/api/ed/download-batch",
+  "/api/update",
+]);
 
 const correctionSchema = z.object({
   pinned: z.boolean().optional(),
@@ -80,19 +110,50 @@ export function buildApp(options: AppOptions): FastifyInstance {
     "http://127.0.0.1:4317",
     "http://localhost:4317",
   ]);
+  // The UI is same-origin in production and on a custom COVE_PORT, so an
+  // Origin that matches the request's own Host is accepted too.
+  const isSameOrigin = (origin: string, host: string | undefined): boolean => {
+    if (!host) return false;
+    try {
+      return new URL(origin).host === host;
+    } catch {
+      return false;
+    }
+  };
   app.addHook("onRequest", async (request, reply) => {
     const origin = request.headers.origin;
-    if (origin && !allowedOrigins.has(origin) && ["POST", "PATCH", "DELETE"].includes(request.method)) {
+    if (origin && !allowedOrigins.has(origin) && !isSameOrigin(origin, request.headers.host) && ["POST", "PATCH", "DELETE"].includes(request.method)) {
       return reply.code(403).send({ error: { code: "forbidden_origin", message: "Origin is not allowed.", retryable: false } } satisfies ApiError);
     }
+    // Some GET routes do remote work (OCR, page capture, release lookup) and a
+    // web page can trigger them with an <img> tag, which carries no Origin.
+    // Browsers label those requests `cross-site`; our own UI is always
+    // same-origin, so blocking cross-site here closes the CSRF gap.
+    if (request.method === "GET" && SIDE_EFFECTING_GETS.has(request.url.split("?")[0]) && request.headers["sec-fetch-site"] === "cross-site") {
+      return reply.code(403).send({ error: { code: "forbidden_origin", message: "Cross-site requests are not allowed for this endpoint.", retryable: false } } satisfies ApiError);
+    }
   });
+  // 简报是一个数 MB 的 JSON，本地回环也值得压缩；hook 必须早于路由注册才生效。
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (typeof payload !== "string" || payload.length < 1024) return payload;
+    if (!/\bgzip\b/i.test(String(request.headers["accept-encoding"] ?? ""))) return payload;
+    reply.header("content-encoding", "gzip");
+    reply.header("vary", "accept-encoding");
+    reply.removeHeader("content-length");
+    return gzipAsync(payload);
+  });
+
   const secrets = options.secretStore ?? defaultSecretStore();
-  const google = new GoogleOAuth(options.google ?? null, secrets, options.fetcher ?? fetch);
-  const orchestrator = new SyncOrchestrator(db, secrets, google, options.fetcher ?? fetch);
+  // Every outbound call gets a deadline; a stalled upstream must not hang a
+  // request handler or the hourly sync loop.
+  const fetcher = withTimeout(options.fetcher ?? fetch);
+  const google = new GoogleOAuth(options.google ?? null, secrets, fetcher);
+  const orchestrator = new SyncOrchestrator(db, secrets, google, fetcher);
   const fullSyncJobs = new FullSyncJobs();
   const moodleAssistant = new MoodleLoginAssistant(secrets, db);
+  configureOnTrackCredentials(secrets);
+  const onTrackAssistant = new OnTrackLoginAssistant(secrets, db);
   const attendanceAssistant = new AttendanceLoginAssistant(secrets);
-  let attendanceOcrCache: { at: number; codes: ReturnType<typeof parseAttendanceRows> } | null = null;
   const mcpSessions = new Map<string, StreamableHTTPServerTransport>();
   if (options.autoSync) {
     const timer = setInterval(() => void orchestrator.syncAll(), 60 * 60 * 1000);
@@ -106,13 +167,16 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.decorate("coveDb", db);
   app.addHook("onClose", async () => db.close());
 
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     const err = error as Error & { statusCode?: number };
     const status = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500;
+    // Internal messages can contain file paths, SQL, or upstream response text.
+    // Keep them in the server log and return a stable message to the browser.
+    if (status >= 500) request.log.error({ err }, "request failed");
     const body: ApiError = {
       error: {
-        code: status === 400 ? "invalid_request" : "internal_error",
-        message: err.message,
+        code: status === 400 ? "invalid_request" : status >= 500 ? "internal_error" : "request_failed",
+        message: status >= 500 ? "The local service hit an unexpected error." : err.message,
         retryable: status >= 500,
       },
     };
@@ -211,7 +275,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
   });
 
-  app.get<{ Querystring: { refresh?: string } }>("/api/attendance/codes", async (request) => {
+  app.get<{ Querystring: { refresh?: string; rescan?: string } }>("/api/attendance/codes", async (request) => {
     const moodleRows = db.listAllMoodleContent();
     const rows = [
       ...db.listAttendanceItems().map((row) => ({
@@ -233,7 +297,15 @@ export function buildApp(options: AppOptions): FastifyInstance {
         publishedAt: row.updatedAt,
       })),
     ];
-    const textCodes = parseAttendanceRows(rows);
+    // Text codes are cheap to re-derive; keep them in the attendance table so
+    // history survives even after the source item scrolls out of the window.
+    for (const code of parseAttendanceRows(rows)) {
+      db.upsertAttendanceCode({ ...code, origin: "text" });
+    }
+
+    // OCR is the expensive part: only scan rows that were never scanned, or
+    // that failed last time. `rescan=1` forces a full pass.
+    let ocr: { scanned: number; failed: number; pending: number } | null = null;
     if (request.query.refresh === "1") {
       const raw = await secrets.get("moodle-credentials");
       if (raw) {
@@ -261,19 +333,46 @@ export function buildApp(options: AppOptions): FastifyInstance {
               }];
             });
           const seen = new Set<string>();
-          const ocrRows = [...moodleRows, ...forumRows].filter((row) => {
+          const candidates = [...moodleRows, ...forumRows].filter((row) => {
             const key = `${row.courseName}:${row.url}:${row.title}`;
             if (seen.has(key)) return false;
             seen.add(key);
             return true;
           });
-          attendanceOcrCache = { at: Date.now(), codes: await scanMoodleAttendanceImages(credentials, ocrRows) };
-        } catch {
-          attendanceOcrCache = { at: Date.now(), codes: [] };
+          const scanKeys = new Map(candidates.map((row) => [row.id, attendanceScanKey(row)]));
+          const known = request.query.rescan === "1" ? new Map<string, string>() : db.attendanceScanStatus([...scanKeys.values()]);
+          const pending = candidates
+            // Only pages that talk about attendance are worth OCR (the scanner
+            // applies the same filter, but the scan ledger should match it).
+            .filter((row) => /attendance/i.test(`${row.title} ${row.text}`))
+            .filter((row) => {
+              const status = known.get(scanKeys.get(row.id) ?? "");
+              // "empty" means the picture was read but no code matched its shape:
+              // retrying the same pixels costs 30s and changes nothing.
+              return status !== "ok" && status !== "empty";
+            });
+          if (pending.length > 0) {
+            const { codes, failedRowIds } = await scanMoodleAttendanceImages(credentials, pending);
+            for (const code of codes) db.upsertAttendanceCode({ ...code, origin: "ocr" });
+            const failed = new Set(failedRowIds);
+            const produced = new Set(codes.map((code) => code.id.split(":")[1]));
+            for (const row of pending) {
+              const key = scanKeys.get(row.id) ?? attendanceScanKey(row);
+              if (failed.has(row.id)) db.setAttendanceScan(key, "error", "OCR failed");
+              else if (produced.has(row.id)) db.setAttendanceScan(key, "ok");
+              else db.setAttendanceScan(key, "empty", "图片读到了，但没有匹配到 code 格式");
+            }
+            db.setSetting("attendance_scan_at", new Date().toISOString());
+            ocr = { scanned: pending.length, failed: failed.size, pending: 0 };
+          } else {
+            ocr = { scanned: 0, failed: 0, pending: 0 };
+          }
+        } catch (error) {
+          ocr = { scanned: 0, failed: 1, pending: 0 };
+          db.setSetting("attendance_scan_error", error instanceof Error ? error.message : "scan failed");
         }
       }
     }
-    const allCodes = [...textCodes, ...(attendanceOcrCache?.codes ?? [])];
     const rawPreferences = db.getSetting("attendance_preferences");
     let preferences = { courses: [] as Array<{ course: string; sessions: string[] }> };
     try {
@@ -281,7 +380,18 @@ export function buildApp(options: AppOptions): FastifyInstance {
     } catch {
       preferences = { courses: [] };
     }
-    return { codes: allCodes.filter((code) => matchesPreferredSession(preferences, code.course, code.session)) };
+    const seen = new Set<string>();
+    const codes = db
+      .listAttendanceCodes()
+      .filter((code) => matchesPreferredSession(preferences, code.course, code.session))
+      // The same code usually arrives twice (Moodle content plus a Gmail copy).
+      .filter((code) => {
+        const key = `${code.course}|${code.week}|${code.session}|${code.code}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    return { codes, ocr, lastScanAt: db.getSetting("attendance_scan_at") };
   });
 
   app.post<{ Body: { items?: Array<{ course?: string; week?: number; session?: string; code?: string }> } }>("/api/attendance/fill-all", async (request, reply) => {
@@ -302,7 +412,10 @@ export function buildApp(options: AppOptions): FastifyInstance {
       for (const item of items) {
         try {
           const result = await fillAttendance({ course: item.course!, week: Number(item.week), session: item.session!, code: item.code! }, credentials);
-          if (result.status === "filled") filled += 1;
+          if (result.status === "filled") {
+            filled += 1;
+            db.markAttendanceFilled(item.course!, Number(item.week), item.session!, item.code!);
+          }
           else if (result.status === "inactive") inactive += 1;
           else notFound += 1;
           results.push({ course: item.course, week: item.week, session: item.session, code: item.code, ...result });
@@ -313,6 +426,56 @@ export function buildApp(options: AppOptions): FastifyInstance {
       return { filled, inactive, notFound, results };
     } catch (error) {
       return reply.code(502).send({ error: { code: "attendance_fill_failed", message: error instanceof Error ? error.message : "Attendance fill failed.", retryable: true } } satisfies ApiError);
+    }
+  });
+
+  app.get("/api/attendance/unmatched", async () => {
+    const rows = db
+      .listAllMoodleContent()
+      .filter((row) => (row.images?.length ?? 0) > 0)
+      // Same gate as the scanner: only pages that talk about attendance.
+      .filter((row) => /attendance/i.test(`${row.title} ${row.text}`));
+    const keys = new Map(rows.map((row) => [row.id, attendanceScanKey(row)]));
+    const statuses = db.attendanceScanStatus([...keys.values()]);
+    const items = rows
+      .map((row) => ({ row, status: statuses.get(keys.get(row.id) ?? "") }))
+      .filter(({ status }) => status === "empty" || status === "error")
+      .map(({ row, status }) => ({
+        id: row.id,
+        course: row.courseName,
+        week: Number(/\bweek\s*(\d{1,2})\b/i.exec(row.title)?.[1] ?? 0) || null,
+        title: row.title,
+        url: row.url,
+        images: row.images ?? [],
+        status,
+      }));
+    return { items, lastScanAt: db.getSetting("attendance_scan_at") };
+  });
+
+  app.get<{ Querystring: { url?: string } }>("/api/moodle/asset", async (request, reply) => {
+    const target = request.query.url;
+    if (!target) return reply.code(400).send({ error: { code: "invalid_url", message: "url is required.", retryable: false } } satisfies ApiError);
+    const raw = await secrets.get("moodle-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
+    const credentials = moodleCredentials.parse(JSON.parse(raw));
+    const base = new URL(credentials.baseUrl);
+    const parsed = new URL(target, credentials.baseUrl);
+    if (parsed.hostname !== base.hostname || !parsed.pathname.includes("pluginfile.php")) {
+      return reply.code(403).send({ error: { code: "blocked_host", message: "Only Moodle pluginfile assets can be served.", retryable: false } } satisfies ApiError);
+    }
+    try {
+      const response = await fetcher(parsed.toString(), {
+        headers: { cookie: moodleCookieHeader(credentials) },
+        redirect: "follow",
+      });
+      if (!response.ok) {
+        return reply.code(502).send({ error: { code: "asset_failed", message: `Moodle returned HTTP ${response.status}.`, retryable: true } } satisfies ApiError);
+      }
+      reply.header("content-type", response.headers.get("content-type") ?? "image/png");
+      reply.header("cache-control", "private, max-age=300");
+      return reply.send(Buffer.from(await response.arrayBuffer()));
+    } catch (error) {
+      return reply.code(502).send({ error: { code: "asset_failed", message: error instanceof Error ? error.message : "Asset fetch failed.", retryable: true } } satisfies ApiError);
     }
   });
 
@@ -328,18 +491,127 @@ export function buildApp(options: AppOptions): FastifyInstance {
       const valid = await validateAttendance(credentials);
       if (!valid) return reply.code(409).send({ error: { code: "attendance_expired", message: "Attendance session expired; reconnect Attendance.", retryable: false } } satisfies ApiError);
       const result = await fillAttendance({ course: body.course, week: Number(body.week), session: body.session, code: body.code }, credentials);
+      if (result.status === "filled") db.markAttendanceFilled(body.course, Number(body.week), body.session, body.code);
       return result;
     } catch (error) {
       return reply.code(502).send({ error: { code: "attendance_fill_failed", message: error instanceof Error ? error.message : "Attendance fill failed.", retryable: true } } satisfies ApiError);
     }
   });
 
-  app.get<{ Querystring: { since?: string; source?: string; q?: string } }>("/api/brief", async (request, reply) => {
-    const { since, source, q } = request.query;
+  app.get<{ Querystring: { since?: string; source?: string; q?: string; limit?: string } }>("/api/brief", async (request, reply) => {
+    const { since, source, q, limit } = request.query;
     if (source && !sourceSchema.safeParse(source).success) {
       return reply.code(400).send({ error: { code: "invalid_source", message: "Unknown source", retryable: false } } satisfies ApiError);
     }
-    return db.brief({ since, source: source as Source | undefined, query: q });
+    const parsedLimit = limit === undefined ? undefined : Number(limit);
+    if (parsedLimit !== undefined && (!Number.isInteger(parsedLimit) || parsedLimit <= 0)) {
+      return reply.code(400).send({ error: { code: "invalid_limit", message: "limit must be a positive integer.", retryable: false } } satisfies ApiError);
+    }
+    return db.brief({ since, source: source as Source | undefined, query: q, limit: parsedLimit });
+  });
+
+  app.get("/api/ontrack/overview", async () => {
+    const account = await fetchOnTrackAccount();
+    if (!account) return { connected: false, account: null, projects: [] };
+
+    try {
+      const projects = await fetchOnTrackProjects();
+      const overview = [];
+      for (const project of projects) {
+        const tasks = await fetchOnTrackTasks(project.id);
+        overview.push({ ...project, tasks });
+      }
+      return { connected: true, account, projects: overview };
+    } catch (error) {
+      return {
+        connected: true,
+        account,
+        projects: [],
+        error: error instanceof Error ? error.message : "读取 OnTrack 失败",
+      };
+    }
+  });
+
+  app.get<{ Querystring: { project?: string; task?: string; kind?: string } }>("/api/ontrack/artifact", async (request, reply) => {
+    const projectId = Number(request.query.project);
+    const taskDefinitionId = Number(request.query.task);
+    const kind = request.query.kind ?? "task";
+    if (!Number.isInteger(projectId) || !Number.isInteger(taskDefinitionId)) {
+      return reply.code(400).send({ error: { code: "invalid_target", message: "project and task are required.", retryable: false } } satisfies ApiError);
+    }
+
+    try {
+      const unitId = await resolveOnTrackUnitId(projectId);
+      const path =
+        kind === "resources"
+          ? `/units/${unitId}/task_definitions/${taskDefinitionId}/task_resources.json`
+          : kind === "submission"
+            ? `/projects/${projectId}/task_def_id/${taskDefinitionId}/submission?as_attachment=true`
+            : `/units/${unitId}/task_definitions/${taskDefinitionId}/task_pdf.json?as_attachment=true`;
+
+      const artifact = await fetchOnTrackArtifact(path);
+      const filename = `ontrack-${kind}-${taskDefinitionId}.${kind === "resources" ? "zip" : "pdf"}`;
+      return reply
+        .header("content-type", artifact.contentType)
+        .header("content-disposition", `attachment; filename="${filename}"`)
+        .send(artifact.body);
+    } catch (error) {
+      return reply.code(502).send({
+        error: { code: "ontrack_download_failed", message: error instanceof Error ? error.message : "OnTrack download failed.", retryable: true },
+      } satisfies ApiError);
+    }
+  });
+
+  app.get("/api/ontrack/tasks", async (_request, reply) => {
+    try {
+      const projects = await fetchOnTrackProjects();
+      const tasks: Array<Record<string, unknown>> = [];
+      for (const project of projects) {
+        for (const task of await fetchOnTrackTasks(project.id)) {
+          tasks.push({ ...task, projectId: project.id, unitCode: project.unitCode, unitName: project.unitName });
+        }
+      }
+      return { projects, tasks };
+    } catch (error) {
+      return reply.code(502).send({
+        error: { code: "ontrack_unavailable", message: error instanceof Error ? error.message : "OnTrack is unavailable.", retryable: true },
+      } satisfies ApiError);
+    }
+  });
+
+  app.get<{ Querystring: { project?: string; task?: string } }>("/api/ontrack/comments", async (request, reply) => {
+    const projectId = Number(request.query.project);
+    const taskDefinitionId = Number(request.query.task);
+    if (!Number.isInteger(projectId) || !Number.isInteger(taskDefinitionId)) {
+      return reply.code(400).send({ error: { code: "invalid_target", message: "project and task are required.", retryable: false } } satisfies ApiError);
+    }
+    try {
+      const account = await fetchOnTrackAccount();
+      const comments = await fetchOnTrackComments(projectId, taskDefinitionId);
+      return { comments, viewerId: account?.userId ?? null };
+    } catch (error) {
+      return reply.code(502).send({
+        error: { code: "ontrack_unavailable", message: error instanceof Error ? error.message : "OnTrack is unavailable.", retryable: true },
+      } satisfies ApiError);
+    }
+  });
+
+  app.get("/api/ontrack/account", async () => {
+    const account = await fetchOnTrackAccount();
+    if (!account) return { connected: false, account: null };
+    return { connected: true, account };
+  });
+
+  app.get("/api/credentials", async () => ({ credentials: await describeCredentials(secrets) }));
+
+  app.get<{ Querystring: { since?: string; limit?: string } }>("/api/changes", async (request, reply) => {
+    const { since, limit } = request.query;
+    const parsedLimit = limit === undefined ? undefined : Number(limit);
+    if (parsedLimit !== undefined && (!Number.isInteger(parsedLimit) || parsedLimit <= 0)) {
+      return reply.code(400).send({ error: { code: "invalid_limit", message: "limit must be a positive integer.", retryable: false } } satisfies ApiError);
+    }
+    const changes = db.listChanges({ since: since ?? null, limit: parsedLimit });
+    return { changes, since: since ?? null } satisfies ChangesResponse;
   });
 
   app.get<{ Params: { id: string } }>("/api/items/:id", async (request, reply) => {
@@ -368,7 +640,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
         const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
         const threadId = Number(item.sourceItemId.replace(/^thread:/, ""));
         if (!Number.isFinite(threadId)) return fallback;
-        const detail = await new EdClient(credentials.token, credentials.region, options.fetcher ?? fetch).getThreadDetail(threadId);
+        const detail = await new EdClient(credentials.token, credentials.region, fetcher).getThreadDetail(threadId);
         return { ...detail, url: item.url, warning: null };
       }
       if (item.source === "gmail") {
@@ -399,6 +671,18 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
     db.markChecked(parsed.data.ids);
     return { ok: true, lastCheckedAt: db.getSetting("last_checked_at") };
+  });
+
+  app.patch<{ Params: { id: string }; Body: { completed?: boolean | null } }>("/api/items/:id/completed", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!("completed" in body) || (body.completed !== null && typeof body.completed !== "boolean")) {
+      return reply.code(400).send({ error: { code: "invalid_request", message: "completed must be true, false, or null.", retryable: false } } satisfies ApiError);
+    }
+    if (!db.getItem(request.params.id)) {
+      return reply.code(404).send({ error: { code: "not_found", message: "Item not found", retryable: false } } satisfies ApiError);
+    }
+    db.setItemUserCompleted(request.params.id, body.completed);
+    return db.getItem(request.params.id);
   });
 
   app.patch<{ Params: { id: string } }>("/api/items/:id/correction", async (request, reply) => {
@@ -448,7 +732,15 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
 
   const edCredentials = z.object({ token: z.string().min(1), region: z.enum(["us", "au", "eu"]).default("us") });
-  const moodleCredentials = z.object({ baseUrl: z.string().url(), session: z.string().min(1) });
+  const moodleCredentials = z
+  .object({
+    baseUrl: z.string().url(),
+    /** Raw MoodleSession value; still accepted for older saved credentials. */
+    session: z.string().min(1).optional(),
+    /** Full Cookie header captured by the login assistant. */
+    cookie: z.string().min(1).optional(),
+  })
+  .refine((value) => Boolean(value.session || value.cookie), { message: "session or cookie is required" });
 
   app.post<{ Params: { source: string } }>("/api/sources/:source/credentials", async (request, reply) => {
     const source = sourceSchema.safeParse(request.params.source);
@@ -486,7 +778,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const client = new MoodleClient(credentials.baseUrl, credentials.session, options.fetcher ?? fetch);
+      const client = new MoodleClient(credentials.baseUrl, moodleCookieHeader(credentials), fetcher);
       return { courses: await client.listCourses() };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Moodle course list failed.";
@@ -503,7 +795,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const result = await syncMoodleContent(db, credentials.baseUrl, credentials.session, courseId, options.fetcher);
+      const result = await syncMoodleContent(db, credentials.baseUrl, moodleCookieHeader(credentials), courseId, fetcher);
       db.setSourceStatus("moodle", "connected", new Date().toISOString(), null);
       return { ok: true, ...result };
     } catch (error) {
@@ -520,7 +812,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const file = await downloadMoodleResource(credentials, targetValue, request.query.name, options.fetcher ?? fetch);
+      const file = await downloadMoodleResource(credentials, targetValue, request.query.name, fetcher);
       reply.header("content-type", file.contentType);
       reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
       return reply.send(file.buffer);
@@ -572,7 +864,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     const usedNames = new Set<string>();
     for (const item of items) {
       try {
-        const file = await downloadMoodleResource(credentials, item.url, item.name, options.fetcher ?? fetch);
+        const file = await downloadMoodleResource(credentials, item.url, item.name, fetcher);
         if (totalBytes + file.buffer.length > 100 * 1024 * 1024) {
           skipped += 1;
           continue;
@@ -608,7 +900,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.get<{ Querystring: { refresh?: string } }>("/api/update", async (request) => {
     if (!request.query.refresh && updateCache && Date.now() - updateCache.at < 15 * 60_000) return updateCache.value;
     try {
-      const latest = await fetchLatestRelease(options.fetcher ?? fetch);
+      const latest = await fetchLatestRelease(fetcher);
       const value = buildUpdateStatus(CURRENT_VERSION, latest);
       updateCache = { at: Date.now(), value };
       return value;
@@ -624,7 +916,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
     try {
       const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
-      return { courses: await new EdClient(credentials.token, credentials.region, options.fetcher ?? fetch).listCourses() };
+      return { courses: await new EdClient(credentials.token, credentials.region, fetcher).listCourses() };
     } catch (error) {
       return reply.code(502).send({ error: { code: "ed_courses_failed", message: error instanceof Error ? error.message : "Ed courses failed.", retryable: true } } satisfies ApiError);
     }
@@ -637,7 +929,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
     try {
       const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
-      return { lessons: await new EdClient(credentials.token, credentials.region, options.fetcher ?? fetch).listLessons(courseId) };
+      return { lessons: await new EdClient(credentials.token, credentials.region, fetcher).listLessons(courseId) };
     } catch (error) {
       return reply.code(502).send({ error: { code: "ed_lessons_failed", message: error instanceof Error ? error.message : "Ed lessons failed.", retryable: true } } satisfies ApiError);
     }
@@ -650,7 +942,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
     try {
       const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
-      return await new EdClient(credentials.token, credentials.region, options.fetcher ?? fetch).getLesson(lessonId);
+      return await new EdClient(credentials.token, credentials.region, fetcher).getLesson(lessonId);
     } catch (error) {
       return reply.code(502).send({ error: { code: "ed_lesson_failed", message: error instanceof Error ? error.message : "Ed lesson failed.", retryable: true } } satisfies ApiError);
     }
@@ -658,8 +950,10 @@ export function buildApp(options: AppOptions): FastifyInstance {
 
   app.get<{ Querystring: { url?: string; name?: string } }>("/api/ed/download", async (request, reply) => {
     if (!request.query.url) return reply.code(400).send({ error: { code: "invalid_url", message: "url is required.", retryable: false } } satisfies ApiError);
+    const raw = await secrets.get("ed-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
     try {
-      const response = await fetch(request.query.url, { signal: AbortSignal.timeout(30_000) });
+      const response = await fetchAsset(fetcher, request.query.url);
       if (!response.ok) return reply.code(502).send({ error: { code: "ed_download_failed", message: `Ed file returned HTTP ${response.status}.`, retryable: true } } satisfies ApiError);
       const buffer = Buffer.from(await response.arrayBuffer());
       const name = safeDownloadName(request.query.name || "ed-material") || "ed-material";
@@ -667,6 +961,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
       reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
       return reply.send(buffer);
     } catch (error) {
+      if (error instanceof AssetFetchError) {
+        return reply.code(error.status).send({ error: { code: error.code, message: error.message, retryable: error.status >= 500 } } satisfies ApiError);
+      }
       return reply.code(502).send({ error: { code: "ed_download_failed", message: error instanceof Error ? error.message : "Ed download failed.", retryable: true } } satisfies ApiError);
     }
   });
@@ -674,17 +971,23 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.post<{ Body: { lessonTitle?: string; markdown?: string; files?: Array<{ name?: string; url?: string }> } }>("/api/ed/download-batch", async (request, reply) => {
     const files = (request.body?.files ?? []).filter((file): file is { name: string; url: string } => Boolean(file.url));
     if (files.length > 100) return reply.code(400).send({ error: { code: "too_many_files", message: "Too many files.", retryable: false } } satisfies ApiError);
+    const raw = await secrets.get("ed-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
     const zip = new JSZip();
     let added = 0;
+    let blocked = 0;
+    let totalBytes = 0;
     if (request.body?.markdown) {
       zip.file("lesson.md", request.body.markdown);
       added += 1;
     }
     for (const file of files) {
       try {
-        const response = await fetch(file.url!, { signal: AbortSignal.timeout(30_000) });
+        const response = await fetchAsset(fetcher, file.url);
         if (!response.ok) continue;
         const buffer = Buffer.from(await response.arrayBuffer());
+        if (totalBytes + buffer.length > 100 * 1024 * 1024) continue;
+        totalBytes += buffer.length;
         let name = safeDownloadName(file.name || "file") || "file";
         let suffix = 2;
         while (zip.file(name)) {
@@ -694,9 +997,13 @@ export function buildApp(options: AppOptions): FastifyInstance {
         }
         zip.file(name, buffer);
         added += 1;
-      } catch {
+      } catch (error) {
+        if (error instanceof AssetFetchError && error.code === "blocked_host") blocked += 1;
         // Best-effort archive: omit files that Ed's static host cannot serve.
       }
+    }
+    if (added === 0 && blocked > 0) {
+      return reply.code(403).send({ error: { code: "blocked_host", message: "None of the selected files are hosted on Ed.", retryable: false } } satisfies ApiError);
     }
     if (added === 0) return reply.code(404).send({ error: { code: "no_files", message: "No Ed files could be downloaded.", retryable: false } } satisfies ApiError);
     const archiveName = `${safeDownloadName(request.body?.lessonTitle || "ed-lesson") || "ed-lesson"}.zip`;
@@ -727,7 +1034,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (rawMoodle) {
       try {
         const credentials = moodleCredentials.parse(JSON.parse(rawMoodle));
-        moodle = await new MoodleClient(credentials.baseUrl, credentials.session, options.fetcher ?? fetch).validateSession();
+        moodle = await new MoodleClient(credentials.baseUrl, moodleCookieHeader(credentials), fetcher).validateSession();
         if (!moodle) db.setSourceStatus("moodle", "degraded", null, "Moodle session expired; reconnect");
       } catch {
         moodle = false;
@@ -751,6 +1058,12 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.get("/api/setup/moodle/status", async () => ({ assistant: moodleAssistant.get() }));
 
   app.post("/api/setup/moodle/cancel", async () => ({ assistant: await moodleAssistant.cancel() }));
+
+  app.post("/api/setup/ontrack/start", async () => ({ assistant: await onTrackAssistant.start() }));
+
+  app.get("/api/setup/ontrack/status", async () => ({ assistant: onTrackAssistant.get() }));
+
+  app.post("/api/setup/ontrack/cancel", async () => ({ assistant: await onTrackAssistant.cancel() }));
 
   app.get("/api/sync/status", async () => ({
     fullSyncCompleted: Boolean(db.getSetting("full_sync_completed_at")),
@@ -780,7 +1093,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
         const raw = await secrets.get("ed-credentials");
         if (!raw) throw new Error("Ed token is not configured.");
         const credentials = edCredentials.parse(JSON.parse(raw));
-        await syncEd(db, credentials.token, credentials.region, options.fetcher, {
+        await syncEd(db, credentials.token, credentials.region, fetcher, {
           full: true,
           onProgress: (processed, total) => fullSyncJobs.update("ed", { processed, total }),
         });
@@ -795,9 +1108,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
         const raw = await secrets.get("moodle-credentials");
         if (!raw) throw new Error("Moodle session is not configured.");
         const credentials = moodleCredentials.parse(JSON.parse(raw));
-        const assessments = await syncMoodle(db, credentials.baseUrl, credentials.session, options.fetcher);
-        const forum = await syncMoodleForum(db, credentials.baseUrl, credentials.session, options.fetcher);
-        const content = await syncAllMoodleContent(db, credentials.baseUrl, credentials.session, options.fetcher, (processed, total) => {
+        const assessments = await syncMoodle(db, credentials.baseUrl, moodleCookieHeader(credentials), fetcher);
+        const forum = await syncMoodleForum(db, credentials.baseUrl, moodleCookieHeader(credentials), fetcher);
+        const content = await syncAllMoodleContent(db, credentials.baseUrl, moodleCookieHeader(credentials), fetcher, (processed, total) => {
           fullSyncJobs.update("moodle", { processed, total });
         });
         fullSyncJobs.update("moodle", { status: "done", processed: content.courses, total: content.courses, message: `${assessments.synced + forum.synced} 条简报，${content.items} 条资料` });

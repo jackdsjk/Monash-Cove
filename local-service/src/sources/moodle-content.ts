@@ -7,16 +7,17 @@ export class MoodleContentClient {
   private sesskey: string | null = null;
   private readonly discussionCache = new Map<string, { title: string; text: string }>();
 
+  /** `cookie` is the full Cookie header for Moodle (see `moodleCookieHeader`). */
   constructor(
     baseUrl: string,
-    private readonly session: string,
+    private readonly cookie: string,
     private readonly fetcher: typeof fetch = fetch,
   ) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
   }
 
   private headers() {
-    return { cookie: `MoodleSession=${this.session}` };
+    return { cookie: this.cookie };
   }
 
   private async getSesskey() {
@@ -136,6 +137,15 @@ export class MoodleContentClient {
         const href = link?.getAttribute("href");
         const url = href ? new URL(href, this.baseUrl).toString() : `${this.baseUrl}/course/view.php?id=${courseId}&section=${sectionNumber}`;
         const text = module === "label" ? cleanText.slice(0, 2000) : "";
+        // Attendance codes usually live in a label image. Capture the URLs now so
+        // OCR can fetch the picture directly instead of re-scraping the section.
+        const images = module === "label"
+          ? [...activity.querySelectorAll("img")]
+              .map((image) => image.getAttribute("src"))
+              .filter((src): src is string => typeof src === "string" && src.includes("pluginfile.php"))
+              .map((src) => new URL(src, this.baseUrl).toString())
+              .filter((src, index, all) => all.indexOf(src) === index)
+          : [];
         const explicitCampus = detectCampus(`${title} ${text}`);
         const courseCampus = detectCampus(courseName);
         let campus = explicitCampus === "shared" ? courseCampus : explicitCampus;
@@ -157,6 +167,7 @@ export class MoodleContentClient {
           text,
           updatedAt,
           campus,
+          images,
         });
         if (module === "label") {
           for (const nested of activity.querySelectorAll("a[href]")) {

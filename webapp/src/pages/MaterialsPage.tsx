@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, App as AntApp, Button, Card, Checkbox, Col, Empty, Input, Row, Segmented, Select, Space, Tag, Typography } from "antd";
-import { BookOutlined, DownloadOutlined, FileTextOutlined, LinkOutlined, NotificationOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
+import { Alert, App as AntApp, Button, Card, Checkbox, Empty, Input, Segmented, Select, Space, Tag, Typography } from "antd";
+import { BookOutlined, DownloadOutlined, FileTextOutlined, NotificationOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { Link } from "react-router-dom";
 import CoveLoader from "../components/CoveLoader";
 import { fetchMoodleContent, fetchMoodleCourses, syncMoodleContent } from "../data/repository";
@@ -18,12 +18,6 @@ const MODULE_LABELS: Record<string, string> = {
   url: "链接",
   lti: "外部工具",
   label: "说明",
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-  materials: "资料",
-  work: "作业 / 考核",
-  other: "说明与其他",
 };
 
 function categoryOf(item: MoodleContentItem) {
@@ -262,10 +256,7 @@ export default function MaterialsPage() {
   return (
     <>
       <header className="page-header materials-header">
-        <div>
-          <Typography.Text className="eyebrow" type="secondary">
-            COURSE MATERIALS
-          </Typography.Text>
+        <div className="page-header__main">
           <Typography.Title level={1} className="page-title">
             每周资料
           </Typography.Title>
@@ -273,6 +264,7 @@ export default function MaterialsPage() {
             按 Moodle 课程板块列出每周资料、公告和其他说明；资料会按马来西亚 / 澳大利亚 / 印尼校区标记过滤。
           </Typography.Paragraph>
         </div>
+        <div className="page-header__side">
         <Space wrap className="materials-actions">
           <Select
             className="region-select"
@@ -294,6 +286,21 @@ export default function MaterialsPage() {
             同步资料
           </Button>
         </Space>
+          <div className="board-counters">
+            <div className="board-counter">
+              <div className="board-flap"><b>{sections.length}</b></div>
+              <span>板块</span>
+            </div>
+            <div className="board-counter">
+              <div className="board-flap"><b>{materialCount}</b></div>
+              <span>资料</span>
+            </div>
+            <div className="board-counter">
+              <div className="board-flap"><b>{otherCount}</b></div>
+              <span>说明与其他</span>
+            </div>
+          </div>
+        </div>
       </header>
 
       {error ? (
@@ -317,12 +324,6 @@ export default function MaterialsPage() {
 
       {items.length > 0 ? (
         <>
-          <Row className="materials-stats" gutter={[12, 12]}>
-            <Col xs={8}><Card size="small"><Typography.Text type="secondary">板块</Typography.Text><div className="materials-stat">{sections.length}</div></Card></Col>
-            <Col xs={8}><Card size="small"><Typography.Text type="secondary">资料</Typography.Text><div className="materials-stat">{materialCount}</div></Card></Col>
-            <Col xs={8}><Card size="small"><Typography.Text type="secondary">说明与其他</Typography.Text><div className="materials-stat">{otherCount}</div></Card></Col>
-          </Row>
-
           <Card className="materials-filter-bar" size="small">
             <Space wrap size={[8, 8]}>
               <Input
@@ -389,102 +390,122 @@ export default function MaterialsPage() {
           ) : null}
 
           {announcements.length > 0 ? (
-            <Card
-              className="announcement-card"
-              title={
-                <Space>
-                  <NotificationOutlined />
-                  <span>公告与讨论</span>
-                  <Tag>{announcements.length}</Tag>
-                </Space>
-              }
-            >
-              <div className="material-links">
+            <section className="mat-section mat-section--announcements">
+              <div className="mat-section__head">
+                <NotificationOutlined />
+                <span>公告与讨论</span>
+                <Tag>{announcements.length}</Tag>
+              </div>
+              <div className="mat-table">
+                <div className="mat-thead">
+                  <span />
+                  <span>标题</span>
+                  <span>类型</span>
+                  <span>校区</span>
+                  <span className="mat-right">操作</span>
+                </div>
                 {announcements.map((item) => (
-                  <a key={item.id} href={item.url} target="_blank" rel="noreferrer" className="material-link-row">
-                    <div className="material-link-main">
-                      <div>
-                        <Tag color="gold">Moodle</Tag>
-                        <span>{item.title}</span>
-                        <LinkOutlined />
-                      </div>
+                  <div className="mat-trow" key={item.id}>
+                    <span />
+                    <div className="mat-name">
+                      <a href={item.url} target="_blank" rel="noreferrer">
+                        {item.title}
+                      </a>
                       {item.text ? (
-                        <Typography.Paragraph type="secondary" className="material-excerpt">
+                        <Typography.Paragraph className="mat-excerpt" type="secondary" ellipsis={{ rows: 1 }}>
                           {item.text}
                         </Typography.Paragraph>
                       ) : null}
                     </div>
-                  </a>
+                    <span className="mat-kind">
+                      <Tag>Moodle</Tag>
+                    </span>
+                    <span className="mat-campus">
+                      {item.campus && item.campus !== "shared" ? (
+                        <Tag color={item.campus === "malaysia" ? "blue" : "default"}>
+                          {item.campus === "malaysia" ? "马来西亚" : item.campus === "australia" ? "澳大利亚" : "印度尼西亚"}
+                        </Tag>
+                      ) : null}
+                    </span>
+                    <span className="mat-ops">
+                      <a href={item.url} target="_blank" rel="noreferrer">
+                        打开
+                      </a>
+                    </span>
+                  </div>
                 ))}
               </div>
-            </Card>
+            </section>
           ) : null}
 
-          <div className="materials-sections">
+          <div className="mat-sections">
             {sections.map((section) => (
-              <Card
-                key={`${section.number}-${section.title}`}
-                className="materials-section"
-                title={
-                  <Space wrap>
-                    <BookOutlined />
-                    <span>{section.title}</span>
-                    <Tag>{section.items.length}</Tag>
-                  </Space>
-                }
-              >
-                {["materials", "work", "other"].map((category) => {
-                  const group = section.items.filter((item) => categoryOf(item) === category);
-                  if (group.length === 0) return null;
-                  return (
-                    <div className="material-group" key={category}>
-                      <Typography.Text className="material-group-title" type="secondary">
-                        {CATEGORY_LABELS[category]}
-                      </Typography.Text>
-                      <div className="material-links">
-                        {group.map((item) => (
-                          <div key={item.id} className="material-item">
-                            <div className="material-item-title">
-                              {isDownloadable(item) ? (
-                                <Checkbox
-                                  checked={selected.includes(item.id)}
-                                  onChange={(event) => toggleOne(item.id, event.target.checked)}
-                                  aria-label={`选择 ${item.title}`}
-                                />
-                              ) : null}
-                              <Tag>{MODULE_LABELS[item.module] ?? item.module}</Tag>
-                              <a href={item.url} target="_blank" rel="noreferrer">
-                                {item.title} <LinkOutlined />
-                              </a>
-                              {isDownloadable(item) ? (
-                                <a
-                                  className="material-download"
-                                  href={`/api/moodle/download?url=${encodeURIComponent(item.url)}&name=${encodeURIComponent(item.title)}`}
-                                  download
-                                  onClick={(event) => event.stopPropagation()}
-                                >
-                                  下载
-                                </a>
-                              ) : item.module === "label" || item.module === "page" ? (
-                                <a
-                                  className="material-download"
-                                  href={`/api/moodle/page?url=${encodeURIComponent(item.url)}&name=${encodeURIComponent(item.title)}`}
-                                  download
-                                  onClick={(event) => event.stopPropagation()}
-                                >
-                                  下载页面
-                                </a>
-                              ) : null}
-                            </div>
-                            {item.campus && item.campus !== "shared" ? <Tag color={item.campus === "malaysia" ? "green" : "default"}>{item.campus === "malaysia" ? "马来西亚" : item.campus === "australia" ? "澳大利亚" : "印度尼西亚"}</Tag> : null}
-                            {item.text ? <Typography.Paragraph type="secondary" className="material-excerpt">{item.text}</Typography.Paragraph> : null}
-                          </div>
-                        ))}
+              <section className="mat-section" key={`${section.number}-${section.title}`}>
+                <div className="mat-section__head">
+                  <BookOutlined />
+                  <span>{section.title}</span>
+                  <Tag>{section.items.length}</Tag>
+                </div>
+                <div className="mat-table">
+                  <div className="mat-thead">
+                    <span />
+                    <span>标题</span>
+                    <span>类型</span>
+                    <span>校区</span>
+                    <span className="mat-right">操作</span>
+                  </div>
+                  {section.items.map((item) => (
+                    <div className="mat-trow" key={item.id}>
+                      <span>
+                        {isDownloadable(item) ? (
+                          <Checkbox
+                            checked={selected.includes(item.id)}
+                            onChange={(event) => toggleOne(item.id, event.target.checked)}
+                            aria-label={`选择 ${item.title}`}
+                          />
+                        ) : null}
+                      </span>
+                      <div className="mat-name">
+                        <a href={item.url} target="_blank" rel="noreferrer">
+                          {item.title}
+                        </a>
+                        {item.text ? (
+                          <Typography.Paragraph className="mat-excerpt" type="secondary" ellipsis={{ rows: 1 }}>
+                            {item.text}
+                          </Typography.Paragraph>
+                        ) : null}
                       </div>
+                      <span className="mat-kind">
+                        <Tag>{MODULE_LABELS[item.module] ?? item.module}</Tag>
+                      </span>
+                      <span className="mat-campus">
+                        {item.campus && item.campus !== "shared" ? (
+                          <Tag color={item.campus === "malaysia" ? "blue" : "default"}>
+                            {item.campus === "malaysia" ? "马来西亚" : item.campus === "australia" ? "澳大利亚" : "印度尼西亚"}
+                          </Tag>
+                        ) : null}
+                      </span>
+                      <span className="mat-ops">
+                        {isDownloadable(item) ? (
+                          <a
+                            href={`/api/moodle/download?url=${encodeURIComponent(item.url)}&name=${encodeURIComponent(item.title)}`}
+                            download
+                          >
+                            下载
+                          </a>
+                        ) : item.module === "label" || item.module === "page" ? (
+                          <a
+                            href={`/api/moodle/page?url=${encodeURIComponent(item.url)}&name=${encodeURIComponent(item.title)}`}
+                            download
+                          >
+                            下载页面
+                          </a>
+                        ) : null}
+                      </span>
                     </div>
-                  );
-                })}
-              </Card>
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         </>

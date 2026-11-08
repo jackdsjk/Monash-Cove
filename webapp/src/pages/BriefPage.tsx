@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { HistoryOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
-import { Alert, App as AntApp, Button, Card, Col, Collapse, Empty, Input, Row, Segmented, Select, Space, Statistic, Switch, Tag, Typography } from "antd";
-import { fetchBrief, fetchSyncStatus, startFullSync } from "../data/repository";
+import { Alert, App as AntApp, Button, Collapse, Empty, Input, Segmented, Select, Space, Switch, Tag, Typography } from "antd";
+import { fetchBrief, fetchChanges, fetchSyncStatus, setItemCompleted, startFullSync } from "../data/repository";
 import ItemCard from "../components/ItemCard";
 import ItemDrawer from "../components/ItemDrawer";
 import FeedbackModal from "../components/FeedbackModal";
 import CoveLoader from "../components/CoveLoader";
 import { useDemoStore } from "../state/DemoStateContext";
 import { filterItems, formatWindow, groupBySection, summarize } from "../lib/triage";
-import type { BriefItem, Feedback, Source } from "../types";
+import type { BriefItem, ChangeField, Feedback, ItemChange, Source } from "../types";
 
 type ViewMode = "since" | "all";
 type SourceFilter = "all" | Source;
@@ -20,6 +20,7 @@ const sourceOptions = [
   { label: "Gmail", value: "gmail" },
   { label: "Ed", value: "ed" },
   { label: "Moodle", value: "moodle" },
+  { label: "OnTrack", value: "ontrack" },
 ];
 
 const typeOptions = [
@@ -52,6 +53,8 @@ export default function BriefPage() {
   const [syncing, setSyncing] = useState(false);
   const [pastOpen, setPastOpen] = useState(false);
   const [pastLimit, setPastLimit] = useState(20);
+  const [changes, setChanges] = useState<ItemChange[]>([]);
+  const [changesOpen, setChangesOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,6 +63,7 @@ export default function BriefPage() {
       const data = await fetchBrief();
       setItems(data.items);
       hydrate(data.items);
+      setChanges(await fetchChanges(data.lastCheckedAt).catch(() => []));
     } catch {
       setError("无法读取本地数据。请确认本地服务正在运行。");
     } finally {
@@ -141,7 +145,7 @@ export default function BriefPage() {
       ? `共 ${filtered.length} 条，按注意力层级分组。`
       : state.windowHours === 0
         ? "上次查看后没有新内容。过去的内容仍可在下方展开。"
-        : `过去 ${formatWindow(state.windowHours)}，整理了 ${filtered.length} 条更新，其中 ${summary.action} 条需要你处理。${pastItems.length > 0 ? ` 另有 ${pastItems.length} 条更早内容可展开。` : ""}`;
+        : `过去 ${formatWindow(state.windowHours)}，整理了 ${filtered.length} 条更新，其中 ${summary.action} 条需要你处理，${uncertainCount} 条待确认。${pastItems.length > 0 ? ` 另有 ${pastItems.length} 条更早内容可展开。` : ""}`;
 
   const openItem = (id: string) => {
     markRead(id);
@@ -178,7 +182,7 @@ export default function BriefPage() {
       }
 
       const failures: string[] = [];
-      for (const itemSource of ["gmail", "ed", "moodle"] as const) {
+      for (const itemSource of ["gmail", "ed", "moodle", "ontrack"] as const) {
         try {
           const response = await fetch("/api/sync", {
             method: "POST",
@@ -207,11 +211,49 @@ export default function BriefPage() {
     }
   };
 
-  const handleFeedback = (feedback: Feedback) => {
+  const handleFeedback = async (feedback: Feedback) => {
     if (!feedbackItem) return;
-    saveFeedback(feedbackItem.id, feedback);
+    const saved = await saveFeedback(feedbackItem.id, feedback);
+    if (!saved) {
+      message.error("反馈没有保存成功，请确认本地服务正在运行");
+      return;
+    }
     message.success("反馈已保存，仅在本机生效");
     setFeedbackItem(null);
+  };
+
+  const handleToggleCompleted = async (id: string, completed: boolean) => {
+    try {
+      const updated = await setItemCompleted(id, completed);
+      setItems((previous) => previous.map((entry) => (entry.id === id ? { ...entry, ...updated } : entry)));
+      message.success(completed ? "已标记为提交完成" : "已恢复为未提交");
+    } catch (cause) {
+      message.error(cause instanceof Error ? cause.message : "更新提交状态失败");
+    }
+  };
+
+  const handleCorrection = async (id: string, key: "pinned" | "dismissed") => {
+    const saved = await toggleCorrection(id, key);
+    if (!saved) message.error("操作没有保存成功，请确认本地服务正在运行");
+  };
+
+  const changeFieldLabel: Record<ChangeField, string> = {
+    due_at: "截止时间",
+    title: "标题",
+    course: "课程",
+    text: "正文",
+  };
+
+  const formatChange = (field: ChangeField, value: string | null) => {
+    if (!value) return "（空）";
+    if (field === "due_at") {
+      const parsed = Date.parse(value);
+      if (Number.isFinite(parsed)) {
+        return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(parsed));
+      }
+    }
+    if (field === "text" && value.length > 60) return `${value.slice(0, 60)}…`;
+    return value;
   };
 
   if (loading) {
@@ -221,7 +263,7 @@ export default function BriefPage() {
   return (
     <>
       <header className="page-header">
-        <div>
+        <div className="page-header__main">
           <Typography.Text className="eyebrow" type="secondary">
             {new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date())}
           </Typography.Text>
@@ -232,22 +274,44 @@ export default function BriefPage() {
             {subtitle}
           </Typography.Paragraph>
         </div>
-        <Space className="page-actions" wrap>
-          <Segmented
-            value={view}
-            options={[
-              { label: "自上次查看", value: "since" },
-              { label: "全部", value: "all" },
-            ]}
-            onChange={(value) => setView(value as ViewMode)}
-          />
-          <Button icon={<ReloadOutlined />} loading={syncing} onClick={() => void handleSync()}>
-            同步全部来源
-          </Button>
-          <Button type="primary" onClick={handleMarkChecked} disabled={view === "all"}>
-            标记本次已查看
-          </Button>
-        </Space>
+        <div className="page-header__side">
+          <Space className="page-actions" wrap>
+            <Segmented
+              value={view}
+              options={[
+                { label: "自上次查看", value: "since" },
+                { label: "全部", value: "all" },
+              ]}
+              onChange={(value) => setView(value as ViewMode)}
+            />
+            <Button icon={<ReloadOutlined />} loading={syncing} onClick={() => void handleSync()}>
+              同步全部来源
+            </Button>
+            <Button type="primary" onClick={handleMarkChecked} disabled={view === "all"}>
+              标记本次已查看
+            </Button>
+          </Space>
+          <div className="board-counters">
+            <div className="board-counter">
+              <div className="board-flap">
+                <b>{filtered.length}</b>
+              </div>
+              <span>本次视图</span>
+            </div>
+            <div className="board-counter board-counter--hot">
+              <div className="board-flap">
+                <b>{summary.action}</b>
+              </div>
+              <span>要处理</span>
+            </div>
+            <div className="board-counter">
+              <div className="board-flap">
+                <b>{summary.folded}</b>
+              </div>
+              <span>已折叠</span>
+            </div>
+          </div>
+        </div>
       </header>
 
       {error ? (
@@ -260,29 +324,6 @@ export default function BriefPage() {
           action={<Button onClick={() => void load()}>重试</Button>}
         />
       ) : null}
-
-      <Row className="stat-row" gutter={[16, 16]}>
-        <Col xs={12} lg={6}>
-          <Card className="stat-card">
-            <Statistic title="本次视图" value={filtered.length} suffix="条" />
-          </Card>
-        </Col>
-        <Col xs={12} lg={6}>
-          <Card className="stat-card">
-            <Statistic title="必须处理" value={summary.action} suffix="条" styles={{ content: { color: "#CF1322" } }} />
-          </Card>
-        </Col>
-        <Col xs={12} lg={6}>
-          <Card className="stat-card">
-            <Statistic title="待确认" value={uncertainCount} suffix="条" styles={{ content: { color: "#D48806" } }} />
-          </Card>
-        </Col>
-        <Col xs={12} lg={6}>
-          <Card className="stat-card">
-            <Statistic title="已折叠" value={summary.folded} suffix="条" />
-          </Card>
-        </Col>
-      </Row>
 
       <div className="toolbar brief-filter-bar">
         <Segmented
@@ -329,6 +370,39 @@ export default function BriefPage() {
           </Button>
         ) : null}
       </div>
+
+      {view === "since" && changes.length > 0 ? (
+        <section className="changes-block">
+          <button
+            type="button"
+            className="changes-head"
+            aria-expanded={changesOpen}
+            onClick={() => setChangesOpen((open) => !open)}
+          >
+            <span className="changes-count">{changes.length} 条内容自上次查看后变过</span>
+            <span className="changes-note">改的是源头，不是我们的判断</span>
+            <span className="changes-toggle">{changesOpen ? "收起" : "展开"}</span>
+          </button>
+          {changesOpen ? (
+            <ul className="changes-list">
+              {changes.slice(0, 12).map((change) => (
+                <li key={change.id} className="changes-row">
+                  <span className="changes-field">{changeFieldLabel[change.field]}</span>
+                  <button type="button" className="changes-title" onClick={() => openItem(change.itemId)}>
+                    {change.title}
+                  </button>
+                  <span className="changes-diff">
+                    <del>{formatChange(change.field, change.before)}</del>
+                    <span aria-hidden="true"> → </span>
+                    <ins>{formatChange(change.field, change.after)}</ins>
+                  </span>
+                </li>
+              ))}
+              {changes.length > 12 ? <li className="changes-more">还有 {changes.length - 12} 条未显示</li> : null}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
 
       {filtered.length === 0 ? (
         <Empty
@@ -380,8 +454,8 @@ export default function BriefPage() {
                             correction={state.corrections[item.id] ?? {}}
                             read={Boolean(state.read[item.id])}
                             onOpen={openItem}
-                            onTogglePin={(id) => toggleCorrection(id, "pinned")}
-                            onDismiss={(id) => toggleCorrection(id, "dismissed")}
+                            onTogglePin={(id) => void handleCorrection(id, "pinned")}
+                            onDismiss={(id) => void handleCorrection(id, "dismissed")}
                           />
                         ))}
                       </div>
@@ -392,9 +466,6 @@ export default function BriefPage() {
             ) : (
               <section className={`feed-section feed-section--${group.id}`} key={group.id}>
                 <div className="section-heading">
-                  <Typography.Text className="section-kicker" type="secondary">
-                    BRIEF
-                  </Typography.Text>
                   <Typography.Title level={2}>
                     {group.title} <Tag>{group.items.length}</Tag>
                   </Typography.Title>
@@ -408,8 +479,8 @@ export default function BriefPage() {
                       correction={state.corrections[item.id] ?? {}}
                       read={Boolean(state.read[item.id])}
                       onOpen={openItem}
-                      onTogglePin={(id) => toggleCorrection(id, "pinned")}
-                      onDismiss={(id) => toggleCorrection(id, "dismissed")}
+                      onTogglePin={(id) => void handleCorrection(id, "pinned")}
+                      onDismiss={(id) => void handleCorrection(id, "dismissed")}
                     />
                   ))}
                 </div>
@@ -446,8 +517,8 @@ export default function BriefPage() {
                         correction={state.corrections[item.id] ?? {}}
                         read={Boolean(state.read[item.id])}
                         onOpen={openItem}
-                        onTogglePin={(id) => toggleCorrection(id, "pinned")}
-                        onDismiss={(id) => toggleCorrection(id, "dismissed")}
+                        onTogglePin={(id) => void handleCorrection(id, "pinned")}
+                        onDismiss={(id) => void handleCorrection(id, "dismissed")}
                       />
                     ))}
                   </div>
@@ -474,9 +545,10 @@ export default function BriefPage() {
         open={Boolean(selectedItem)}
         correction={selectedCorrection}
         onClose={() => setSelectedId(null)}
-        onTogglePin={(id) => toggleCorrection(id, "pinned")}
-        onDismiss={(id) => toggleCorrection(id, "dismissed")}
+        onTogglePin={(id) => void handleCorrection(id, "pinned")}
+        onDismiss={(id) => void handleCorrection(id, "dismissed")}
         onFeedback={setFeedbackItem}
+        onToggleCompleted={(id, completed) => void handleToggleCompleted(id, completed)}
       />
 
       <FeedbackModal

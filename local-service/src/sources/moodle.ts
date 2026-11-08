@@ -1,3 +1,5 @@
+import { parse } from "node-html-parser";
+
 export interface MoodleCourseSummary {
   id: number;
   shortname: string;
@@ -16,6 +18,7 @@ export interface MoodleRawItem {
   url: string;
   dueAt?: string | null;
   deadlineKind?: string | null;
+  completedAt?: string | null;
   kind?: "assessment" | "forum";
 }
 
@@ -40,25 +43,44 @@ interface MoodleEvent {
 export class MoodleClient {
   private readonly baseUrl: string;
 
+  /** `cookie` is the full Cookie header for Moodle (see `moodleCookieHeader`). */
   constructor(
     baseUrl: string,
-    private readonly session: string,
+    private readonly cookie: string,
     private readonly fetcher: typeof fetch = fetch,
   ) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
   }
 
   private headers() {
-    return { cookie: `MoodleSession=${this.session}` };
+    // Moodle is happier when requests look like a browser session; some sites
+    // bind sessions to a user agent.
+    return {
+      cookie: this.cookie,
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    };
+  }
+
+  /**
+   * Follows redirects and rejects anything that lands off-site or on a login
+   * page, so an SSO bounce can never be mistaken for a valid session.
+   */
+  async probeSession(): Promise<{ ok: boolean; status: number; url: string }> {
+    const response = await this.fetcher(`${this.baseUrl}/my/`, {
+      headers: this.headers(),
+      redirect: "follow",
+      signal: AbortSignal.timeout(15_000),
+    });
+    const url = response.url ?? "";
+    const offSite = url !== "" && !url.startsWith(this.baseUrl);
+    const loginPage = /\/login\//.test(url) || /okta\.com|microsoftonline\.com|idp/i.test(url);
+    return { ok: response.ok && !offSite && !loginPage, status: response.status, url };
   }
 
   async validateSession(): Promise<boolean> {
-    const response = await this.fetcher(`${this.baseUrl}/my/`, {
-      headers: this.headers(),
-      redirect: "manual",
-      signal: AbortSignal.timeout(15_000),
-    });
-    return response.ok;
+    const probe = await this.probeSession().catch(() => ({ ok: false, status: 0, url: "" }));
+    return probe.ok;
   }
 
   async listCourses(): Promise<MoodleCourseSummary[]> {
@@ -111,10 +133,51 @@ export class MoodleClient {
     if (!Array.isArray(envelope) || envelope.length !== 2) throw new Error("Moodle AJAX returned an invalid batch response.");
     if (envelope.some((entry) => entry.error)) throw new Error("Moodle AJAX returned an error.");
     const events = envelope[1]?.data?.events ?? [];
-    return events
+    const items = events
       .filter((event) => event.purpose === "assessment" || ASSESSMENT_MODULES.has(event.modulename ?? event.modname ?? ""))
       .map((event) => this.mapAssessment(event))
       .filter((item): item is MoodleRawItem => item !== null);
+    return this.markSubmitted(items);
+  }
+
+  /**
+   * The calendar feed keeps reporting an assignment until its due date even
+   * after it was handed in, so ask the activity page for the submission state.
+   * A failed lookup leaves the item untouched rather than guessing.
+   */
+  private async markSubmitted(items: MoodleRawItem[]): Promise<MoodleRawItem[]> {
+    return Promise.all(items.map(async (item) => {
+      if (!item.url || !/\/mod\/assign\/view\.php/.test(item.url)) return item;
+      const status = await this.submissionStatus(item.url).catch(() => "unknown" as const);
+      if (status !== "submitted" && status !== "graded") return item;
+      return { ...item, completedAt: item.updatedAt };
+    }));
+  }
+
+  async submissionStatus(url: string): Promise<"submitted" | "graded" | "none" | "unknown"> {
+    const response = await this.fetcher(url, {
+      headers: this.headers(),
+      redirect: "follow",
+      signal: AbortSignal.timeout(15_000),
+    }).catch(() => null);
+    if (!response?.ok) return "unknown";
+    const root = parse(await response.text());
+    // Moodle renders the table as <tr><th>Submission status</th><td>…</td></tr>;
+    // the label is a th, so the value is every remaining cell in that row.
+    const value = root
+      .querySelectorAll("tr")
+      .map((row) => row.querySelectorAll("th, td"))
+      .filter((cells) => cells.length > 1 && cells[0].text.replace(/\s+/g, " ").trim().toLowerCase() === "submission status")
+      .map((cells) => cells.slice(1).map((cell) => cell.text).join(" "))
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+    if (!value) return "unknown";
+    if (/no submissions?/.test(value) || /nothing submitted/.test(value)) return "none";
+    if (/graded/.test(value)) return "graded";
+    if (/submitted/.test(value)) return "submitted";
+    return "none";
   }
 
   private mapAssessment(event: MoodleEvent): MoodleRawItem | null {

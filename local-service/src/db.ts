@@ -2,10 +2,26 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import type { BriefResponse, FixtureItem, MoodleContentRow, NewItem, Source, SourceStatus, StoredItem } from "./domain.js";
+import type { BriefResponse, ChangeField, FixtureItem, ItemChange, MoodleContentRow, NewItem, Source, SourceStatus, StoredItem } from "./domain.js";
 
-const SOURCE_LABELS: Record<Source, string> = { gmail: "Gmail", ed: "Ed", moodle: "Moodle" };
-const SOURCE_IDS: Source[] = ["gmail", "ed", "moodle"];
+const SOURCE_LABELS: Record<Source, string> = { gmail: "Gmail", ed: "Ed", moodle: "Moodle", ontrack: "OnTrack" };
+const SOURCE_IDS: Source[] = ["gmail", "ed", "moodle", "ontrack"];
+const MAX_BRIEF_ITEMS = 5000;
+const CHANGE_TEXT_LIMIT = 400;
+
+function truncate(value: string) {
+  return value.length > CHANGE_TEXT_LIMIT ? `${value.slice(0, CHANGE_TEXT_LIMIT)}…` : value;
+}
+
+function parseJson(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === "string" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 const DEFAULT_FIXTURE = fileURLToPath(new URL("../fixtures/items.json", import.meta.url));
 
 const SCHEMA = `
@@ -28,6 +44,8 @@ CREATE TABLE IF NOT EXISTS items (
   url TEXT NOT NULL DEFAULT '',
   due_at TEXT,
   deadline_kind TEXT,
+  completed_at TEXT,
+  completed_source TEXT,
   content_hash TEXT NOT NULL,
   content_type TEXT NOT NULL,
   importance TEXT NOT NULL,
@@ -45,6 +63,16 @@ CREATE TABLE IF NOT EXISTS item_content (
   text TEXT NOT NULL,
   evidence_quote TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS item_changes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id TEXT NOT NULL,
+  field TEXT NOT NULL,
+  before_json TEXT,
+  after_json TEXT,
+  changed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS item_changes_changed_at_idx ON item_changes (changed_at DESC);
+CREATE INDEX IF NOT EXISTS item_changes_item_idx ON item_changes (item_id, changed_at DESC);
 CREATE TABLE IF NOT EXISTS sync_cursors (
   source TEXT NOT NULL,
   cursor_key TEXT NOT NULL,
@@ -76,9 +104,30 @@ CREATE TABLE IF NOT EXISTS moodle_content (
   url TEXT NOT NULL,
   text TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL,
-  campus TEXT NOT NULL DEFAULT 'shared'
+  campus TEXT NOT NULL DEFAULT 'shared',
+  images TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS moodle_content_course ON moodle_content(course_id, section_number);
+CREATE TABLE IF NOT EXISTS attendance_codes (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  course TEXT NOT NULL,
+  week INTEGER NOT NULL,
+  session TEXT NOT NULL,
+  code TEXT NOT NULL,
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  origin TEXT NOT NULL DEFAULT 'text',
+  published_at TEXT NOT NULL,
+  first_seen_at TEXT NOT NULL,
+  filled_at TEXT
+);
+CREATE TABLE IF NOT EXISTS attendance_scans (
+  key TEXT PRIMARY KEY,
+  status TEXT NOT NULL,
+  detail TEXT,
+  scanned_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -100,7 +149,14 @@ export class CoveDatabase {
   constructor(options: DbOptions) {
     this.db = new DatabaseSync(options.dbPath);
     this.fixturePath = options.fixturePath ?? DEFAULT_FIXTURE;
+    // WAL lets the UI read while a sync writes; busy_timeout makes a second
+    // process (desktop app plus a CLI run) wait instead of failing instantly
+    // with SQLITE_BUSY. Both are persistent properties of the database file.
+    this.db.exec("PRAGMA journal_mode = WAL");
+    this.db.exec("PRAGMA synchronous = NORMAL");
+    this.db.exec("PRAGMA busy_timeout = 5000");
     this.db.exec(SCHEMA);
+    this.pruneChanges();
     this.ensureColumns();
     this.ensureSources();
     if (options.seed !== false) this.seedFixture();
@@ -116,10 +172,13 @@ export class CoveDatabase {
     );
     if (!columns.has("due_at")) this.db.exec("ALTER TABLE items ADD COLUMN due_at TEXT");
     if (!columns.has("deadline_kind")) this.db.exec("ALTER TABLE items ADD COLUMN deadline_kind TEXT");
+    if (!columns.has("completed_at")) this.db.exec("ALTER TABLE items ADD COLUMN completed_at TEXT");
+    if (!columns.has("completed_source")) this.db.exec("ALTER TABLE items ADD COLUMN completed_source TEXT");
     const contentColumns = new Set(
       (this.db.prepare("PRAGMA table_info(moodle_content)").all() as Array<{ name?: string }>).map((column) => column.name),
     );
     if (!contentColumns.has("campus")) this.db.exec("ALTER TABLE moodle_content ADD COLUMN campus TEXT NOT NULL DEFAULT 'shared'");
+    if (!contentColumns.has("images")) this.db.exec("ALTER TABLE moodle_content ADD COLUMN images TEXT NOT NULL DEFAULT '[]'");
   }
 
   private ensureSources() {
@@ -209,13 +268,22 @@ export class CoveDatabase {
 
   upsertItem(item: NewItem) {
     const now = new Date().toISOString();
+    // Read the row before the upsert overwrites it: a changed title or due date
+    // is only observable here, and it is what "what changed since last time" means.
+    const previous = this.db
+      .prepare(`
+        SELECT i.title AS title, i.due_at AS due_at, i.course AS course, c.text AS text
+        FROM items i LEFT JOIN item_content c ON c.item_id = i.id
+        WHERE i.id = ?
+      `)
+      .get(item.id) as { title?: string; due_at?: string | null; course?: string; text?: string } | undefined;
     this.db
       .prepare(`
         INSERT INTO items (
           id, source, source_item_id, course, title, author_role, published_at, updated_at, url,
-          due_at, deadline_kind, content_hash, content_type, importance, action_required, open_original, triage_version,
+          due_at, deadline_kind, completed_at, completed_source, content_hash, content_type, importance, action_required, open_original, triage_version,
           model, first_seen_at, last_seen_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           course = excluded.course,
           title = excluded.title,
@@ -225,6 +293,9 @@ export class CoveDatabase {
           url = excluded.url,
           due_at = excluded.due_at,
           deadline_kind = excluded.deadline_kind,
+          -- 用户手动标记优先，同步不得覆盖
+          completed_at = CASE WHEN items.completed_source = 'user' THEN items.completed_at ELSE excluded.completed_at END,
+          completed_source = CASE WHEN items.completed_source = 'user' THEN items.completed_source ELSE excluded.completed_source END,
           content_hash = excluded.content_hash,
           content_type = excluded.content_type,
           importance = excluded.importance,
@@ -247,6 +318,8 @@ export class CoveDatabase {
         item.url,
         item.dueAt ?? null,
         item.deadlineKind ?? null,
+        item.completedAt ?? null,
+        item.completedAt ? "moodle" : null,
         item.contentHash,
         item.contentType,
         item.importance,
@@ -263,6 +336,58 @@ export class CoveDatabase {
         ON CONFLICT(item_id) DO UPDATE SET text = excluded.text, evidence_quote = excluded.evidence_quote
       `)
       .run(item.id, item.text, item.evidenceQuote);
+
+    if (previous) this.recordChanges(item, previous, now);
+  }
+
+  private recordChanges(
+    item: NewItem,
+    previous: { title?: string; due_at?: string | null; course?: string; text?: string },
+    changedAt: string,
+  ) {
+    const pairs: Array<[ChangeField, string | null, string | null]> = [
+      ["due_at", previous.due_at ?? null, item.dueAt ?? null],
+      ["title", previous.title ?? "", item.title],
+      ["course", previous.course ?? "", item.course],
+      ["text", truncate(previous.text ?? ""), truncate(item.text)],
+    ];
+
+    const insert = this.db.prepare(
+      "INSERT INTO item_changes (item_id, field, before_json, after_json, changed_at) VALUES (?, ?, ?, ?, ?)",
+    );
+    for (const [field, before, after] of pairs) {
+      if ((before ?? "") === (after ?? "")) continue;
+      insert.run(item.id, field, JSON.stringify(before), JSON.stringify(after), changedAt);
+    }
+  }
+
+  pruneChanges(retentionDays = 90) {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 3_600_000).toISOString();
+    this.db.prepare("DELETE FROM item_changes WHERE changed_at < ?").run(cutoff);
+  }
+
+  listChanges(options: { since?: string | null; limit?: number } = {}): ItemChange[] {
+    const limit = Math.min(Math.max(options.limit ?? 100, 1), 500);
+    const select = `SELECT c.id, c.item_id, c.field, c.before_json, c.after_json, c.changed_at,
+                           i.source, i.course, i.title
+                    FROM item_changes c JOIN items i ON i.id = c.item_id`;
+    const rows = (
+      options.since
+        ? this.db.prepare(`${select} WHERE c.changed_at > ? ORDER BY c.changed_at DESC LIMIT ?`).all(options.since, limit)
+        : this.db.prepare(`${select} ORDER BY c.changed_at DESC LIMIT ?`).all(limit)
+    ) as Array<Record<string, unknown>>;
+
+    return rows.map((row) => ({
+      id: Number(row.id),
+      itemId: String(row.item_id),
+      field: row.field as ChangeField,
+      before: parseJson(row.before_json),
+      after: parseJson(row.after_json),
+      changedAt: String(row.changed_at),
+      source: row.source as Source,
+      course: String(row.course ?? ""),
+      title: String(row.title ?? ""),
+    }));
   }
 
   setCursor(source: Source, key: string, value: string) {
@@ -303,9 +428,9 @@ export class CoveDatabase {
     `;
   }
 
-  listItems(options: { since?: string; source?: Source; query?: string } = {}): StoredItem[] {
+  listItems(options: { since?: string; source?: Source; query?: string; limit?: number } = {}): StoredItem[] {
     const clauses: string[] = [];
-    const params: Array<string> = [];
+    const params: Array<string | number> = [];
     if (options.since) {
       clauses.push("i.published_at >= ?");
       params.push(options.since);
@@ -320,8 +445,9 @@ export class CoveDatabase {
       params.push(like, like, like);
     }
     const where = clauses.length > 0 ? ` AND ${clauses.join(" AND ")}` : "";
+    const limit = options.limit && options.limit > 0 ? ` LIMIT ${Math.min(Math.floor(options.limit), MAX_BRIEF_ITEMS)}` : ` LIMIT ${MAX_BRIEF_ITEMS}`;
     const rows = this.db
-      .prepare(`${this.baseQuery()}${where} ORDER BY i.published_at DESC`)
+      .prepare(`${this.baseQuery()}${where} ORDER BY i.published_at DESC${limit}`)
       .all(...params) as Array<Record<string, unknown>>;
     return rows.map(toStoredItem);
   }
@@ -331,7 +457,7 @@ export class CoveDatabase {
     return row ? toStoredItem(row) : null;
   }
 
-  brief(options: { since?: string; source?: Source; query?: string } = {}): BriefResponse {
+  brief(options: { since?: string; source?: Source; query?: string; limit?: number } = {}): BriefResponse {
     return {
       items: this.listItems(options),
       sources: this.listSources(),
@@ -375,15 +501,160 @@ export class CoveDatabase {
     return this.getItem(id);
   }
 
+  /**
+   * Replaces a course's material list atomically. Without the transaction a
+   * failure mid-insert leaves the course with the DELETE applied and only part
+   * of the new rows, i.e. an empty materials page.
+   */
   replaceMoodleContent(courseId: string, rows: MoodleContentRow[]) {
-    this.db.prepare("DELETE FROM moodle_content WHERE course_id = ?").run(courseId);
     const insert = this.db.prepare(`
-      INSERT INTO moodle_content (id, course_id, course_name, section_number, section_title, module, title, url, text, updated_at, campus)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO moodle_content (id, course_id, course_name, section_number, section_title, module, title, url, text, updated_at, campus, images)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    for (const row of rows) {
-      insert.run(row.id, row.courseId, row.courseName, row.sectionNumber, row.sectionTitle, row.module, row.title, row.url, row.text, row.updatedAt, row.campus ?? "shared");
+    this.transaction(() => {
+      this.db.prepare("DELETE FROM moodle_content WHERE course_id = ?").run(courseId);
+      for (const row of rows) {
+        insert.run(row.id, row.courseId, row.courseName, row.sectionNumber, row.sectionTitle, row.module, row.title, row.url, row.text, row.updatedAt, row.campus ?? "shared", JSON.stringify(row.images ?? []));
+      }
+    });
+  }
+
+  private transaction<T>(work: () => T): T {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const result = work();
+      this.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
     }
+  }
+
+  /** Moodle assignments that still show a countdown and could be re-checked. */
+  listOpenMoodleAssignments(sinceIso: string): Array<{ id: string; url: string }> {
+    return this.db
+      .prepare(`
+        SELECT id, url FROM items
+        WHERE source = 'moodle' AND deleted_at IS NULL AND completed_at IS NULL
+          AND due_at IS NOT NULL AND due_at >= ? AND url LIKE '%/mod/assign/view.php%'
+        ORDER BY due_at
+      `)
+      .all(sinceIso) as Array<{ id: string; url: string }>;
+  }
+
+  /** Moodle-detected completion; never overrides an explicit user decision. */
+  setItemCompleted(id: string, completedAt: string | null) {
+    this.db
+      .prepare("UPDATE items SET completed_at = ?, completed_source = 'moodle' WHERE id = ? AND (completed_source IS NULL OR completed_source = 'moodle')")
+      .run(completedAt, id);
+  }
+
+  /** Manual override: true = done, false = explicitly not done, null = let Moodle decide. */
+  setItemUserCompleted(id: string, completed: boolean | null) {
+    if (completed === null) {
+      this.db.prepare("UPDATE items SET completed_at = NULL, completed_source = NULL WHERE id = ?").run(id);
+      return;
+    }
+    this.db
+      .prepare("UPDATE items SET completed_at = ?, completed_source = 'user' WHERE id = ?")
+      .run(completed ? new Date().toISOString() : null, id);
+  }
+
+  /** Attendance codes are append-only so history survives sync windows. */
+  upsertAttendanceCode(code: {
+    id: string;
+    source: string;
+    course: string;
+    week: number;
+    session: string;
+    code: string;
+    title: string;
+    url: string;
+    origin: "text" | "ocr";
+    publishedAt: string;
+  }) {
+    this.db
+      .prepare(`
+        INSERT INTO attendance_codes (id, source, course, week, session, code, title, url, origin, published_at, first_seen_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          title = excluded.title,
+          url = excluded.url,
+          published_at = excluded.published_at
+      `)
+      .run(
+        code.id,
+        code.source,
+        code.course,
+        code.week,
+        code.session,
+        code.code,
+        code.title,
+        code.url,
+        code.origin,
+        code.publishedAt,
+        new Date().toISOString(),
+      );
+  }
+
+  listAttendanceCodes(): Array<{
+    id: string;
+    source: string;
+    course: string;
+    week: number;
+    session: string;
+    code: string;
+    title: string;
+    url: string;
+    origin: string;
+    publishedAt: string;
+    filledAt: string | null;
+  }> {
+    const rows = this.db
+      .prepare("SELECT * FROM attendance_codes ORDER BY week DESC, course, session")
+      .all() as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      source: String(row.source),
+      course: String(row.course),
+      week: Number(row.week),
+      session: String(row.session),
+      code: String(row.code),
+      title: String(row.title),
+      url: String(row.url),
+      origin: String(row.origin),
+      publishedAt: String(row.published_at),
+      filledAt: row.filled_at ? String(row.filled_at) : null,
+    }));
+  }
+
+  markAttendanceCodeFilled(id: string, at = new Date().toISOString()) {
+    this.db.prepare("UPDATE attendance_codes SET filled_at = ? WHERE id = ?").run(at, id);
+  }
+
+  markAttendanceFilled(course: string, week: number, session: string, code: string, at = new Date().toISOString()) {
+    this.db
+      .prepare("UPDATE attendance_codes SET filled_at = ? WHERE course = ? AND week = ? AND session = ? AND code = ?")
+      .run(at, course, week, session, code);
+  }
+
+  attendanceScanStatus(keys: string[]): Map<string, string> {
+    if (keys.length === 0) return new Map();
+    const placeholders = keys.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(`SELECT key, status FROM attendance_scans WHERE key IN (${placeholders})`)
+      .all(...keys) as Array<{ key: string; status: string }>;
+    return new Map(rows.map((row) => [row.key, row.status]));
+  }
+
+  setAttendanceScan(key: string, status: "ok" | "empty" | "error", detail: string | null = null) {
+    this.db
+      .prepare(`
+        INSERT INTO attendance_scans (key, status, detail, scanned_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET status = excluded.status, detail = excluded.detail, scanned_at = excluded.scanned_at
+      `)
+      .run(key, status, detail, new Date().toISOString());
   }
 
   listAttendanceItems(): Array<{ id: string; source: "gmail" | "ed"; course: string; title: string; text: string; url: string; publishedAt: string }> {
@@ -422,6 +693,7 @@ export class CoveDatabase {
       text: String(row.text ?? ""),
       updatedAt: String(row.updated_at),
       campus: (String(row.campus ?? "shared") as "malaysia" | "australia" | "indonesia" | "shared"),
+      images: parseImages(row.images),
     }));
   }
 
@@ -441,11 +713,12 @@ export class CoveDatabase {
       text: String(row.text ?? ""),
       updatedAt: String(row.updated_at),
       campus: (String(row.campus ?? "shared") as "malaysia" | "australia" | "indonesia" | "shared"),
+      images: parseImages(row.images),
     }));
   }
 
   clearAll() {
-    this.db.exec("DELETE FROM corrections; DELETE FROM reads; DELETE FROM sync_cursors; DELETE FROM settings; DELETE FROM item_content; DELETE FROM items; DELETE FROM moodle_content;");
+    this.db.exec("DELETE FROM corrections; DELETE FROM reads; DELETE FROM sync_cursors; DELETE FROM settings; DELETE FROM item_content; DELETE FROM items; DELETE FROM moodle_content; DELETE FROM attendance_codes; DELETE FROM attendance_scans;");
     for (const source of SOURCE_IDS) {
       this.setSourceStatus(source, "disconnected", null, null);
     }
@@ -454,6 +727,16 @@ export class CoveDatabase {
   counts() {
     const row = this.db.prepare("SELECT COUNT(*) AS n FROM items WHERE deleted_at IS NULL").get() as { n: number };
     return { items: row.n };
+  }
+}
+
+function parseImages(value: unknown): string[] {
+  if (typeof value !== "string" || !value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
   }
 }
 
@@ -479,6 +762,8 @@ function toStoredItem(row: Record<string, unknown>): StoredItem {
     url: String(row.url ?? ""),
     dueAt: row.due_at ? String(row.due_at) : null,
     deadlineKind: row.deadline_kind ? String(row.deadline_kind) : null,
+    completedAt: row.completed_at ? String(row.completed_at) : null,
+    completedSource: row.completed_source ? String(row.completed_source) : null,
     ageHours: Math.max(0, (Date.now() - Date.parse(String(row.published_at))) / 3_600_000),
     contentHash: String(row.content_hash),
     contentType: String(row.content_type) as StoredItem["contentType"],

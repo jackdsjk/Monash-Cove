@@ -25,14 +25,27 @@ function loadState(): DemoState {
 export interface DemoStore {
   state: DemoState;
   hydrate: (items: BriefItem[]) => void;
-  toggleCorrection: (id: string, key: "pinned" | "dismissed") => void;
-  saveFeedback: (id: string, feedback: Feedback) => void;
+  toggleCorrection: (id: string, key: "pinned" | "dismissed") => Promise<boolean>;
+  saveFeedback: (id: string, feedback: Feedback) => Promise<boolean>;
   markRead: (id: string) => void;
   markChecked: (ids: string[]) => void;
-  reset: () => void;
+  reset: () => Promise<boolean>;
 }
 
 const DemoStateContext = createContext<DemoStore | null>(null);
+
+async function patchCorrection(id: string, body: Record<string, unknown>): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/items/${encodeURIComponent(id)}/correction`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
 
 export function DemoProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<DemoState>(loadState);
@@ -57,22 +70,23 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const toggleCorrection = useCallback((id: string, key: "pinned" | "dismissed") => {
-    setState((previous) => {
-      const current = previous.corrections[id] ?? {};
-      const next = { ...current, [key]: !current[key] };
-      if (key === "pinned" && next.pinned) next.dismissed = false;
-      if (key === "dismissed" && next.dismissed) next.pinned = false;
-      void fetch(`/api/items/${encodeURIComponent(id)}/correction`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ [key]: Boolean(next[key]) }),
-      }).catch(() => undefined);
-      return { ...previous, corrections: { ...previous.corrections, [id]: next } };
-    });
-  }, []);
+  // Corrections are written before the UI changes: a silent failure used to
+  // leave the card pinned until the next reload, which looks like data loss.
+  const toggleCorrection = useCallback(async (id: string, key: "pinned" | "dismissed"): Promise<boolean> => {
+    const current = state.corrections[id] ?? {};
+    const next: { pinned?: boolean; dismissed?: boolean } = { ...current, [key]: !current[key] };
+    if (key === "pinned" && next.pinned) next.dismissed = false;
+    if (key === "dismissed" && next.dismissed) next.pinned = false;
 
-  const saveFeedback = useCallback((id: string, feedback: Feedback) => {
+    const saved = await patchCorrection(id, { [key]: Boolean(next[key]) });
+    if (!saved) return false;
+    setState((previous) => ({ ...previous, corrections: { ...previous.corrections, [id]: next } }));
+    return true;
+  }, [state.corrections]);
+
+  const saveFeedback = useCallback(async (id: string, feedback: Feedback): Promise<boolean> => {
+    const saved = await patchCorrection(id, { feedback });
+    if (!saved) return false;
     setState((previous) => ({
       ...previous,
       corrections: {
@@ -80,11 +94,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         [id]: { ...previous.corrections[id], feedback },
       },
     }));
-    void fetch(`/api/items/${encodeURIComponent(id)}/correction`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ feedback }),
-    }).catch(() => undefined);
+    return true;
   }, []);
 
   const markRead = useCallback((id: string) => {
@@ -109,9 +119,15 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     }).catch(() => undefined);
   }, []);
 
-  const reset = useCallback(() => {
-    void fetch("/api/data", { method: "DELETE" }).catch(() => undefined);
+  const reset = useCallback(async (): Promise<boolean> => {
+    try {
+      const response = await fetch("/api/data", { method: "DELETE" });
+      if (!response.ok) return false;
+    } catch {
+      return false;
+    }
     setState(freshState());
+    return true;
   }, []);
 
   const value = useMemo<DemoStore>(

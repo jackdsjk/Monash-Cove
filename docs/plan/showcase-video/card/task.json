@@ -1,0 +1,365 @@
+{
+  "schema_version": 1,
+  "task_id": "COVE-SHOWCASE-01",
+  "phase": "card",
+  "actions": [
+    "read",
+    "write_plan",
+    "logic_check"
+  ],
+  "fps": 30,
+  "width": 1080,
+  "height": 1440,
+  "source": {
+    "path": "docs/plan/showcase-video/BRIEF.md",
+    "status": "authored",
+    "note": "界面为运行时产物，非静态源文件；截图阶段需登记 URL/viewport/时间戳"
+  },
+  "style": {
+    "arrangement": "single",
+    "decision_status": "author_decided",
+    "library": "none",
+    "exemption": "341 风格库缺失（doctor ready=false），按 DECISIONS D05 以 Cove 设计系统替代",
+    "selection": [
+      {
+        "id": "COVE-DESIGN",
+        "kind": "design_system",
+        "path": "docs/plan/showcase-video/card/style/COVE-DESIGN.md",
+        "sha256": null,
+        "note": "非 341 库条目，无库版本与 SHA"
+      }
+    ]
+  },
+  "music": {
+    "status": "planned",
+    "actual_sync": false,
+    "file": null,
+    "plan": "docs/plan/showcase-video/card/music-plan.md",
+    "note": "本机无 ACE-Step，四案只写方案；全部时间 planned"
+  },
+  "scenes": [
+    {
+      "id": "S01",
+      "start": 0,
+      "end": 6,
+      "time_basis": "planned",
+      "meaning": "一行决定分数的要求，藏在邮件正文第三段里，而它已经在 Cove 里被翻出来了",
+      "operation": "锁定正文局部 → 高亮那一行 → 镜头拉远露出抽屉边缘与「原文摘录」",
+      "last_text_at": 4.2,
+      "read_seconds": 1.8,
+      "camera": "zoom 1.0→0.62, power2.inOut 1.2s, anchor (540,760)",
+      "transition": "hard_cut_to_S02",
+      "source_ids": [
+        "A01"
+      ],
+      "status": "designed",
+      "evidence": []
+    },
+    {
+      "id": "S02",
+      "start": 6,
+      "end": 12,
+      "time_basis": "planned",
+      "meaning": "三处说的截止时间其实是同一个，而这一天还有几十条别的",
+      "operation": "三张说法纸条飞入同一日历格并合并成一个日期，右上角计数开始跃增",
+      "last_text_at": 9.4,
+      "read_seconds": 2.6,
+      "camera": "locked center(540,640), zoom 1",
+      "transition": "shared_object_lift_to_S03",
+      "source_ids": [],
+      "status": "designed",
+      "evidence": []
+    },
+    {
+      "id": "S03",
+      "start": 12,
+      "end": 19,
+      "time_basis": "planned",
+      "meaning": "同一个东西，从藏在正文里的一段文字，变成了我一眼能看见的一张卡",
+      "operation": "高亮文字被抽离原图 → 飞行 → 展开成卡片外壳 → 标签弹入",
+      "last_text_at": 15.2,
+      "read_seconds": 3.8,
+      "camera": "follow then lock, zoom 1→1.06→1",
+      "transition": "shared_card_expands_to_S04",
+      "source_ids": [
+        "A02"
+      ],
+      "status": "designed",
+      "evidence": []
+    },
+    {
+      "id": "S04",
+      "start": 19,
+      "end": 26,
+      "time_basis": "planned",
+      "meaning": "三个来源汇进同一份简报：一天 14 条更新，只有 6 条要你动手",
+      "operation": "光标移到「只看需要行动」开关 → 按下 → 列表从 8 条收敛到 6 条必须处理",
+      "last_text_at": 23.4,
+      "read_seconds": 2.6,
+      "camera": "locked, window width 936",
+      "transition": "push_in_to_S05",
+      "source_ids": [
+        "A03",
+        "A05"
+      ],
+      "status": "revised_v2",
+      "evidence": []
+    },
+    {
+      "id": "S05",
+      "start": 26,
+      "end": 38,
+      "time_basis": "planned",
+      "meaning": "每一条结论都能点回原文；判断错了可以改",
+      "operation": "光标点开必须处理卡片 → 抽屉滑出 → 原文摘录高亮同一行 → 关闭 → 标记不重要 → 列表重排",
+      "last_text_at": 30.8,
+      "read_seconds": 7.2,
+      "camera": "push to 1.35 then locked",
+      "transition": "hard_cut_to_S06",
+      "source_ids": [
+        "A06",
+        "A07",
+        "A08"
+      ],
+      "status": "designed",
+      "evidence": []
+    },
+    {
+      "id": "S06",
+      "start": 38,
+      "end": 48,
+      "time_basis": "planned",
+      "meaning": "这件事有终点：从看完了，到清空了",
+      "operation": "切到倒计时页 → 回简报 → 标记本次已查看 → 数字归零、空态出现",
+      "last_text_at": 43.0,
+      "read_seconds": 5.0,
+      "camera": "locked",
+      "transition": "hard_cut_to_dark_S07",
+      "source_ids": [
+        "A09",
+        "A10"
+      ],
+      "status": "designed",
+      "evidence": []
+    },
+    {
+      "id": "S07",
+      "start": 48,
+      "end": 54,
+      "time_basis": "planned",
+      "meaning": "这周的签到 code 它已经收好了；填进去，提交由你自己按",
+      "operation": "签到页：光标按「一键填写当周」→ 弹窗显示已填入 3 个 → 停在未提交的状态",
+      "last_text_at": 51.4,
+      "read_seconds": 2.6,
+      "camera": "locked",
+      "transition": "same_ground_to_S08",
+      "source_ids": [
+        "A11",
+        "A12"
+      ],
+      "status": "designed",
+      "evidence": []
+    },
+    {
+      "id": "S08",
+      "start": 54,
+      "end": 60,
+      "time_basis": "planned",
+      "meaning": "记住名字，知道它还在早期",
+      "operation": "产品名从下方升入，副行出现，静止落款",
+      "last_text_at": 57.8,
+      "read_seconds": 2.2,
+      "camera": "locked",
+      "transition": "end",
+      "source_ids": [],
+      "status": "designed",
+      "evidence": []
+    },
+    {
+      "id": "S09",
+      "start": 60,
+      "end": 64,
+      "time_basis": "planned",
+      "meaning": "记住名字，知道它还在早期",
+      "operation": "产品名从下方升入，副行出现，静止落款",
+      "last_text_at": 61.6,
+      "read_seconds": 2.4,
+      "camera": "locked",
+      "transition": "end",
+      "source_ids": [],
+      "status": "designed",
+      "evidence": []
+    }
+  ],
+  "events": [
+    {
+      "id": "E_LINE_SPOT",
+      "scene_id": "S01",
+      "at": 1.0,
+      "time_basis": "planned",
+      "role": "highlight_in",
+      "allow_snap": true,
+      "tolerance": 0.08
+    },
+    {
+      "id": "E_PULL_BACK",
+      "scene_id": "S01",
+      "at": 2.4,
+      "time_basis": "planned",
+      "role": "camera_pull_back",
+      "allow_snap": false
+    },
+    {
+      "id": "E_CLAIMS_SYNC",
+      "scene_id": "S02",
+      "at": 8.2,
+      "time_basis": "planned",
+      "role": "objects_collide",
+      "allow_snap": true,
+      "tolerance": 0.06
+    },
+    {
+      "id": "E_COUNT_START",
+      "scene_id": "S02",
+      "at": 10.6,
+      "time_basis": "planned",
+      "role": "counter_start",
+      "allow_snap": false
+    },
+    {
+      "id": "E_LINE_LIFT",
+      "scene_id": "S03",
+      "at": 12.6,
+      "time_basis": "planned",
+      "role": "element_detach",
+      "allow_snap": false
+    },
+    {
+      "id": "E_CARD_LAND",
+      "scene_id": "S03",
+      "at": 14.8,
+      "time_basis": "planned",
+      "role": "card_expanded",
+      "allow_snap": false
+    },
+    {
+      "id": "E_TOGGLE_ACTION",
+      "scene_id": "S04",
+      "at": 21.4,
+      "time_basis": "planned",
+      "role": "click_down",
+      "allow_snap": false
+    },
+    {
+      "id": "E_OPEN_PRESS",
+      "scene_id": "S05",
+      "at": 27.0,
+      "time_basis": "planned",
+      "role": "click_down",
+      "allow_snap": false
+    },
+    {
+      "id": "E_DRAWER_OPEN",
+      "scene_id": "S05",
+      "at": 28.6,
+      "time_basis": "planned",
+      "role": "panel_settled",
+      "allow_snap": false
+    },
+    {
+      "id": "E_CLOSE_PRESS",
+      "scene_id": "S05",
+      "at": 33.0,
+      "time_basis": "planned",
+      "role": "click_down",
+      "allow_snap": false
+    },
+    {
+      "id": "E_MARK_PRESS",
+      "scene_id": "S05",
+      "at": 34.8,
+      "time_basis": "planned",
+      "role": "click_down",
+      "allow_snap": false
+    },
+    {
+      "id": "E_NAV_DEADLINES",
+      "scene_id": "S06",
+      "at": 38.2,
+      "time_basis": "planned",
+      "role": "page_change",
+      "allow_snap": false
+    },
+    {
+      "id": "E_NAV_BRIEF",
+      "scene_id": "S06",
+      "at": 40.8,
+      "time_basis": "planned",
+      "role": "page_change",
+      "allow_snap": false
+    },
+    {
+      "id": "E_MARK_SEEN",
+      "scene_id": "S06",
+      "at": 43.5,
+      "time_basis": "planned",
+      "role": "click_down",
+      "allow_snap": false
+    },
+    {
+      "id": "E_ZERO",
+      "scene_id": "S06",
+      "at": 45.0,
+      "time_basis": "planned",
+      "role": "list_cleared",
+      "allow_snap": false
+    },
+    {
+      "id": "E_FILL_PRESS",
+      "scene_id": "S07",
+      "at": 50.4,
+      "time_basis": "planned",
+      "role": "click_down",
+      "allow_snap": false
+    },
+    {
+      "id": "E_VALUE_1",
+      "scene_id": "S08",
+      "at": 54.4,
+      "time_basis": "planned",
+      "role": "text_landed",
+      "allow_snap": false
+    },
+    {
+      "id": "E_VALUE_2",
+      "scene_id": "S08",
+      "at": 55.8,
+      "time_basis": "planned",
+      "role": "text_landed",
+      "allow_snap": false
+    },
+    {
+      "id": "E_VALUE_3",
+      "scene_id": "S08",
+      "at": 57.2,
+      "time_basis": "planned",
+      "role": "text_landed",
+      "allow_snap": false
+    },
+    {
+      "id": "E_LOGO",
+      "scene_id": "S09",
+      "at": 60.0,
+      "time_basis": "planned",
+      "role": "brand_in",
+      "allow_snap": false
+    }
+  ],
+  "evidence": {
+    "logic": [],
+    "viewed": [],
+    "heard": [],
+    "author_accepted": false
+  },
+  "note": "v3：加入签到分支段（S07），总长 58→64 秒"
+}

@@ -19,6 +19,8 @@ interface ItemDrawerProps {
   onTogglePin: (id: string) => void;
   onDismiss: (id: string) => void;
   onFeedback: (item: BriefItem) => void;
+  /** 手动标记提交状态（有些作业在 Moodle 之外的界面提交） */
+  onToggleCompleted?: (id: string, completed: boolean) => void;
 }
 
 function roleLabel(role: "staff" | "student" | "unknown") {
@@ -47,8 +49,16 @@ function highlighted(text: string, quote: string) {
   );
 }
 
-export default function ItemDrawer({ item, open, correction = {}, onClose, onTogglePin, onDismiss, onFeedback }: ItemDrawerProps) {
+/** OnTrack items link to the task page; the download routes need both ids. */
+function parseOnTrackTarget(url: string | undefined) {
+  const match = url?.match(/#\/projects\/(\d+)\/tasks\/(\d+)/);
+  if (!match) return null;
+  return { project: match[1], task: match[2] };
+}
+
+export default function ItemDrawer({ item, open, correction = {}, onClose, onTogglePin, onDismiss, onFeedback, onToggleCompleted }: ItemDrawerProps) {
   const screens = Grid.useBreakpoint();
+  const ontrackTarget = item?.source === "ontrack" ? parseOnTrackTarget(item.url) : null;
   const [detail, setDetail] = useState<ItemSourceDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
@@ -106,6 +116,16 @@ export default function ItemDrawer({ item, open, correction = {}, onClose, onTog
             {correction.feedback ? <Tag color="blue">已反馈</Tag> : null}
           </Space>
 
+          {item.dueAt ? (
+            <Space wrap className="drawer-submit-state">
+              <Tag color={item.completedAt ? "success" : "default"}>{item.completedAt ? "已提交" : "未提交"}</Tag>
+              <Button size="small" onClick={() => onToggleCompleted?.(item.id, !item.completedAt)}>
+                {item.completedAt ? "撤销标记（恢复倒计时）" : "标记为已提交"}
+              </Button>
+              <Typography.Text type="secondary">在 Moodle 以外提交的作业，可以手动标记。</Typography.Text>
+            </Space>
+          ) : null}
+
           <section className="drawer-section">
             <Space wrap>
               <Typography.Title level={3}>原文与回复</Typography.Title>
@@ -118,6 +138,16 @@ export default function ItemDrawer({ item, open, correction = {}, onClose, onTog
               <Button type="primary" href={detail?.url || item.url} target="_blank" rel="noreferrer">
                 查看原文
               </Button>
+              {ontrackTarget ? (
+                <>
+                  <Button href={`/api/ontrack/artifact?project=${ontrackTarget.project}&task=${ontrackTarget.task}&kind=resources`} download>
+                    下载任务资源
+                  </Button>
+                  <Button href={`/api/ontrack/artifact?project=${ontrackTarget.project}&task=${ontrackTarget.task}&kind=submission`} download>
+                    下载提交 PDF
+                  </Button>
+                </>
+              ) : null}
               <Typography.Text type="secondary" className="drawer-caption">
                 高亮句是模型判断引用的原文片段。
               </Typography.Text>

@@ -233,7 +233,7 @@ export default function SetupPage() {
           <Card
             className="setup-card"
             title={<Space><GoogleOutlined /> Gmail</Space>}
-            extra={status.gmailConnected ? <Tag color="green" icon={<CheckCircleOutlined />}>已连接</Tag> : <Tag>未连接</Tag>}
+            extra={status.gmailConnected ? <Tag color="success" icon={<CheckCircleOutlined />}>已连接</Tag> : <Tag>未连接</Tag>}
           >
             <Typography.Paragraph type="secondary">
               通过 Google 官方 OAuth 只读连接；Monash Cove 不接触密码。授权后自动刷新 token。
@@ -248,7 +248,7 @@ export default function SetupPage() {
           <Card
             className="setup-card"
             title={<Space><LoginOutlined /> Ed</Space>}
-            extra={status.edConnected ? <Tag color="green" icon={<CheckCircleOutlined />}>已连接</Tag> : <Tag>未连接</Tag>}
+            extra={status.edConnected ? <Tag color="success" icon={<CheckCircleOutlined />}>已连接</Tag> : <Tag>未连接</Tag>}
           >
             {status.edConnected ? (
               <Typography.Paragraph type="secondary">Ed token 已保存在本机 Keychain。</Typography.Paragraph>
@@ -279,7 +279,7 @@ export default function SetupPage() {
           <Card
             className="setup-card"
             title={<Space><LockOutlined /> Moodle</Space>}
-            extra={status.moodleConnected ? <Tag color="green" icon={<CheckCircleOutlined />}>已连接</Tag> : <Tag>未连接</Tag>}
+            extra={status.moodleConnected ? <Tag color="success" icon={<CheckCircleOutlined />}>已连接</Tag> : <Tag>未连接</Tag>}
           >
             {status.moodleConnected && assistant.status !== "waiting_login" ? (
               <Typography.Paragraph type="secondary">MoodleSession 已保存在本机 Keychain。</Typography.Paragraph>
@@ -290,7 +290,7 @@ export default function SetupPage() {
                 </Typography.Paragraph>
                 {assistantRunning ? (
                   <Space direction="vertical" style={{ width: "100%" }}>
-                    <Alert type="info" showIcon message="请在打开的 Chrome 窗口中完成 Monash 登录" />
+                    <Alert type="info" showIcon message="请在打开的 Chrome 窗口中完成 Monash 登录" description={assistant.message} />
                     <Button onClick={() => void cancelMoodle()}>取消登录</Button>
                   </Space>
                 ) : (
@@ -311,7 +311,7 @@ export default function SetupPage() {
         </Typography.Paragraph>
         {job ? (
           <div className="setup-sync-progress">
-            {(["gmail", "ed", "moodle"] as const).map((source) => {
+            {(["gmail", "ed", "moodle", "ontrack"] as const).map((source) => {
               const progress = job.sources[source];
               const percent = progress.total ? Math.round((progress.processed / progress.total) * 100) : progress.status === "done" ? 100 : 0;
               return (

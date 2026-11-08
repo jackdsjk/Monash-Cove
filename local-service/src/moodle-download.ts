@@ -2,7 +2,16 @@ import { parse } from "node-html-parser";
 
 export interface MoodleCredentials {
   baseUrl: string;
-  session: string;
+  /** Raw MoodleSession value; kept for older saved credentials. */
+  session?: string;
+  /** Full cookie header captured from the login browser, when available. */
+  cookie?: string;
+}
+
+export function moodleCookieHeader(credentials: { session?: string; cookie?: string }): string {
+  if (credentials.cookie) return credentials.cookie;
+  if (credentials.session) return `MoodleSession=${credentials.session}`;
+  throw new Error("Moodle credentials are missing both a session and a cookie header.");
 }
 
 export class MoodleDownloadError extends Error {
@@ -81,7 +90,7 @@ export async function downloadMoodleResource(
   ) {
     throw new MoodleDownloadError(400, "invalid_url", "Only Moodle resource or URL pages can be downloaded.");
   }
-  const headers = { cookie: `MoodleSession=${credentials.session}` };
+  const headers = { cookie: moodleCookieHeader(credentials) };
   let current = target;
   let fileUrl: string | null = null;
   for (let hop = 0; hop < 4; hop += 1) {

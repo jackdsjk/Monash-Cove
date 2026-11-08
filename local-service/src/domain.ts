@@ -1,4 +1,4 @@
-export type Source = "gmail" | "ed" | "moodle";
+export type Source = "gmail" | "ed" | "moodle" | "ontrack";
 export type ContentType =
   | "required_action"
   | "requirement_change"
@@ -42,6 +42,10 @@ export interface StoredItem {
   ageHours: number;
   dueAt: string | null;
   deadlineKind: string | null;
+  /** Set once Moodle reports the submission as sent or graded, or by the user. */
+  completedAt: string | null;
+  /** "moodle" = 自动识别，"user" = 手动标记 */
+  completedSource: string | null;
   contentHash: string;
   contentType: ContentType;
   importance: Importance;
@@ -71,6 +75,7 @@ export interface NewItem {
   url: string;
   dueAt?: string | null;
   deadlineKind?: string | null;
+  completedAt?: string | null;
   contentHash: string;
   contentType: ContentType;
   importance: Importance;
@@ -99,6 +104,26 @@ export interface BriefResponse {
   lastCheckedAt: string | null;
 }
 
+export type ChangeField = "due_at" | "title" | "course" | "text";
+
+/** 一条源头内容的变化记录，用于「自上次查看，哪几条改过」。 */
+export interface ItemChange {
+  id: number;
+  itemId: string;
+  field: ChangeField;
+  before: string | null;
+  after: string | null;
+  changedAt: string;
+  source: Source;
+  course: string;
+  title: string;
+}
+
+export interface ChangesResponse {
+  changes: ItemChange[];
+  since: string | null;
+}
+
 export interface MoodleCourseSummary {
   id: number;
   shortname: string;
@@ -117,6 +142,8 @@ export interface MoodleContentRow {
   text: string;
   updatedAt: string;
   campus?: "malaysia" | "australia" | "indonesia" | "shared";
+  /** Absolute URLs of images inside a label/forum, captured at sync time. */
+  images?: string[];
 }
 
 export interface ApiError {

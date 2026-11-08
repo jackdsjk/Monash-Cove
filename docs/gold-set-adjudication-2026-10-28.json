@@ -1,0 +1,79 @@
+{
+  "schema_version": "0.1",
+  "status": "provisional-agent-assisted",
+  "human_signoff": {
+    "status": "approved_for_prototype",
+    "reviewed_at": "2026-10-28",
+    "reviewer_role": "project_owner",
+    "scope": "55 synthetic rewrites"
+  },
+  "sample_file": "gold-set-samples-2026-10-28.json",
+  "round_files": [
+    "gold-set-round1-2026-10-28.json",
+    "gold-set-round2-2026-10-28.json"
+  ],
+  "final_annotation_source": "gold-set-round1-2026-10-28.json plus the explicit overrides in this file",
+  "scope": "55 synthetic rewrites derived from observed Gmail, Ed, and Moodle triage patterns; no raw private content is stored",
+  "agreement": {
+    "sample_count": 55,
+    "source": 1.0,
+    "course": 1.0,
+    "content_type": 0.9091,
+    "authority": 1.0,
+    "importance": 0.8,
+    "action_required": 0.9091,
+    "open_original": 0.8182,
+    "duplicate_pairwise": 0.9953,
+    "narrative_fields": "not compared by exact string; adjudicate for entailment and evidence support"
+  },
+  "resolution_rules": [
+    "Optional attendance or survey participation is not action_required=yes unless the source makes it mandatory.",
+    "A formal deadline, eligibility condition, security alert, or changed submission requirement is critical when missing it can materially affect assessment, access, or account safety.",
+    "An unanswered student question remains uncertain; a peer suggestion cannot become an official requirement.",
+    "A duplicate reminder is kept in the source set but receives the same duplicate_group and may be collapsed in the product view.",
+    "Narrative summaries and evidence quotes are judged for supported meaning, not string identity."
+  ],
+  "overrides": {
+    "gmail-002": {"importance":"reference"},
+    "gmail-010": {"importance":"important"},
+    "gmail-012": {"open_original":"required"},
+    "gmail-013": {"open_original":"optional"},
+    "gmail-014": {"importance":"skip","open_original":"no"},
+    "gmail-020": {"importance":"important"},
+    "gmail-023": {"importance":"skip","open_original":"no"},
+    "gmail-025": {"content_type":"staff_announcement"},
+    "ed-004": {"importance":"important"},
+    "ed-011": {"importance":"critical"},
+    "ed-025": {"action_required":"uncertain"}
+  },
+  "duplicate_group_overrides": {
+    "gmail-002":"dup-qa-registration",
+    "gmail-003":"dup-qa-registration",
+    "gmail-004":"dup-qa-registration",
+    "gmail-005":"dup-qa-registration",
+    "gmail-011":"dup-university-sign-in",
+    "gmail-012":"dup-university-sign-in",
+    "gmail-013":"dup-extension-receipt",
+    "gmail-014":"dup-extension-receipt",
+    "gmail-016":"dup-fit1047-part3-deadline",
+    "moodle-003":"dup-fit1047-part3-deadline",
+    "gmail-017":"dup-fit1047-part4-deadline",
+    "moodle-004":"dup-fit1047-part4-deadline",
+    "gmail-021":"dup-fit1045-final-test",
+    "gmail-025":"dup-fit1045-final-test",
+    "ed-017":"dup-fit1045-final-test",
+    "ed-002":"dup-fit1047-password-hashing",
+    "ed-010":"dup-fit1047-password-hashing",
+    "ed-015":"dup-fit1047-password-hashing"
+  },
+  "notable_adjudications": [
+    {"sample_id":"gmail-002","decision":"reference","reason":"Q&A attendance is explicitly optional; the event is useful but not required."},
+    {"sample_id":"gmail-010","decision":"important","reason":"The outage can affect a student's immediate study workflow even though it is not course-specific."},
+    {"sample_id":"gmail-014","decision":"skip","reason":"Duplicate receipt with no new outcome or deadline."},
+    {"sample_id":"gmail-020","decision":"important","reason":"A payment deadline matters, but the sample does not state loss of enrolment or another critical consequence."},
+    {"sample_id":"gmail-023","decision":"skip","reason":"Private appointment logistics are outside the academic triage scope in this sample."},
+    {"sample_id":"gmail-025","decision":"staff_announcement","reason":"The message announces an existing test arrangement; it does not itself state that a previously known requirement changed."},
+    {"sample_id":"ed-011","decision":"critical","reason":"The staff answer says the hurdle is an independent pass condition, so missing it can directly affect passing the unit."},
+    {"sample_id":"ed-025","decision":"uncertain","reason":"The student needs a staff-confirmed alternative; the post does not establish that downloading a copy is allowed."}
+  ]
+}

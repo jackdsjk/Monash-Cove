@@ -87,7 +87,7 @@ export function createCoveMcpServer(options: McpOptions = {}) {
       title: "Get Monash Cove brief",
       description: "Return the local campus brief. Read-only; items are normalized from Gmail, Ed, and Moodle.",
       inputSchema: z.object({
-        source: z.enum(["gmail", "ed", "moodle"]).optional(),
+        source: z.enum(["gmail", "ed", "moodle", "ontrack"]).optional(),
         sinceHours: z.number().int().min(0).max(24 * 365).optional(),
         q: z.string().max(200).optional(),
         onlyAction: z.boolean().optional(),
