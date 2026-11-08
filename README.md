@@ -2,11 +2,31 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
-A local-first triage app for Monash students. It turns read-only content from Gmail, Ed, Moodle and OnTrack into one reviewable brief, one deadline countdown, and one weekly materials sheet.
+> Read-only triage for Monash students: four systems in, one reviewable brief out.
+
+![Node](https://img.shields.io/badge/Node-26%2B-3c873a?style=flat-square)
+![Platform](https://img.shields.io/badge/platform-macOS-lightgrey?style=flat-square)
+![Access](https://img.shields.io/badge/access-read--only-2f7fd1?style=flat-square)
+![Data](https://img.shields.io/badge/data-local--only-177b8a?style=flat-square)
 
 Everything runs on your machine. The app never uploads content and never acts on your behalf inside university systems.
 
----
+## Contents
+
+| Section | Topic |
+|---|---|
+| [1](#1-what-problem-this-solves) | What problem this solves |
+| [2](#2-who-it-is-for) | Who it is for |
+| [3](#3-features) | Features |
+| [4](#4-data-sources) | Data sources |
+| [5](#5-architecture) | Architecture |
+| [6](#6-getting-started) | Getting started |
+| [7](#7-repository-layout) | Repository layout |
+| [8](#8-privacy-and-security-boundaries) | Privacy and security boundaries |
+| [9](#9-development-and-verification) | Development and verification |
+| [10](#10-current-status-and-known-limits) | Current status and known limits |
+| [11](#11-documentation) | Documentation |
+| [12](#12-license) | License |
 
 ## 1. What problem this solves
 
@@ -14,24 +34,37 @@ A student works across four systems every day: university mail, Moodle course pa
 
 Monash Cove splits that work into four steps:
 
-1. **Read-only polling** — pull new content from four sources locally, with read-only credentials;
-2. **Triage** — decide importance and required action from course ownership, author role, and whether the content changes an existing arrangement;
-3. **Evidence** — every judgement carries a quoted excerpt and a link back to the source;
-4. **Change history** — record what changed inside an item (due date, title, body), not merely whether something is new.
+| Step | What it does |
+|---|---|
+| **Read-only polling** | Pull new content from four sources locally, with read-only credentials |
+| **Triage** | Decide importance and required action from course ownership, author role, and whether the content changes an existing arrangement |
+| **Evidence** | Every judgement carries a quoted excerpt and a link back to the source |
+| **Change history** | Record what changed inside an item (due date, title, body), not merely whether something is new |
 
 It is not a calendar replacement, and it does not write your assignments. It replaces reading every notification before deciding what matters.
 
 ## 2. Who it is for
 
-**Fits**: a current Monash student who uses Moodle, university mail, Ed and OnTrack, needs to keep up with coursework, and would rather not read every notice one by one.
-
-**Does not fit**:
-
-- non-Monash users — the adapters target Monash's Moodle, Ed and OnTrack directly;
-- anyone expecting the app to submit work, reply to messages, or change grades — there are no write operations;
-- multi-user or cloud-sync scenarios — this is single-user, single-machine software.
+| | Detail |
+|---|---|
+| **Fits** | A current Monash student who uses Moodle, university mail, Ed and OnTrack, needs to keep up with coursework, and would rather not read every notice one by one |
+| **Does not fit** | Non-Monash users — the adapters target Monash's Moodle, Ed and OnTrack directly |
+| **Does not fit** | Anyone expecting the app to submit work, reply to messages, or change grades — there are no write operations |
+| **Does not fit** | Multi-user or cloud-sync scenarios — this is single-user, single-machine software |
 
 ## 3. Features
+
+| Page | The question it answers |
+|---|---|
+| [Brief](#31-brief-home) | What needs my attention since I last looked? |
+| [Change tracking](#32-change-tracking) | What changed in something I already read? |
+| [Deadlines](#33-deadline-countdown) | What is due next, and how long do I have? |
+| [Weekly materials](#34-weekly-materials) | What did each course publish this week? |
+| [OnTrack](#35-ontrack) | Where is each task, and what did the tutor say? |
+| [Ed learning](#36-ed-learning) | Where are the recording, slides and files for this lesson? |
+| [Attendance](#37-attendance) | What is this week's attendance code? |
+| [Sources](#38-sources-and-credential-lifetime) | Which sources are connected, and how long do the credentials last? |
+| [Local MCP](#39-local-mcp-optional) | How does another agent read this data? |
 
 ### 3.1 Brief (home)
 
@@ -51,9 +84,9 @@ Materials grouped by course and week: slides, recordings, assignment instruction
 
 ### 3.5 OnTrack
 
-A dedicated page with:
+A dedicated OnTrack page with four parts:
 
-- **Task table** — code, name, status, due date, weighting, filterable by P / C / D / HD grade band;
+- **Task table** — code, name, status, due date and weighting, filterable by P / C / D / HD grade band;
 - **Task conversation** — click any task to open a side panel with your full thread with the tutor in chronological order; status transitions and plan changes appear as system lines;
 - **Tutor feedback** — comments and automated assessment results, filterable by task and readable in full;
 - **Downloads** — task resource bundles and submitted PDFs.
@@ -68,7 +101,14 @@ Collects attendance codes from Gmail and Moodle. Moodle images are read with a b
 
 ### 3.8 Sources and credential lifetime
 
-Manages the four source connections and shows each one's **credential lifetime**: Gmail renews automatically; Ed and Moodle have no published expiry and report a failure when they lapse; OnTrack exchanges a refresh credential for short-lived tokens.
+Manages the four source connections and shows each one's **credential lifetime**:
+
+| Source | Lifetime |
+|---|---|
+| Gmail | Renews automatically before it expires |
+| Ed | No published expiry; prompts to reconnect when it lapses |
+| Moodle | No published expiry; prompts to reconnect when it lapses |
+| OnTrack | Exchanges a refresh credential for short-lived tokens |
 
 ### 3.9 Local MCP (optional)
 
@@ -89,26 +129,30 @@ All four are read-only. The app sends no mail, submits no work, and changes no t
 
 ```text
 ┌─────────────┐     HTTP/JSON      ┌──────────────────┐     HTTPS      ┌──────────────┐
-│   webapp    │ ─────────────────▶ │  local-service   │ ─────────────▶ │  University  │
-│ React+AntD  │ ◀───────────────── │ Fastify + SQLite │ ◀───────────── │  read-only   │
+│   webapp    │ ─────────────────▶ │  local-service   │ ─────────────▶ │ University   │
+│ React+AntD  │ ◀───────────────── │ Fastify + SQLite │ ◀───────────── │ read-only    │
 └─────────────┘                    └──────────────────┘                └──────────────┘
         │                                    │
         │                                    └─ Keychain (credentials)
         └─ browser UI                        └─ SQLite (items, judgements, changes)
 ```
 
-- **webapp** — Vite + React 19 + Ant Design 6; a pure client that never holds a credential;
-- **local-service** — Node 26 + Fastify + `node:sqlite`; owns source access, sync, triage, change history and downloads;
-- **desktop** — an Electron shell that reuses the same local-service and webapp.
+| Process | Responsibility |
+|---|---|
+| **webapp** | Vite + React 19 + Ant Design 6; a pure client that never holds a credential |
+| **local-service** | Node 26 + Fastify + `node:sqlite`; owns source access, sync, triage, change history and downloads |
+| **desktop** | An Electron shell that reuses the same local-service and webapp |
 
 ## 6. Getting started
 
 ### Prerequisites
 
-- Node.js 26 or newer;
-- Google Chrome (the Moodle and OnTrack login assistants drive it);
-- macOS, the only platform fully verified so far;
-- a Monash account.
+| Requirement | Why |
+|---|---|
+| Node.js 26+ | Modern syntax and `node:sqlite` |
+| Google Chrome | The Moodle and OnTrack login assistants drive it |
+| macOS | The only platform fully verified so far |
+| A Monash account | Needed to connect the four sources |
 
 ### One command
 
@@ -150,46 +194,46 @@ Development mode uses the Vite dev server at <http://127.0.0.1:5174/>; `local-se
 
 ## 8. Privacy and security boundaries
 
-- Real credentials are written only to the local Keychain; they never enter the repository or the browser;
-- Mail bodies, course content, judgements and change history live only in a local SQLite database (`~/Library/Application Support/Cove/cove.sqlite`);
-- This public repository contains no real tokens, cookies, databases or account details;
-- Network requests go only to university systems and Google's read-only APIs;
-- No write operation exists, so a stray submission or reply is not possible.
+| Boundary | How it is enforced |
+|---|---|
+| Real credentials | Written only to the local Keychain; never in the repository or the browser |
+| Content | Mail bodies, course content, judgements and change history live only in a local SQLite database |
+| Public repository | Contains no real tokens, cookies, databases or account details |
+| Network | Requests go only to university systems and Google's read-only APIs |
+| Write operations | None exist, so a stray submission or reply is not possible |
+
+Database location: `~/Library/Application Support/Cove/cove.sqlite`.
 
 ## 9. Development and verification
 
-```bash
-# local service: unit tests + build
-cd local-service && npm run check
-
-# web app: data checks + type check + build
-cd webapp && npm run check
-
-# end-to-end smoke
-cd webapp && npm run e2e
-```
+| Command | What it runs |
+|---|---|
+| `cd local-service && npm run check` | Unit tests and build |
+| `cd webapp && npm run check` | Data checks, type check and build |
+| `cd webapp && npm run e2e` | End-to-end smoke run |
 
 ## 10. Current status and known limits
 
-**Verified against real accounts**: source connection, sync, triage, change tracking, OnTrack tasks and conversations, material downloads.
-
-**Unverified or limited**:
-
-- the Windows desktop build has not been tested on real Windows hardware;
-- the macOS Electron build is unsigned; distribution needs a Developer ID and notarization;
-- Gmail incremental sync only reads mail after its cursor, so edits to older mail are never re-read (Gmail messages are not editable, so the impact is small);
-- OnTrack deadlines are treated as 23:59 on the due date at +08:00, which needs per-campus adjustment for other campuses;
-- there has been no external user research; evaluation rests on historical replay and self-testing.
+| Status | Detail |
+|---|---|
+| **Verified against real accounts** | Source connection, sync, triage, change tracking, OnTrack tasks and conversations, material downloads |
+| Unverified | The Windows desktop build has not been tested on real Windows hardware |
+| Unverified | The macOS Electron build is unsigned; distribution needs a Developer ID and notarization |
+| Known limit | Gmail incremental sync only reads mail after its cursor, so edits to older mail are never re-read (Gmail messages are not editable, so the impact is small) |
+| Known limit | OnTrack deadlines are treated as 23:59 on the due date at +08:00; other campuses need an adjustment |
+| Known limit | No external user research yet; evaluation rests on historical replay and self-testing |
 
 ## 11. Documentation
 
-- Documentation index: [docs/README.md](docs/README.md)
-- Product definition: [docs/PRD-Monash-Agent.md](docs/PRD-Monash-Agent.md)
-- Design rules: [docs/webapp-design.md](docs/webapp-design.md)
-- Local service: [local-service/README.md](local-service/README.md)
-- Web client: [webapp/README.md](webapp/README.md)
-- Desktop install: [docs/desktop-install.md](docs/desktop-install.md)
-- MCP access: [docs/mcp.md](docs/mcp.md)
+| Document | Contents |
+|---|---|
+| [docs/README.md](docs/README.md) | Documentation index |
+| [docs/PRD-Monash-Agent.md](docs/PRD-Monash-Agent.md) | Product definition |
+| [docs/webapp-design.md](docs/webapp-design.md) | Design rules |
+| [local-service/README.md](local-service/README.md) | Local service |
+| [webapp/README.md](webapp/README.md) | Web client |
+| [docs/desktop-install.md](docs/desktop-install.md) | Desktop install |
+| [docs/mcp.md](docs/mcp.md) | MCP access |
 
 ## 12. License
 
