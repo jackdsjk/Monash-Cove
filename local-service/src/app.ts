@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { createDatabase, type CoveDatabase } from "./db.js";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { gzip as gzipCallback } from "node:zlib";
 import { promisify } from "node:util";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -27,10 +27,11 @@ import { degradeMoodleSession, moodleCredentials, scheduleMoodleSessionChecks, v
 import { captureMoodlePage } from "./moodle-snapshot.js";
 import { AssetFetchError, fetchAsset } from "./safe-download.js";
 import { withTimeout } from "./http.js";
+import { ResourceCache, RESOURCE_TTL, CacheIdentityChangedError } from "./resource-cache.js";
 import { attendanceScanKey } from "./attendance/scan-key.js";
 import type { ApiError, ChangesResponse, ItemChange, Source, StoredItem } from "./domain.js";
 import { describeCredentials } from "./credentials.js";
-import { configureOnTrackCredentials, fetchOnTrackAccount, fetchOnTrackArtifact, fetchOnTrackComments, fetchOnTrackProjects, fetchOnTrackTasks } from "./sources/ontrack.js";
+import { configureOnTrackCredentials, disconnectOnTrackCredentials, onTrackCacheIdentity, fetchOnTrackAccount, fetchOnTrackArtifact, fetchOnTrackComments, fetchOnTrackProjects, fetchOnTrackTasks } from "./sources/ontrack.js";
 import { getRuntimeStatus } from "./runtime.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
 import { OnTrackLoginAssistant } from "./setup/ontrack-assistant.js";
@@ -156,7 +157,30 @@ export function buildApp(options: AppOptions): FastifyInstance {
     return gzipAsync(payload);
   });
 
-  const secrets = options.secretStore ?? defaultSecretStore();
+  const resourceCache = new ResourceCache(db);
+  const underlyingSecrets = options.secretStore ?? defaultSecretStore();
+  const credentialSource = (key: string): string | undefined => /^(moodle|ed|ontrack)-credentials$/.exec(key)?.[1];
+  // All credential writers, including login assistants, share the same invalidation.
+  const secrets: SecretStore = {
+    get: (key) => underlyingSecrets.get(key),
+    async set(key, value) {
+      const source = credentialSource(key);
+      if (source) resourceCache.invalidate(source);
+      await underlyingSecrets.set(key, value);
+      if (source) resourceCache.invalidate(source);
+    },
+    async delete(key) {
+      const source = credentialSource(key);
+      if (source) resourceCache.invalidate(source);
+      await underlyingSecrets.delete(key);
+      if (source) resourceCache.invalidate(source);
+    },
+  };
+  const credentialIdentity = async (source: "moodle" | "ed"): Promise<string | null> => {
+    const raw = await secrets.get(`${source}-credentials`);
+    return raw ? createHash("sha256").update(`${source}\0${raw}`).digest("hex") : null;
+  };
+  const forcedRefresh = (url: string): boolean => new URL(url, "http://localhost").searchParams.get("refresh") === "1";
   // Every outbound call gets a deadline; a stalled upstream must not hang a
   // request handler or the hourly sync loop.
   const fetcher = withTimeout(options.fetcher ?? fetch);
@@ -189,7 +213,10 @@ export function buildApp(options: AppOptions): FastifyInstance {
   }
 
   app.decorate("coveDb", db);
-  app.addHook("onClose", async () => db.close());
+  app.addHook("onClose", async () => {
+    resourceCache.close();
+    db.close();
+  });
 
   app.setErrorHandler((error, request, reply) => {
     const err = error as Error & { statusCode?: number };
@@ -646,25 +673,34 @@ export function buildApp(options: AppOptions): FastifyInstance {
     return db.brief({ since, source: source as Source | undefined, query: q, limit: parsedLimit });
   });
 
-  app.get("/api/ontrack/overview", async () => {
+  const readOnTrack = async (identity: string, force: boolean) => resourceCache.read({
+    source: "ontrack", identity, resource: "overview:v1", ttlMs: RESOURCE_TTL.ontrack,
+    currentIdentity: onTrackCacheIdentity, force,
+  }, async () => {
     const account = await fetchOnTrackAccount();
-    if (!account) return { connected: false, account: null, projects: [] };
+    if (!account) throw new Error("OnTrack 登录已失效，请重新连接。");
+    const projects = await fetchOnTrackProjects();
+    const overview: Array<(typeof projects)[number] & { tasks: Awaited<ReturnType<typeof fetchOnTrackTasks>> }> = [];
+    // Bounded project batches; all overview/list consumers share this one refresh.
+    for (let index = 0; index < projects.length; index += 4) {
+      const batch = await Promise.all(projects.slice(index, index + 4).map(async (project) => ({
+        ...project, tasks: await fetchOnTrackTasks(project.id),
+      })));
+      overview.push(...batch);
+    }
+    return { data: { account, projects: overview } };
+  });
 
+  app.get("/api/ontrack/overview", async (request, reply) => {
+    const identity = await onTrackCacheIdentity();
+    if (!identity) return { connected: false, account: null, projects: [] };
     try {
-      const projects = await fetchOnTrackProjects();
-      const overview = [];
-      for (const project of projects) {
-        const tasks = await fetchOnTrackTasks(project.id);
-        overview.push({ ...project, tasks });
-      }
-      return { connected: true, account, projects: overview };
+      const result = await readOnTrack(identity, forcedRefresh(request.url));
+      reply.header("cache-control", "no-store");
+      return { connected: true, ...result.data, cache: result.cache };
     } catch (error) {
-      return {
-        connected: true,
-        account,
-        projects: [],
-        error: error instanceof Error ? error.message : "读取 OnTrack 失败",
-      };
+      if (error instanceof CacheIdentityChangedError) throw error;
+      return reply.code(502).send({ error: { code: "ontrack_unavailable", message: error instanceof Error ? error.message : "读取 OnTrack 失败", retryable: true } } satisfies ApiError);
     }
   });
 
@@ -698,17 +734,19 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
   });
 
-  app.get("/api/ontrack/tasks", async (_request, reply) => {
+  app.get("/api/ontrack/tasks", async (request, reply) => {
     try {
-      const projects = await fetchOnTrackProjects();
-      const tasks: Array<Record<string, unknown>> = [];
-      for (const project of projects) {
-        for (const task of await fetchOnTrackTasks(project.id)) {
-          tasks.push({ ...task, projectId: project.id, unitCode: project.unitCode, unitName: project.unitName });
-        }
-      }
-      return { projects, tasks };
+      const identity = await onTrackCacheIdentity();
+      if (!identity) return { projects: [], tasks: [] };
+      const result = await readOnTrack(identity, forcedRefresh(request.url));
+      const tasks = result.data.projects.flatMap((project) => project.tasks.map((task) => ({
+        ...task, projectId: project.id, unitCode: project.unitCode, unitName: project.unitName,
+      })));
+      const projects = result.data.projects.map(({ tasks: _tasks, ...project }) => project);
+      reply.header("cache-control", "no-store");
+      return { projects, tasks, cache: result.cache };
     } catch (error) {
+      if (error instanceof CacheIdentityChangedError) throw error;
       return reply.code(502).send({
         error: { code: "ontrack_unavailable", message: error instanceof Error ? error.message : "OnTrack is unavailable.", retryable: true },
       } satisfies ApiError);
@@ -882,6 +920,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (source.data === "gmail") {
       return reply.code(400).send({ error: { code: "use_oauth", message: "Use the Gmail OAuth flow.", retryable: false } } satisfies ApiError);
     }
+    if (source.data === "ontrack") {
+      return reply.code(400).send({ error: { code: "use_assistant", message: "Use the OnTrack login assistant.", retryable: false } } satisfies ApiError);
+    }
     if (source.data === "ed") {
       const parsed = edCredentials.safeParse(request.body ?? {});
       if (!parsed.success) return reply.code(400).send({ error: { code: "invalid_request", message: parsed.error.message, retryable: false } } satisfies ApiError);
@@ -891,7 +932,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
       const parsed = moodleCredentials.safeParse(request.body ?? {});
       if (!parsed.success) return reply.code(400).send({ error: { code: "invalid_request", message: parsed.error.message, retryable: false } } satisfies ApiError);
       await secrets.set("moodle-credentials", JSON.stringify(parsed.data));
-      if (parsed.data.username) db.setSourceAccount("moodle", parsed.data.username);
+      db.setSourceAccount("moodle", parsed.data.username ?? null);
     }
     db.setSourceStatus(source.data, "degraded", null, null);
     return { ok: true };
@@ -903,20 +944,26 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (source.data === "ed") await secrets.delete("ed-credentials");
     if (source.data === "moodle") await secrets.delete("moodle-credentials");
     if (source.data === "gmail") await google.disconnect();
-    if (source.data === "ontrack") await secrets.delete("ontrack-credentials");
+    if (source.data === "ontrack") await disconnectOnTrackCredentials();
     db.setSourceStatus(source.data, "disconnected", null, null);
     db.setSourceAccount(source.data, null);
     return { ok: true };
   });
 
-  app.get("/api/moodle/courses", async (_request, reply) => {
+  app.get("/api/moodle/courses", async (request, reply) => {
     const raw = await secrets.get("moodle-credentials");
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const client = new MoodleClient(credentials.baseUrl, moodleCookieHeader(credentials), fetcher);
-      return { courses: await client.listCourses() };
+      const identity = createHash("sha256").update(`moodle\0${raw}`).digest("hex");
+      const result = await resourceCache.read({ source: "moodle", identity, resource: "courses:v1", ttlMs: RESOURCE_TTL.courses,
+        currentIdentity: () => credentialIdentity("moodle"), force: forcedRefresh(request.url) }, async () => ({
+        data: await new MoodleClient(credentials.baseUrl, moodleCookieHeader(credentials), fetcher).listCourses(),
+      }));
+      reply.header("cache-control", "no-store");
+      return { courses: result.data, cache: result.cache };
     } catch (error) {
+      if (error instanceof CacheIdentityChangedError) throw error;
       const message = error instanceof Error ? error.message : "Moodle course list failed.";
       return reply.code(502).send({ error: { code: "moodle_courses_failed", message, retryable: true } } satisfies ApiError);
     }
@@ -1047,13 +1094,20 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
   });
 
-  app.get("/api/ed/courses", async (_request, reply) => {
+  app.get("/api/ed/courses", async (request, reply) => {
     const raw = await secrets.get("ed-credentials");
     if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
     try {
       const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
-      return { courses: await new EdClient(credentials.token, credentials.region, fetcher).listCourses() };
+      const identity = createHash("sha256").update(`ed\0${raw}`).digest("hex");
+      const result = await resourceCache.read({ source: "ed", identity, resource: "courses:v1", ttlMs: RESOURCE_TTL.courses,
+        currentIdentity: () => credentialIdentity("ed"), force: forcedRefresh(request.url) }, async () => ({
+        data: await new EdClient(credentials.token, credentials.region, fetcher).listCourses(),
+      }));
+      reply.header("cache-control", "no-store");
+      return { courses: result.data, cache: result.cache };
     } catch (error) {
+      if (error instanceof CacheIdentityChangedError) throw error;
       return reply.code(502).send({ error: { code: "ed_courses_failed", message: error instanceof Error ? error.message : "Ed courses failed.", retryable: true } } satisfies ApiError);
     }
   });
@@ -1065,8 +1119,15 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
     try {
       const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
-      return { lessons: await new EdClient(credentials.token, credentials.region, fetcher).listLessons(courseId) };
+      const identity = createHash("sha256").update(`ed\0${raw}`).digest("hex");
+      const result = await resourceCache.read({ source: "ed", identity, resource: `lessons:v1:${courseId}`, ttlMs: RESOURCE_TTL.ed,
+        currentIdentity: () => credentialIdentity("ed"), force: forcedRefresh(request.url) }, async () => ({
+        data: await new EdClient(credentials.token, credentials.region, fetcher).listLessons(courseId),
+      }));
+      reply.header("cache-control", "no-store");
+      return { lessons: result.data, cache: result.cache };
     } catch (error) {
+      if (error instanceof CacheIdentityChangedError) throw error;
       return reply.code(502).send({ error: { code: "ed_lessons_failed", message: error instanceof Error ? error.message : "Ed lessons failed.", retryable: true } } satisfies ApiError);
     }
   });
@@ -1078,8 +1139,15 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
     try {
       const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
-      return await new EdClient(credentials.token, credentials.region, fetcher).getLesson(lessonId);
+      const identity = createHash("sha256").update(`ed\0${raw}`).digest("hex");
+      const result = await resourceCache.read({ source: "ed", identity, resource: `lesson:v1:${lessonId}`, ttlMs: RESOURCE_TTL.ed,
+        currentIdentity: () => credentialIdentity("ed"), force: forcedRefresh(request.url) }, async () => ({
+        data: await new EdClient(credentials.token, credentials.region, fetcher).getLesson(lessonId),
+      }));
+      reply.header("cache-control", "no-store");
+      return { ...result.data, cache: result.cache };
     } catch (error) {
+      if (error instanceof CacheIdentityChangedError) throw error;
       return reply.code(502).send({ error: { code: "ed_lesson_failed", message: error instanceof Error ? error.message : "Ed lesson failed.", retryable: true } } satisfies ApiError);
     }
   });
@@ -1250,14 +1318,31 @@ export function buildApp(options: AppOptions): FastifyInstance {
     };
   });
 
-  app.get("/api/moodle/grades", async (_request, reply) => {
+  app.get("/api/moodle/grades", async (request, reply) => {
     const raw = await secrets.get("moodle-credentials");
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const client = new MoodleGradesClient(credentials.baseUrl, moodleCookieHeader(credentials), fetcher);
-      return { courses: await client.pull() };
+      const identity = createHash("sha256").update(`moodle\0${raw}`).digest("hex");
+      const result = await resourceCache.read({ source: "moodle", identity, resource: "grades:v1", ttlMs: RESOURCE_TTL.grades,
+        currentIdentity: () => credentialIdentity("moodle"), force: forcedRefresh(request.url) }, async (previous: Awaited<ReturnType<MoodleGradesClient["pull"]>> | undefined, snapshot) => {
+        const pulled = await new MoodleGradesClient(credentials.baseUrl, moodleCookieHeader(credentials), fetcher).pullDetailed();
+        const failed = new Set(pulled.failedCourseIds);
+        const at = new Date().toISOString();
+        const coverage = Object.fromEntries([
+          ...Object.entries(snapshot?.coverage ?? {}).filter(([id]) => failed.has(id)),
+          ...pulled.courses.map((course) => [course.courseId, at]),
+        ]);
+        return {
+          data: [...pulled.courses, ...(previous ?? []).filter((course) => failed.has(course.courseId))],
+          error: failed.size ? `部分课程成绩刷新失败，保留上次成功数据（课程 ${[...failed].join("、")}）。` : null,
+          coverage, failedIds: [...failed],
+        };
+      });
+      reply.header("cache-control", "no-store");
+      return { courses: result.data, cache: result.cache };
     } catch (error) {
+      if (error instanceof CacheIdentityChangedError) throw error;
       if (error instanceof MoodleGradesError && error.code === "session_expired") {
         return reply.code(409).send({ error: { code: "not_connected", message: error.message, retryable: false } } satisfies ApiError);
       }
@@ -1398,6 +1483,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
 
   app.delete("/api/data", async () => {
     // 只清内容，不动凭据：设置页承诺「来源连接保留」，断开连接是另一个动作。
+    resourceCache.invalidate();
     db.clearAll({ keepConnections: true });
     return { ok: true };
   });

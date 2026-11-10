@@ -70,6 +70,10 @@ export class MoodleGradesClient {
    * than an empty "you have no grades" answer.
    */
   async pull(): Promise<MoodleGradeCourse[]> {
+    return (await this.pullDetailed()).courses;
+  }
+
+  async pullDetailed(): Promise<{ courses: MoodleGradeCourse[]; failedCourseIds: string[] }> {
     const alive = await this.courses.validateSession().catch(() => false);
     if (!alive) {
       throw new MoodleGradesError("session_expired", "Moodle session expired; reconnect Moodle to read the gradebook.");
@@ -87,16 +91,16 @@ export class MoodleGradesClient {
         } satisfies MoodleGradeCourse;
       } catch (error) {
         if (error instanceof MoodleGradesError && error.code === "session_expired") throw error;
-        return { error };
+        return { error, courseId: String(course.id) };
       }
     });
-    const failures = results.filter((result): result is { error: unknown } => result !== null && "error" in result && result.error !== undefined);
+    const failures = results.filter((result): result is { error: unknown; courseId: string } => result !== null && "error" in result && result.error !== undefined);
     const courses = results.filter((result): result is MoodleGradeCourse => result !== null && !("error" in result));
     if (courses.length === 0 && failures.length > 0) {
       // Surface the first real cause instead of pretending the gradebook is empty.
       throw new MoodleGradesError("grades_failed", failureMessage(failures[0]?.error));
     }
-    return courses;
+    return { courses, failedCourseIds: failures.map((result) => result.courseId) };
   }
 
   /** `null` means Moodle served the page but it holds no grade table. */

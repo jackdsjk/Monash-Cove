@@ -72,6 +72,16 @@ npm run retriage
 - `GET /oauth/google/callback`
 - `DELETE /api/data`
 
+## 读取缓存
+
+Moodle 课程、成绩，Ed 课程/lesson，以及 OnTrack 概览/任务的 GET 会读取账号隔离的 SQLite `resource_snapshots`。新鲜快照直接返回；过期数据先返回并后台刷新；首次无快照才等待上游。同一资源的并发请求共用刷新任务，OnTrack 概览与列表共用一次抓取。前端切页时保留共享内存查询结果。
+
+上述响应保留原字段，增加 `cache`：`identity`（不透明凭据指纹）、`fetchedAt`、`checkedAt`、`refreshing`、`stale`、`error`；成绩还包含 `coverage`（各课程最后成功时间）和 `failedIds`。`?refresh=1` 主动等待刷新并加入已有任务；失败时有旧数据便返回旧数据及错误，没有快照则沿用原 API 错误响应。失败不会更新最后成功时间；失败后普通读取至少退避 30 秒，手动刷新可立即重试。
+
+新鲜期默认值定义在 `src/resource-cache.ts` 的 `RESOURCE_TTL`：课程目录 6 小时、成绩 5 分钟、Ed 内容 15 分钟、OnTrack 2 分钟。这些是后台检查间隔，过期不删除成功数据；页面显示实际成功时间。个别成绩课程失败时保留其旧成绩及原覆盖时间。
+
+快照单项上限 8 MiB，每个来源最多 1,000 项及 96 MiB。连接、断开或替换凭据使对应快照和在途写回失效；凭据指纹变化会隔离数据，无法确认同账号的会话更新按新连接处理。清空本地数据也清空快照。Moodle 资料正文和考试表继续使用原有本地数据表，不重复建立快照。OnTrack 显式断开会禁止全局 CLI 会话回退，重新保存凭据可连接。
+
 ## 数据与安全
 
 - SQLite 表：`sources/items/item_content/sync_cursors/corrections/reads/settings`；

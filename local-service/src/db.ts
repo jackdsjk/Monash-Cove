@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import type { BriefResponse, ChangeField, FixtureItem, ItemChange, MoodleContentRow, NewItem, PortalExam, PortalExamView, Source, SourceStatus, StoredItem } from "./domain.js";
+import type { ResourceSnapshot } from "./resource-cache.js";
 
 const SOURCE_LABELS: Record<Source, string> = { gmail: "Gmail", ed: "Ed", moodle: "Moodle", ontrack: "OnTrack" };
 const SOURCE_IDS: Source[] = ["gmail", "ed", "moodle", "ontrack"];
@@ -25,6 +26,18 @@ function parseJson(value: unknown): string | null {
 const DEFAULT_FIXTURE = fileURLToPath(new URL("../fixtures/items.json", import.meta.url));
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS resource_snapshots (
+  source TEXT NOT NULL,
+  identity TEXT NOT NULL,
+  resource TEXT NOT NULL,
+  data_json TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  checked_at TEXT NOT NULL,
+  last_error TEXT,
+  failed_at INTEGER,
+  meta_json TEXT NOT NULL DEFAULT '{}',
+  PRIMARY KEY(source, identity, resource)
+);
 CREATE TABLE IF NOT EXISTS sources (
   id TEXT PRIMARY KEY,
   label TEXT NOT NULL,
@@ -184,6 +197,8 @@ export class CoveDatabase {
   }
 
   private ensureColumns() {
+    const snapshotColumns = this.db.prepare("PRAGMA table_info(resource_snapshots)").all() as Array<{ name: string }>;
+    if (!snapshotColumns.some((column) => column.name === "meta_json")) this.db.exec("ALTER TABLE resource_snapshots ADD COLUMN meta_json TEXT NOT NULL DEFAULT '{}'");
     const columns = new Set(
       (this.db.prepare("PRAGMA table_info(items)").all() as Array<{ name?: string }>).map((column) => column.name),
     );
@@ -442,6 +457,47 @@ export class CoveDatabase {
     this.db
       .prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
       .run(key, value);
+  }
+
+  getResourceSnapshot<T>(source: string, identity: string, resource: string): ResourceSnapshot<T> | null {
+    const row = this.db.prepare("SELECT * FROM resource_snapshots WHERE source = ? AND identity = ? AND resource = ?")
+      .get(source, identity, resource) as { data_json: string; fetched_at: string; checked_at: string; last_error: string | null; failed_at: number | null; meta_json: string } | undefined;
+    if (!row) return null;
+    try {
+      if (!Number.isFinite(Date.parse(row.checked_at))) return null;
+      const meta = JSON.parse(row.meta_json) as { coverage?: Record<string, string>; failedIds?: string[] };
+      return { data: JSON.parse(row.data_json) as T, fetchedAt: row.fetched_at, checkedAt: row.checked_at, error: row.last_error, failedAt: row.failed_at, coverage: meta.coverage, failedIds: meta.failedIds };
+    } catch {
+      return null;
+    }
+  }
+
+  saveResourceSnapshot<T>(source: string, identity: string, resource: string, snapshot: ResourceSnapshot<T>): void {
+    const json = JSON.stringify(snapshot.data);
+    if (Buffer.byteLength(json) > 8 * 1024 * 1024) throw new Error("缓存数据超过单项 8 MiB 上限。");
+    this.db.prepare(`INSERT INTO resource_snapshots (source, identity, resource, data_json, fetched_at, checked_at, last_error, failed_at, meta_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(source, identity, resource) DO UPDATE SET data_json = excluded.data_json,
+        fetched_at = excluded.fetched_at, checked_at = excluded.checked_at,
+        last_error = excluded.last_error, failed_at = excluded.failed_at, meta_json = excluded.meta_json`)
+      .run(source, identity, resource, json, snapshot.fetchedAt, snapshot.checkedAt, snapshot.error, snapshot.failedAt,
+        JSON.stringify({ coverage: snapshot.coverage, failedIds: snapshot.failedIds }));
+    // Keep the current account only, and bound persisted resources for that source.
+    this.db.prepare("DELETE FROM resource_snapshots WHERE source = ? AND identity != ?").run(source, identity);
+    this.db.prepare(`DELETE FROM resource_snapshots WHERE rowid IN (
+      SELECT rowid FROM resource_snapshots WHERE source = ? ORDER BY checked_at DESC, rowid DESC LIMIT -1 OFFSET 1000
+    )`).run(source);
+    this.db.prepare(`DELETE FROM resource_snapshots WHERE rowid IN (
+      SELECT snapshot_id FROM (
+        SELECT rowid AS snapshot_id, SUM(length(CAST(data_json AS BLOB))) OVER (ORDER BY checked_at DESC, rowid DESC) AS bytes
+        FROM resource_snapshots WHERE source = ?
+      ) WHERE bytes > 96 * 1024 * 1024
+    )`).run(source);
+  }
+
+  deleteResourceSnapshots(source?: string): void {
+    if (source) this.db.prepare("DELETE FROM resource_snapshots WHERE source = ?").run(source);
+    else this.db.exec("DELETE FROM resource_snapshots");
   }
 
   private baseQuery() {
@@ -829,7 +885,7 @@ export class CoveDatabase {
   }
 
   clearAll(options: { keepConnections?: boolean } = {}) {
-    this.db.exec("DELETE FROM corrections; DELETE FROM reads; DELETE FROM sync_cursors; DELETE FROM settings; DELETE FROM item_content; DELETE FROM items; DELETE FROM moodle_content; DELETE FROM attendance_codes; DELETE FROM attendance_scans; DELETE FROM portal_exams;");
+    this.db.exec("DELETE FROM resource_snapshots; DELETE FROM corrections; DELETE FROM reads; DELETE FROM sync_cursors; DELETE FROM settings; DELETE FROM item_content; DELETE FROM items; DELETE FROM moodle_content; DELETE FROM attendance_codes; DELETE FROM attendance_scans; DELETE FROM portal_exams;");
     if (!options.keepConnections) {
       for (const source of SOURCE_IDS) {
         this.setSourceStatus(source, "disconnected", null, null);
