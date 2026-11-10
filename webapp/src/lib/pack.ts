@@ -1,6 +1,6 @@
 import { FIELD_LABEL, ROLE_LABEL, type ChangeField } from '../data/model'
 import type { PackResponse } from '../types'
-import { fmtDue, fmtWhen } from './time'
+import { DEFAULT_TIMEZONE, fmtDue, fmtWhen } from './time'
 
 /**
  * 「作业资料包」的导出模型。移植自 cove-figma-make 的 `src/lib/pack.ts`：
@@ -144,12 +144,12 @@ export function toAssignmentPacks(response: PackResponse): AssignmentPack[] {
   })
 }
 
-export function toMarkdown(packs: AssignmentPack[], o: PackOptions, now: number) {
+export function toMarkdown(packs: AssignmentPack[], o: PackOptions, now: number, timezone = DEFAULT_TIMEZONE) {
   const out: string[] = []
   const first = packs[0]
   out.push(packs.length === 1 && first ? `# ${first.course} · ${first.title}` : `# 作业资料包（${packs.length} 项作业）`)
   out.push('')
-  out.push(`> 由 Cove 从 Moodle 与 Ed 导出 · ${fmtWhen(now, now)}`)
+  out.push(`> 由 Cove 从 Moodle 与 Ed 导出 · ${fmtWhen(now, now, timezone)} · ${timezone}`)
   out.push(`> ${NOTE}`)
 
   for (const p of packs) {
@@ -157,7 +157,7 @@ export function toMarkdown(packs: AssignmentPack[], o: PackOptions, now: number)
     const h = packs.length > 1 ? '###' : '##'
     out.push('', `${h} 基本信息`, '')
     out.push(`- 课程：${p.course}${p.courseName && p.courseName !== p.course ? ` · ${p.courseName}` : ''}`)
-    out.push(`- 截止时间：${p.dueAt === null ? MISSING_DATA : fmtDue(p.dueAt)}`)
+    out.push(`- 截止时间：${p.dueAt === null ? MISSING_DATA : fmtDue(p.dueAt, timezone)}`)
     out.push(`- Moodle 原文：${p.moodleUrl}`)
 
     if (o.spec) {
@@ -168,7 +168,7 @@ export function toMarkdown(packs: AssignmentPack[], o: PackOptions, now: number)
     }
     if (o.changes && p.changes.length) {
       out.push('', `${h} 变更记录`, '')
-      p.changes.forEach((c) => out.push(`- ${c.field}：${c.before} → ${c.after}（${c.source}，检测于 ${fmtWhen(c.at, now)}）`))
+      p.changes.forEach((c) => out.push(`- ${c.field}：${c.before} → ${c.after}（${c.source}，检测于 ${fmtWhen(c.at, now, timezone)}）`))
     }
     const posts = selectPosts(p, o)
     if (posts.length) {
@@ -177,7 +177,7 @@ export function toMarkdown(packs: AssignmentPack[], o: PackOptions, now: number)
         const label = post.number === null ? post.title : `#${post.number} ${post.title}`
         out.push('', `${h}# ${label}${post.pinned ? '（置顶）' : ''}`, '')
         out.push(`- 作者：${who(post.author, post.role, post.authorTitle)}`)
-        out.push(`- 时间：${fmtWhen(post.at, now)}${post.category ? ` · 分类：${post.category}` : ''}`)
+        out.push(`- 时间：${fmtWhen(post.at, now, timezone)}${post.category ? ` · 分类：${post.category}` : ''}`)
         out.push(`- 链接：${post.url}`)
         out.push('', ...post.body.split('\n').map((l) => `> ${l}`))
         post.replies.forEach((r) => {

@@ -12,7 +12,7 @@ import {
   type PackOptions,
 } from '../lib/pack'
 import { navigate } from '../lib/router'
-import { fmtDue } from '../lib/time'
+import { useTime } from '../lib/time'
 import { useStore } from '../store'
 import type { PackResponse } from '../types'
 
@@ -27,6 +27,7 @@ const OPTION_LABELS: { key: keyof PackOptions; label: string; hint: string }[] =
 ]
 
 export function PackPage() {
+  const { fmtDue, timezone } = useTime()
   const { now } = useStore()
   const [payload, setPayload] = useState<PackResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -66,7 +67,7 @@ export function PackPage() {
 
   const output = useMemo(() => {
     if (!current) return ''
-    return format === 'md' ? toMarkdown(scoped, opts, now) : toJSON(scoped, opts, now)
+    return format === 'md' ? toMarkdown(scoped, opts, now, timezone) : toJSON(scoped, opts, now)
   }, [scoped, opts, format, now, current])
 
   const postCount = scoped.reduce((n, p) => n + selectPosts(p, opts).length, 0)

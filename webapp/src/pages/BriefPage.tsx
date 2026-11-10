@@ -3,7 +3,7 @@ import { AlertCircle, CalendarClock, ChevronDown, ChevronRight, Filter, Graduati
 import { useStore } from '../store'
 import { FIELD_LABEL, JUDGMENT_LABEL, SOURCE_LABEL, SOURCE_ORDER, type Item } from '../data/model'
 import { EMPTY_FILTERS, isHiddenByUser, lastActivity, matchesNonSource, pickSuggestions, type BriefFilters, type View } from '../lib/brief'
-import { fmtDate, fmtWhen, hm } from '../lib/time'
+import { useTime } from '../lib/time'
 import { formatChangeValue } from '../components/ItemDrawer'
 import { navigate } from '../lib/router'
 import { Button, Course, DuePill, EmptyLine, IconTile, PageTitle, Panel, Role, Row, SectionHeader, Segmented, Select, Source, Tag } from '../components/ui'
@@ -42,6 +42,7 @@ function useOnline() {
 }
 
 export function BriefPage() {
+  const { fmtDate, fmtWhen, hm, timezone } = useTime()
   const { items, changes, marks, now, lastViewedAt, sources, courses, markWindowViewed, syncAll, syncSource, openItem, connectSource, restartSetup } = useStore()
   const online = useOnline()
   const [view, setView] = useState<View>('since')
@@ -146,6 +147,11 @@ export function BriefPage() {
 
   return (
     <div className="mx-auto max-w-[1240px] px-10 py-8">
+      {sources.some((source) => source.isFixture) && (
+        <p role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
+          当前包含示例数据，不代表真实账号同步结果。请到来源页连接账号。
+        </p>
+      )}
       <p className="mb-1.5 text-[13px] font-medium text-brand-700">{fmtDate(now)}</p>
       <PageTitle
         title={view === 'since' ? '自上次查看' : '全部记录'}
@@ -374,9 +380,9 @@ export function BriefPage() {
                           </span>
                           <span className="text-slate-600">{FIELD_LABEL[c.field]}</span>
                           <span className="flex min-w-0 items-center gap-1.5">
-                            <span className="truncate text-slate-500 line-through decoration-slate-400">{formatChangeValue(c, c.before)}</span>
+                            <span className="truncate text-slate-500 line-through decoration-slate-400">{formatChangeValue(c, c.before, timezone)}</span>
                             <span className="text-slate-400" aria-label="改为">→</span>
-                            <span className="truncate font-medium text-slate-900">{formatChangeValue(c, c.after)}</span>
+                            <span className="truncate font-medium text-slate-900">{formatChangeValue(c, c.after, timezone)}</span>
                           </span>
                         </div>
                       </Row>

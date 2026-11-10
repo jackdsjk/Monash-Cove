@@ -4,7 +4,7 @@ import { useStore } from '../store'
 import { fetchPortalExams, PortalExamsError, syncPortalExams } from '../data/repository'
 import type { Item } from '../data/model'
 import type { PortalExam } from '../types'
-import { fmtCountdown, fmtDue, fmtWhen } from '../lib/time'
+import { fmtCountdown, useTime } from '../lib/time'
 import { Button, Course, DuePill, EmptyLine, PageTitle, Panel, SectionHeader, Source, Tag } from '../components/ui'
 
 const H = 3600_000
@@ -51,6 +51,7 @@ function durationLabel(minutes: number | null) {
 }
 
 export function DeadlinesPage() {
+  const { fmtDue, fmtWhen } = useTime()
   const { items, now, openItem, completionUpdates, setCompleted } = useStore()
 
   const [exams, setExams] = useState<PortalExam[]>([])

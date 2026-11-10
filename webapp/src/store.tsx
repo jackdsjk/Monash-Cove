@@ -4,6 +4,7 @@ import { invalidateQueryCache, invalidateSourceQueries } from "./data/query-cach
 import { coursesOf, toChange, toItem, toSource } from "./data/adapter";
 import type { Course, Item, ItemChange, SourceId, SourceState, UserMark } from "./data/model";
 import { SOURCE_ORDER } from "./data/model";
+import { TimezoneContext } from './lib/time';
 
 const KEY = "cove_v3";
 
@@ -111,7 +112,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const itemCompletionRevision = useRef(new Map<string, number>());
   const previousSources = useRef<SourceState[] | null>(null);
   const syncFailures = useRef(new Map<SourceId, string>());
-  const syncFlights = useRef(new Set<SourceId>());
+  const syncFlights = useRef(new Map<SourceId, symbol>());
   const fullSyncFlight = useRef<Promise<void> | null>(null);
   const launchHandled = useRef(false);
 
@@ -157,11 +158,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (previousSources.current) {
         for (const next of nextSources) {
           const previous = previousSources.current.find((source) => source.id === next.id);
-          if (previous && (previous.account !== next.account || previous.connected !== next.connected)) invalidateSourceQueries(next.id);
+          if (previous && (previous.account !== next.account || previous.connected !== next.connected)) {
+            invalidateSourceQueries(next.id);
+            syncFailures.current.delete(next.id);
+            syncFlights.current.delete(next.id);
+          }
         }
       }
       previousSources.current = nextSources;
       setSources(nextSources.map((source) => {
+        if (!source.connected) syncFailures.current.delete(source.id);
         const failure = syncFailures.current.get(source.id);
         if (failure) return { ...source, state: 'error', error: failure };
         if (syncFlights.current.has(source.id)) return { ...source, state: 'syncing' };
@@ -215,10 +221,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const syncFull = () => {
     if (fullSyncFlight.current) return;
-    const connected = sources.filter((source) => source.connected);
+    const connected = sources.filter((source) => source.connected && source.id !== 'ontrack');
+    const tokens = new Map(connected.map((source) => [source.id, Symbol(source.id)]));
     for (const source of connected) {
       syncFailures.current.delete(source.id);
-      syncFlights.current.add(source.id);
+      syncFlights.current.set(source.id, tokens.get(source.id)!);
       patchSource(source.id, { state: 'syncing', error: undefined });
     }
     const task = (async () => {
@@ -231,15 +238,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           status = await fetchSyncStatus();
         }
         if (status.job?.status === 'running') throw new Error('全量同步仍在运行，请稍后重试');
-        if (status.job?.status === 'error') throw new Error('全量同步失败，请在来源页查看失败的来源');
+        if (!status.job) throw new Error('无法读取全量同步任务状态，请稍后重试');
+        for (const source of connected) {
+          const progress = status.job.sources[source.id];
+          if (progress?.status === 'error' && syncFlights.current.get(source.id) === tokens.get(source.id)) {
+            const message = progress.message || status.job.message || '这个来源全量同步失败，请重试';
+            syncFailures.current.set(source.id, message);
+            patchSource(source.id, { state: 'error', error: message });
+          }
+        }
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : '全量同步失败';
         for (const source of connected) {
+          if (syncFlights.current.get(source.id) !== tokens.get(source.id)) continue;
           syncFailures.current.set(source.id, message);
           patchSource(source.id, { state: 'error', error: message });
         }
       } finally {
-        for (const source of connected) syncFlights.current.delete(source.id);
+        for (const source of connected) {
+          if (syncFlights.current.get(source.id) === tokens.get(source.id)) syncFlights.current.delete(source.id);
+        }
         fullSyncFlight.current = null;
         await refresh();
       }
@@ -251,16 +269,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (id: SourceId, full = false) => {
       if (full) { syncFull(); return; }
       if (syncFlights.current.has(id) || fullSyncFlight.current) return;
+      const token = Symbol(id);
       syncFailures.current.delete(id);
-      syncFlights.current.add(id);
+      syncFlights.current.set(id, token);
       patchSource(id, { state: 'syncing', error: undefined });
       void requestSourceSync(id)
         .catch((cause: unknown) => {
+          if (syncFlights.current.get(id) !== token) return;
           const message = cause instanceof Error ? cause.message : '同步失败';
           syncFailures.current.set(id, message);
           patchSource(id, { state: 'error', error: message });
         })
         .finally(async () => {
+          if (syncFlights.current.get(id) !== token) return;
           syncFlights.current.delete(id);
           // Success timestamps come from the service, never from an attempted request.
           await refresh();
@@ -318,6 +339,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     disconnectSource: (id) => {
       invalidateSourceQueries(id);
+      syncFailures.current.delete(id);
+      syncFlights.current.delete(id);
       patchSource(id, { connected: false, state: "disconnected", error: undefined });
     },
     completeSetup: () => {
@@ -331,6 +354,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     restartSetup: () => setP((prev) => ({ ...prev, setupDone: false })),
     clearAllData: () => {
       invalidateQueryCache();
+      syncFailures.current.clear();
+      syncFlights.current.clear();
       void fetch("/api/data", { method: "DELETE" }).then(() => refresh());
       setP((prev) => ({ ...prev, marks: {}, attendance: {}, lastViewedAt: Date.now() }));
     },
@@ -340,7 +365,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     refresh,
   };
 
-  return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
+  return <TimezoneContext.Provider value={p.settings.timezone}><Ctx.Provider value={store}>{children}</Ctx.Provider></TimezoneContext.Provider>;
 }
 
 export function useStore() {

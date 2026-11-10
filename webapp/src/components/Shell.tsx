@@ -3,7 +3,7 @@ import { AlertCircle, Award, Bell, BookOpen, CalendarClock, CheckCircle2, Clipbo
 import { useStore } from '../store'
 import { navigate, type Route } from '../lib/router'
 import { SOURCE_LABEL } from '../data/model'
-import { hm } from '../lib/time'
+import { useTime } from '../lib/time'
 import { NAV } from './nav'
 
 const ICONS: Record<string, typeof Inbox> = {
@@ -20,6 +20,7 @@ const ICONS: Record<string, typeof Inbox> = {
 }
 
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
+  const { hm } = useTime()
   const { sources, setPaletteOpen, setSummaryOpen, items, changes, lastViewedAt, openedSince, marks, settings } = useStore()
   const active = (i: (typeof items)[number], since: number) =>
     !marks[i.id]?.judgment && (i.firstSeenAt >= since || changes.some((c) => c.itemId === i.id && c.detectedAt >= since))

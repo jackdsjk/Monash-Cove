@@ -12,7 +12,7 @@ import {
   startMoodleAssistant,
   startOnTrackAssistant,
 } from '../data/repository'
-import { fmtWhen } from '../lib/time'
+import { fmtWhen, useTime } from '../lib/time'
 import { Button, PageTitle, Panel, Select, SOURCE_MARK } from '../components/ui'
 import type { CredentialInfo, MoodleAssistantState } from '../types'
 import { invalidateSourceQueries } from '../data/query-cache'
@@ -38,13 +38,13 @@ const CONNECT_HINT: Record<SourceId, string> = {
 const SESSION_EXPIRED = /会话已过期|session expired/i
 
 /** 凭据有效期来自本地服务的 /api/credentials，不把“已连接”当成永不过期。 */
-function credentialLine(entry: CredentialInfo | undefined, now: number): string {
+function credentialLine(entry: CredentialInfo | undefined, now: number, timezone: string): string {
   if (!entry?.connected) return '凭据未保存在本机'
   if (!entry.expiresAt) return entry.renewable ? '长期有效，自动续期' : '无固定到期，失效时需重连'
   const at = Date.parse(entry.expiresAt)
   if (!Number.isFinite(at)) return entry.note
-  if (at <= now) return `凭据已于 ${fmtWhen(at, now)} 过期`
-  return `凭据有效至 ${fmtWhen(at, now)}${entry.renewable ? '，自动续期' : ''}`
+  if (at <= now) return `凭据已于 ${fmtWhen(at, now, timezone)} 过期`
+  return `凭据有效至 ${fmtWhen(at, now, timezone)}${entry.renewable ? '，自动续期' : ''}`
 }
 
 function Dialog({ title, description, onClose, children }: { title: string; description?: string; onClose: () => void; children: ReactNode }) {
@@ -68,6 +68,7 @@ function Dialog({ title, description, onClose, children }: { title: string; desc
 }
 
 export function SourcesPage({ setup = false }: { setup?: boolean }) {
+  const { fmtWhen, timezone } = useTime()
   const { sources, now, syncSource, syncAll, refresh, completeSetup } = useStore()
   const busy = sources.some((s) => s.state === 'syncing')
   const [credentials, setCredentials] = useState<CredentialInfo[]>([])
@@ -243,7 +244,7 @@ export function SourcesPage({ setup = false }: { setup?: boolean }) {
                 </p>
                 <p className="mt-0.5 text-xs text-slate-500">{DESC[s.id]}</p>
                 <p className="mt-0.5 truncate text-xs text-slate-500">
-                  {s.connected ? (entry ? credentialLine(entry, now) : s.account) : '未连接'}
+                  {s.connected ? (entry ? credentialLine(entry, now, timezone) : s.account) : s.isFixture ? '示例数据 · 尚未连接真实账号' : '未连接'}
                 </p>
               </div>
 

@@ -25,7 +25,8 @@ export interface SyncSourceProgress {
 
 export interface FullSyncJob {
   id: string;
-  status: "running" | "done" | "error";
+  status: "running" | "done" | "error" | "skipped";
+  message?: string;
   startedAt: string;
   finishedAt?: string;
   sources: Record<Source, SyncSourceProgress>;

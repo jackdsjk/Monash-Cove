@@ -11,7 +11,7 @@ import {
   submitAttendanceCodes,
 } from '../data/repository'
 import type { AttendanceAssistantState, AttendanceCode, AttendanceSubmitSummary } from '../types'
-import { fmtDue, fmtWhen } from '../lib/time'
+import { useTime } from '../lib/time'
 import { Button, EmptyLine, PageTitle, Panel, Tag } from '../components/ui'
 import { AttendanceSubmitDialog } from '../components/AttendanceSubmitDialog'
 
@@ -44,6 +44,7 @@ function sourceLabel(source: string) {
 }
 
 export function AttendancePage() {
+  const { fmtDue, fmtWhen } = useTime()
   const [now, setNow] = useState(() => Date.now())
   const [codes, setCodes] = useState<AttendanceCode[]>([])
   const [connected, setConnected] = useState(false)

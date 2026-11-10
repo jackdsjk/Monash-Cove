@@ -68,6 +68,7 @@ function syncState(status: SourceStatus["status"]): SyncState {
 
 export function toSource(source: SourceStatus, itemCount: number): SourceState {
   return {
+    isFixture: source.status === 'fixture',
     id: source.id as SourceId,
     // 「连过没有」看凭据，不看上次同步成不成功；error/degraded 仍然是已连接。
     connected: source.status !== "disconnected" && source.status !== "fixture",

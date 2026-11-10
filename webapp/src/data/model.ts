@@ -85,6 +85,7 @@ export const JUDGMENT_LABEL = {
 export type SyncState = 'idle' | 'syncing' | 'error' | 'disconnected'
 
 export interface SourceState {
+  isFixture?: boolean
   id: SourceId
   connected: boolean
   state: SyncState

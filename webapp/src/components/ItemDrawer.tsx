@@ -2,14 +2,17 @@ import { useEffect, useState } from 'react'
 import { ArrowRight, Check, ExternalLink, Layers, X } from 'lucide-react'
 import { useStore } from '../store'
 import { FIELD_LABEL, JUDGMENT_LABEL, SOURCE_LABEL, type ItemChange } from '../data/model'
-import { fmtCountdown, fmtDue, fmtWhen } from '../lib/time'
+import { DEFAULT_TIMEZONE, fmtCountdown, fmtDue, useTime } from '../lib/time'
 import { Button, Role, Source } from './ui'
 
-export function formatChangeValue(c: ItemChange, v: string | number) {
-  return c.field === 'due_at' && typeof v === 'number' ? fmtDue(v) : String(v)
+export function formatChangeValue(c: ItemChange, v: string | number, timezone = DEFAULT_TIMEZONE) {
+  if (c.field !== 'due_at' || v === '') return String(v)
+  const at = typeof v === 'number' ? v : Date.parse(v)
+  return Number.isFinite(at) ? fmtDue(at, timezone) : String(v)
 }
 
 export function ItemDrawer() {
+  const { fmtDue, fmtWhen, timezone } = useTime()
   const { openItemId, openItem, items, changes, courses, marks, setMark, completionUpdates, setCompleted, now } = useStore()
   const item = items.find((i) => i.id === openItemId)
   const [fullText, setFullText] = useState(false)
@@ -110,9 +113,9 @@ export function ItemDrawer() {
                       <span>检测于 {fmtWhen(c.detectedAt, now)}</span>
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                      <span className="text-slate-500 line-through decoration-slate-400">{formatChangeValue(c, c.before)}</span>
+                      <span className="text-slate-500 line-through decoration-slate-400">{formatChangeValue(c, c.before, timezone)}</span>
                       <ArrowRight className="h-3.5 w-3.5 text-slate-400" aria-label="改为" />
-                      <span className="font-medium text-slate-900">{formatChangeValue(c, c.after)}</span>
+                      <span className="font-medium text-slate-900">{formatChangeValue(c, c.after, timezone)}</span>
                     </div>
                   </div>
                 ))}

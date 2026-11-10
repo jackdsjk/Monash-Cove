@@ -90,6 +90,7 @@ export function SettingsPage() {
   const [copied, setCopied] = useState(false)
   const [fullSyncing, setFullSyncing] = useState(false)
   const [syncError, setSyncError] = useState<string | null>(null)
+  const [syncNotice, setSyncNotice] = useState<string | null>(null)
   const mounted = useRef(true)
   const syncing = fullSyncing || sources.some((s) => s.state === 'syncing')
   const markCount = Object.values(marks).filter((m) => Object.keys(m).length).length
@@ -116,6 +117,7 @@ export function SettingsPage() {
     if (fullSyncing) return
     setFullSyncing(true)
     setSyncError(null)
+    setSyncNotice(null)
     try {
       await startFullSync()
       const deadline = Date.now() + 30 * 60_000
@@ -127,6 +129,10 @@ export function SettingsPage() {
       }
       if (current.job?.status === 'running') throw new Error('全量同步仍在运行，请稍后到来源页查看状态')
       if (current.job?.status === 'error') throw new Error('全量同步失败，请在来源页查看失败的来源')
+      if (!current.job) throw new Error('无法读取全量同步任务状态，请稍后重试')
+      if (mounted.current) setSyncNotice(current.job.status === 'skipped'
+        ? current.job.message || '没有可执行全量同步的来源，请先连接 Gmail、Ed 或 Moodle。'
+        : `已完成 ${Object.values(current.job.sources).filter((source) => source.status === 'done').length} 个来源的全量同步；未配置或不支持全量的来源已跳过。`)
       await refresh()
     } catch (cause) {
       if (mounted.current) setSyncError(cause instanceof Error ? cause.message : '全量同步失败')
@@ -178,7 +184,7 @@ export function SettingsPage() {
           <div className="divide-y divide-line rounded-md border border-line">
             <Line
               label="全量同步"
-              detail="重新读取 Gmail、Ed、Moodle、OnTrack 的全部内容，并重建字段快照"
+              detail="重新读取已连接的 Gmail、Ed、Moodle 历史内容；OnTrack 请在来源页增量同步"
               action={
                 <Button onClick={() => void runFullSync()} disabled={syncing}>
                   <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
@@ -191,6 +197,7 @@ export function SettingsPage() {
                 {syncError}
               </p>
             )}
+            {syncNotice && <p role="status" className="px-4 py-3 text-xs text-slate-600">{syncNotice}</p>}
             <Line label="设置向导" detail="逐个连接还没连接的来源，已连接的会保留" action={<Button onClick={() => { restartSetup(); navigate('/setup') }}>重新运行</Button>} />
           </div>
         </Section>

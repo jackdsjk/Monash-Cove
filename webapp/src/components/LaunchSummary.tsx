@@ -4,7 +4,7 @@ import { useStore } from '../store'
 import { navigate } from '../lib/router'
 import { FIELD_LABEL, SOURCE_LABEL, SOURCE_ORDER, type Item } from '../data/model'
 import { isHiddenByUser, lastActivity, pickSuggestions } from '../lib/brief'
-import { fmtDate, fmtWhen, hm } from '../lib/time'
+import { useTime } from '../lib/time'
 import { formatChangeValue } from './ItemDrawer'
 import { Button, Course, Role, Source, SOURCE_MARK } from './ui'
 
@@ -12,6 +12,7 @@ const MAX_CHANGES = 5
 const MAX_NEW = 4
 
 export function LaunchSummary() {
+  const { fmtDate, fmtWhen, hm, timezone } = useTime()
   const { summaryOpen, setSummaryOpen, openedSince, items, changes, marks, now, sources, lastViewedAt, openItem, markWindowViewed, syncSource } = useStore()
 
   useEffect(() => {
@@ -141,9 +142,9 @@ export function LaunchSummary() {
                       i,
                       <>
                         <span className="text-slate-500">{FIELD_LABEL[c.field]}</span>
-                        <span className="max-w-[120px] truncate text-slate-500 line-through decoration-slate-400">{formatChangeValue(c, c.before)}</span>
+                        <span className="max-w-[120px] truncate text-slate-500 line-through decoration-slate-400">{formatChangeValue(c, c.before, timezone)}</span>
                         <span className="text-slate-400">→</span>
-                        <span className="max-w-[150px] truncate font-medium text-slate-900">{formatChangeValue(c, c.after)}</span>
+                        <span className="max-w-[150px] truncate font-medium text-slate-900">{formatChangeValue(c, c.after, timezone)}</span>
                       </>,
                     )
                   }),

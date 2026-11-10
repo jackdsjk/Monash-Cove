@@ -8,7 +8,7 @@ import type { MoodleGradeCourse, MoodleGradeItem } from '../types'
 import { BAND_LABEL, band, courseSummary, parseMoodleDate, percentage, splitCourseName, type CourseSummary, type GradeBand } from '../lib/grades'
 import { buildCourseGrade } from '../lib/muster/gradeBreakdown'
 import type { Assignment } from '../lib/muster/types'
-import { fmtWhen } from '../lib/time'
+import { useTime } from '../lib/time'
 
 const BAND_TONE: Record<GradeBand, string> = {
   HD: 'bg-brand-50 text-brand-800 ring-brand-200',
@@ -113,6 +113,7 @@ function toAssignments(course: MoodleGradeCourse): Assignment[] {
 }
 
 export function GradesPage() {
+  const { fmtWhen } = useTime()
   const query = useResourceQuery(moodleGradesQuery)
   const courses = query.data ?? null
   const error = query.error
