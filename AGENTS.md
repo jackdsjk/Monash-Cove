@@ -61,6 +61,8 @@ Keep generated output in `build/` or `dist/` and out of commits unless a release
 
 `webapp/` is the active local Web App: Vite, React, TypeScript, and Ant Design. `local-service/` is the Node/Fastify/SQLite backend; run it first, then `npm run dev` in `webapp`. `webapp` fetches `/api` (Vite proxy in dev, same origin in production). `npm run check` in each package covers types/tests/build. Real credentials are owned by `local-service` and never by the browser.
 
+Shared page queries live in `webapp/src/data/query-cache.ts` and are wired in `repository.ts`; hooks in `src/lib/use-resource-query.ts` and `use-ed-lessons.ts` drive rendering, and `CacheStatus` displays the service's success time and refresh state. Preserve empty-vs-unloaded results, stale data on failure, bounded read-only polling, and source-generation guards. Credential/data mutations must invalidate the relevant queries; UI code must not persist credentials or create another durable source of truth. Cover cache behavior and repository wiring in their adjacent Vitest files, then run the Web App check and Vitest suite. Keep full-course downloads disabled until all required Ed details are available.
+
 ## Real-Data Execution
 
 When the user says to start the real-data work, read `docs/plan/real-path/next.md` first and follow its `current_stage`. Execute `plan.md` stages S1–S8 continuously. After each stage: run its verification commands, append `execution-log.md`, advance `next.md`, and continue without asking for stage-by-stage approval. Stop only for user-only credentials, irreversible operations, or a repeated hard blocker; when blocked, continue independent stages and report the exact user action at the end. Never describe mock or fixture results as verified real-account data.

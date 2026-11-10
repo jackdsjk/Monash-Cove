@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { ChevronRight, Info } from 'lucide-react'
 import { Button, EmptyLine, PageTitle, Panel, SectionHeader, Tag } from '../components/ui'
-import { fetchMoodleGrades } from '../data/repository'
+import { moodleGradesQuery } from '../data/repository'
+import { useResourceQuery } from '../lib/use-resource-query'
+import { CacheStatus } from '../components/CacheStatus'
 import type { MoodleGradeCourse, MoodleGradeItem } from '../types'
 import { BAND_LABEL, band, courseSummary, parseMoodleDate, percentage, splitCourseName, type CourseSummary, type GradeBand } from '../lib/grades'
 import { buildCourseGrade } from '../lib/muster/gradeBreakdown'
 import type { Assignment } from '../lib/muster/types'
-import { fmtWhen, hm } from '../lib/time'
+import { fmtWhen } from '../lib/time'
 
 const BAND_TONE: Record<GradeBand, string> = {
   HD: 'bg-brand-50 text-brand-800 ring-brand-200',
@@ -111,34 +113,13 @@ function toAssignments(course: MoodleGradeCourse): Assignment[] {
 }
 
 export function GradesPage() {
-  const [courses, setCourses] = useState<MoodleGradeCourse[] | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [loadedAt, setLoadedAt] = useState<number | null>(null)
+  const query = useResourceQuery(moodleGradesQuery)
+  const courses = query.data ?? null
+  const error = query.error
+  const load = query.refresh
   const [courseId, setCourseId] = useState<string | null>(null)
   const [itemId, setItemId] = useState<string | null>(null)
   const [showMethod, setShowMethod] = useState(false)
-
-  const load = useCallback(() => {
-    setLoading(true)
-    setError(null)
-    void fetchMoodleGrades()
-      .then((next) => {
-        setCourses(next)
-        setLoadedAt(Date.now())
-        setCourseId(next[0]?.courseId ?? null)
-        setItemId(null)
-      })
-      .catch((cause: unknown) => {
-        setCourses(null)
-        setError(cause instanceof Error ? cause.message : '无法读取 Moodle 成绩册')
-      })
-      .finally(() => setLoading(false))
-  }, [])
-
-  useEffect(() => {
-    load()
-  }, [load])
 
   const summaries = useMemo(() => new Map((courses ?? []).map((course) => [course.courseId, courseSummary(course)])), [courses])
   const entries = useMemo(
@@ -165,13 +146,17 @@ export function GradesPage() {
   const latestAt = latest ? parseMoodleDate(latest.item.gradedAt) : null
 
   const header = (
-    <PageTitle
-      title="成绩"
-      description={`来自 Moodle 成绩册${loadedAt ? ` · 读取于 ${hm(loadedAt)}` : ''}。成绩和反馈以 Moodle 原文为准。`}
-    />
+    <>
+      <PageTitle
+        title="成绩"
+        description="来自 Moodle 成绩册。成绩和反馈以 Moodle 原文为准。"
+        actions={<Button disabled={query.loading} onClick={load}>刷新成绩</Button>}
+      />
+      <CacheStatus cache={query.cache} loading={query.loading} error={error} />
+    </>
   )
 
-  if (loading) {
+  if (courses === null && !error) {
     return (
       <div className="mx-auto max-w-[1240px] px-10 py-8">
         {header}
@@ -183,7 +168,7 @@ export function GradesPage() {
     )
   }
 
-  if (error || courses === null) {
+  if (courses === null) {
     return (
       <div className="mx-auto max-w-[1240px] px-10 py-8">
         {header}

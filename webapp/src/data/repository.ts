@@ -1,4 +1,5 @@
 import type { CredentialInfo, OnTrackAccount, OnTrackCommentView, OnTrackProjectView, OnTrackTaskView, OnTrackOverview, AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, AttendanceSubmitSummary, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, MoodleGradeCourse, PackResponse, PortalExamsResponse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
+import { invalidateSourceQueries, ResourceQuery, type CacheMetadata, type QueryResult } from "./query-cache";
 
 export interface BriefData {
   items: BriefItem[];
@@ -276,6 +277,7 @@ export async function fetchSetupStatus(): Promise<SetupStatus> {
 }
 
 export async function startMoodleAssistant(): Promise<MoodleAssistantState> {
+  invalidateSourceQueries("moodle");
   const response = await request("/setup/moodle/start", { method: "POST" });
   const body = (await response.json().catch(() => null)) as { assistant?: MoodleAssistantState; error?: { message?: string } } | null;
   if (!response.ok) throw new Error(body?.error?.message ?? `Moodle assistant returned ${response.status}`);
@@ -283,6 +285,7 @@ export async function startMoodleAssistant(): Promise<MoodleAssistantState> {
 }
 
 export async function startOnTrackAssistant(): Promise<MoodleAssistantState> {
+  invalidateSourceQueries("ontrack");
   const response = await request("/setup/ontrack/start", { method: "POST" });
   const body = (await response.json().catch(() => null)) as { assistant?: MoodleAssistantState; error?: { message?: string } } | null;
   if (!response.ok) throw new Error(body?.error?.message ?? `OnTrack assistant returned ${response.status}`);
@@ -291,6 +294,7 @@ export async function startOnTrackAssistant(): Promise<MoodleAssistantState> {
 
 export async function fetchOnTrackAssistant(): Promise<MoodleAssistantState> {
   const data = await getJson<{ assistant: MoodleAssistantState }>("/setup/ontrack/status");
+  if (data.assistant.status === "connected") invalidateSourceQueries("ontrack");
   return data.assistant;
 }
 
@@ -302,6 +306,7 @@ export async function cancelOnTrackAssistant(): Promise<MoodleAssistantState> {
 
 export async function fetchMoodleAssistant(): Promise<MoodleAssistantState> {
   const data = await getJson<{ assistant: MoodleAssistantState }>("/setup/moodle/status");
+  if (data.assistant.status === "connected") invalidateSourceQueries("moodle");
   return data.assistant;
 }
 
@@ -404,4 +409,52 @@ export async function syncPortalExams(): Promise<{ count: number; syncedAt: stri
     );
   }
   return { count: body.count, syncedAt: body.syncedAt };
+}
+
+type CachedBody<T> = T & { cache?: CacheMetadata };
+
+async function resource<T, Body>(path: string, select: (body: Body) => T, force: boolean, timeoutMs = REQUEST_TIMEOUT_MS): Promise<QueryResult<T>> {
+  const body = await getJson<CachedBody<Body>>(`${path}${force ? `${path.includes("?") ? "&" : "?"}refresh=1` : ""}`, timeoutMs);
+  return { data: select(body), cache: body.cache };
+}
+
+export const moodleCoursesQuery = new ResourceQuery<MoodleCourse[]>("moodle", (force) =>
+  resource("/moodle/courses", (body: { courses: MoodleCourse[] }) => body.courses, force), 6 * 60 * 60_000);
+export const moodleGradesQuery = new ResourceQuery<MoodleGradeCourse[]>("moodle", (force) =>
+  resource("/moodle/grades", (body: { courses: MoodleGradeCourse[] }) => body.courses, force, 90_000), 5 * 60_000);
+export const edCoursesQuery = new ResourceQuery<EdCourse[]>("ed", (force) =>
+  resource("/ed/courses", (body: { courses: EdCourse[] }) => body.courses, force), 15 * 60_000);
+export const onTrackOverviewQuery = new ResourceQuery<OnTrackOverview>("ontrack", (force) =>
+  resource("/ontrack/overview", (body: OnTrackOverview) => body, force), 2 * 60_000);
+export const onTrackTasksQuery = new ResourceQuery<{ projects: OnTrackProjectView[]; tasks: OnTrackTaskView[] }>("ontrack", (force) =>
+  resource("/ontrack/tasks", (body: { projects: OnTrackProjectView[]; tasks: OnTrackTaskView[] }) => body, force), 2 * 60_000);
+
+const moodleContents = new Map<number, ResourceQuery<MoodleContentItem[]>>();
+export function getMoodleContentQuery(courseId: number): ResourceQuery<MoodleContentItem[]> {
+  let query = moodleContents.get(courseId);
+  if (!query) {
+    query = new ResourceQuery("moodle", () => resource(`/moodle/content?courseId=${courseId}`, (body: { items: MoodleContentItem[] }) => body.items, false), 60_000);
+    moodleContents.set(courseId, query);
+  }
+  return query;
+}
+
+const edLessons = new Map<number, ResourceQuery<EdLessonSummary[]>>();
+export function getEdLessonsQuery(courseId: number): ResourceQuery<EdLessonSummary[]> {
+  let query = edLessons.get(courseId);
+  if (!query) {
+    query = new ResourceQuery("ed", (force) => resource(`/ed/lessons?courseId=${courseId}`, (body: { lessons: EdLessonSummary[] }) => body.lessons, force), 15 * 60_000);
+    edLessons.set(courseId, query);
+  }
+  return query;
+}
+
+const edDetails = new Map<number, ResourceQuery<EdLessonDetail>>();
+export function getEdLessonQuery(lessonId: number): ResourceQuery<EdLessonDetail> {
+  let query = edDetails.get(lessonId);
+  if (!query) {
+    query = new ResourceQuery("ed", (force) => resource(`/ed/lesson?lessonId=${lessonId}`, (body: EdLessonDetail) => body, force), 15 * 60_000);
+    edDetails.set(lessonId, query);
+  }
+  return query;
 }

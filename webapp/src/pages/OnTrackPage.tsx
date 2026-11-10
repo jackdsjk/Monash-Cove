@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
 import { useStore } from '../store'
-import { fetchOnTrackOverview, fetchOnTrackTasks } from '../data/repository'
-import type { OnTrackOverview, OnTrackTaskView } from '../types'
+import { onTrackOverviewQuery, onTrackTasksQuery } from '../data/repository'
+import type { OnTrackTaskView } from '../types'
+import { useResourceQuery } from '../lib/use-resource-query'
+import { CacheStatus } from '../components/CacheStatus'
 import { fmtCountdown } from '../lib/time'
-import { PageTitle, Panel, Tag } from '../components/ui'
+import { Button, PageTitle, Panel, Tag } from '../components/ui'
 
 type OnTrackStatus =
   | 'Not Started'
@@ -74,47 +75,24 @@ function humanize(status: string): string {
 
 export function OnTrackPage() {
   const { now } = useStore()
-  const [overview, setOverview] = useState<OnTrackOverview | null>(null)
-  const [tasks, setTasks] = useState<OnTrackTaskView[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let active = true
-    void (async () => {
-      try {
-        // overview 负责连接态；tasks 提供带 unitCode 的逐条任务。
-        const [overviewResult, list] = await Promise.all([
-          fetchOnTrackOverview(),
-          fetchOnTrackTasks().catch(() => null),
-        ])
-        if (!active) return
-        setOverview(overviewResult)
-        setTasks(list?.tasks ?? [])
-        if (overviewResult.error) setError(overviewResult.error)
-        else if (overviewResult.connected && !list) setError('无法读取 OnTrack 任务。')
-        else setError(null)
-      } catch (cause) {
-        if (!active) return
-        setOverview(null)
-        setError(cause instanceof Error ? cause.message : '无法读取 OnTrack 数据。')
-      } finally {
-        if (active) setLoading(false)
-      }
-    })()
-    return () => {
-      active = false
-    }
-  }, [])
+  const overviewQuery = useResourceQuery(onTrackOverviewQuery)
+  const taskQuery = useResourceQuery(onTrackTasksQuery)
+  const overview = overviewQuery.data
+  const tasks = taskQuery.data?.tasks ?? []
+  const error = overviewQuery.error ?? overview?.error ?? (overview?.connected ? taskQuery.error : null)
+  const loading = !error && (overview === undefined || overview.connected && taskQuery.data === undefined)
+  const refresh = () => { overviewQuery.refresh(); taskQuery.refresh() }
 
   const units = Array.from(new Set(tasks.map((t) => t.unitCode)))
 
   return (
     <div className="mx-auto max-w-[1240px] px-10 py-8">
-      <PageTitle title="OnTrack 任务" description="从 OnTrack 只读同步的任务状态与日期。在 OnTrack 中修改后，下次同步会更新到这里。" />
+      <PageTitle title="OnTrack 任务" description="从 OnTrack 只读同步的任务状态与日期。在 OnTrack 中修改后，下次同步会更新到这里。"
+        actions={<Button disabled={overviewQuery.loading || taskQuery.loading} onClick={refresh}>刷新任务</Button>} />
+      <CacheStatus cache={overviewQuery.cache ?? taskQuery.cache} loading={overviewQuery.loading || taskQuery.loading} error={error ?? null} />
       {loading ? (
         <Panel className="px-4 py-6 text-center text-[13px] text-slate-500">正在读取 OnTrack…</Panel>
-      ) : error ? (
+      ) : error && !overview && tasks.length === 0 ? (
         <Panel className="px-4 py-6 text-center text-[13px] text-slate-500">OnTrack 暂时不可用：{error}。到「来源」页可以查看登录方式。</Panel>
       ) : !overview?.connected ? (
         <Panel className="px-4 py-6 text-center text-[13px] text-slate-500">OnTrack 未连接。请先在「来源」中连接。</Panel>

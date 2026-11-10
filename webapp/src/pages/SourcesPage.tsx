@@ -15,6 +15,7 @@ import {
 import { fmtWhen } from '../lib/time'
 import { Button, PageTitle, Panel, Select, SOURCE_MARK } from '../components/ui'
 import type { CredentialInfo, MoodleAssistantState } from '../types'
+import { invalidateSourceQueries } from '../data/query-cache'
 
 const DESC: Record<SourceId, string> = {
   gmail: '学校邮箱中的课程通知与教务邮件 · 只读权限 gmail.readonly',
@@ -158,6 +159,7 @@ export function SourcesPage() {
     if (!token) return
     setWorking(true)
     setDialogError(null)
+    invalidateSourceQueries('ed')
     try {
       const response = await fetch('/api/sources/ed/credentials', {
         method: 'POST',
@@ -166,6 +168,7 @@ export function SourcesPage() {
       })
       const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
       if (!response.ok) throw new Error(body?.error?.message ?? `保存 Ed 凭据失败（HTTP ${response.status}）`)
+      invalidateSourceQueries('ed')
       setDialog(null)
       syncSource('ed')
       void loadCredentials()
@@ -178,11 +181,13 @@ export function SourcesPage() {
 
   const disconnect = async (id: SourceId) => {
     setWorking(true)
+    invalidateSourceQueries(id)
     try {
       const path = id === 'gmail' ? '/api/oauth/google/disconnect' : `/api/sources/${id}/disconnect`
       const response = await fetch(path, { method: 'POST' })
       const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
       if (!response.ok) throw new Error(body?.error?.message ?? `断开失败（HTTP ${response.status}）`)
+      invalidateSourceQueries(id)
       await refresh()
       await loadCredentials()
     } catch (cause) {

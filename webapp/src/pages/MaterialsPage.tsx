@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, Download, RefreshCw } from 'lucide-react'
 import { Button, EmptyLine, PageTitle, Panel, Segmented, Tag } from '../components/ui'
-import { fetchMoodleContent, fetchMoodleCourses, syncMoodleContent } from '../data/repository'
+import { getMoodleContentQuery, moodleCoursesQuery, syncMoodleContent } from '../data/repository'
 import type { MoodleContentItem, MoodleCourse } from '../types'
+import { useResourceQuery } from '../lib/use-resource-query'
+import { CacheStatus } from '../components/CacheStatus'
 import { courseMatchesRegion, defaultRegionForCourses, loadRegion, type CampusRegion } from '../lib/region'
 import { navigate } from '../lib/router'
 
@@ -75,59 +77,26 @@ function resolveRegion(courses: MoodleCourse[]): CampusRegion {
 }
 
 export function MaterialsPage() {
-  const [courses, setCourses] = useState<MoodleCourse[]>([])
+  const courseQuery = useResourceQuery(moodleCoursesQuery)
+  const courses = courseQuery.data ?? []
   const [courseId, setCourseId] = useState<number | null>(null)
   const [region, setRegion] = useState<CampusRegion>(() => loadRegion() ?? 'malaysia')
-  const [items, setItems] = useState<MoodleContentItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const contentResource = getMoodleContentQuery(courseId ?? -1)
+  const contentQuery = useResourceQuery(contentResource, courseId !== null)
+  const items = contentQuery.data ?? []
+  const loading = courseQuery.data === undefined && !courseQuery.error || courseId !== null && contentQuery.data === undefined && !contentQuery.error
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [status, setStatus] = useState<DownloadStatus>({ state: 'idle', count: 0 })
 
   useEffect(() => {
-    let active = true
-    void fetchMoodleCourses()
-      .then((next) => {
-        if (!active) return
-        setCourses(next)
-        const effective = resolveRegion(next)
-        setRegion(effective)
-        const visible = next.filter((course) => courseMatchesRegion(course, effective))
-        const preferred = preferredCourse(visible)
-        if (preferred) setCourseId(preferred.id)
-      })
-      .catch((cause) => {
-        if (active) setError(cause instanceof Error ? cause.message : '无法读取 Moodle 课程')
-      })
-      .finally(() => {
-        if (active) setLoading(false)
-      })
-    return () => {
-      active = false
-    }
-  }, [])
-
-  useEffect(() => {
-    if (courseId === null) return
-    let active = true
-    setLoading(true)
-    // Never show one course's files under another course's heading.
-    setItems([])
-    void fetchMoodleContent(courseId)
-      .then((next) => {
-        if (active) setItems(next)
-      })
-      .catch((cause) => {
-        if (active) setError(cause instanceof Error ? cause.message : '无法读取每周资料')
-      })
-      .finally(() => {
-        if (active) setLoading(false)
-      })
-    return () => {
-      active = false
-    }
-  }, [courseId])
+    if (!courseQuery.data) return
+    const effective = resolveRegion(courseQuery.data)
+    setRegion(effective)
+    const visible = courseQuery.data.filter((course) => courseMatchesRegion(course, effective))
+    setCourseId((current) => visible.some((course) => course.id === current) ? current : preferredCourse(visible)?.id ?? null)
+  }, [courseQuery.data])
 
   const visibleCourses = useMemo(
     () => courses.filter((course) => courseMatchesRegion(course, region)),
@@ -174,7 +143,7 @@ export function MaterialsPage() {
     setError(null)
     try {
       await syncMoodleContent(courseId)
-      setItems(await fetchMoodleContent(courseId))
+      await contentResource.load(true)
       setSelected(new Set())
       setStatus({ state: 'idle', count: 0 })
     } catch (cause) {
@@ -248,9 +217,11 @@ export function MaterialsPage() {
             <Button variant="secondary" size="sm" disabled={courseId === null || syncing} onClick={() => void sync()}>
               <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} /> {syncing ? '正在同步' : '同步资料'}
             </Button>
+            <Button size="sm" disabled={courseQuery.loading} onClick={courseQuery.refresh}>刷新课程</Button>
           </>
         }
       />
+      <CacheStatus cache={courseQuery.cache} loading={courseQuery.loading || contentQuery.loading} error={courseQuery.error ?? contentQuery.error} />
 
       {error && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-[13px] text-red-700">{error}</div>

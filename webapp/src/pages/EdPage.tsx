@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle2, CircleAlert, CircleHelp, Download, FileText, Paperclip, PlayCircle } from 'lucide-react'
-import { fetchEdCourses, fetchEdLesson, fetchEdLessons } from '../data/repository'
-import type { EdCourse, EdLessonDetail, EdMaterialFile, EdMaterialSlide } from '../types'
+import { edCoursesQuery } from '../data/repository'
+import type { EdLessonDetail, EdMaterialFile, EdMaterialSlide } from '../types'
 import { Button, EmptyLine, PageTitle, Panel, Segmented } from '../components/ui'
+import { CacheStatus } from '../components/CacheStatus'
+import { useResourceQuery } from '../lib/use-resource-query'
+import { useEdLessons } from '../lib/use-ed-lessons'
 
 const KIND_LABEL: Record<EdMaterialSlide['type'], string> = { video: '视频', text: '文字', slides: 'PPT', file: '文件', quiz: 'Quiz' }
 const KIND_ICON: Record<EdMaterialSlide['type'], typeof FileText> = { video: PlayCircle, text: FileText, slides: Paperclip, file: Paperclip, quiz: CircleHelp }
@@ -85,68 +88,20 @@ function jobInfo(job: Job, course: string): { tone: 'busy' | 'done' | 'error'; t
 }
 
 export function EdPage() {
-  const [courses, setCourses] = useState<EdCourse[]>([])
-  const [courseId, setCourseId] = useState<number | null>(null)
-  const [lessons, setLessons] = useState<EdLessonDetail[]>([])
+  const courseQuery = useResourceQuery(edCoursesQuery)
+  const courses = courseQuery.data ?? []
+  const [selectedCourseId, setCourseId] = useState<number | null>(null)
+  const courseId = courses.some((course) => course.id === selectedCourseId) ? selectedCourseId : courses[0]?.id ?? null
+  const lessonQuery = useEdLessons(courseId)
+  const { summaries, lessons } = lessonQuery
   const [slideId, setSlideId] = useState<number | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const loading = courseQuery.data === undefined && !courseQuery.error || courseId !== null && lessonQuery.data === undefined && !lessonQuery.error
+  const error = courseQuery.error ?? lessonQuery.error
   const [job, setJob] = useState<Job>({ state: 'idle' })
 
   useEffect(() => {
-    let active = true
-    setLoading(true)
-    setError(null)
-    void fetchEdCourses()
-      .then((next) => {
-        if (!active) return
-        setCourses(next)
-        setCourseId(next[0]?.id ?? null)
-        if (next.length === 0) setLoading(false)
-      })
-      .catch((cause) => {
-        if (!active) return
-        setError(cause instanceof Error ? cause.message : '无法读取 Ed 课程')
-        setLoading(false)
-      })
-    return () => {
-      active = false
-    }
-  }, [])
-
-  useEffect(() => {
-    if (courseId === null) return
-    let active = true
-    setLoading(true)
-    setError(null)
-    setLessons([])
     setSlideId(null)
     setJob({ state: 'idle' })
-    void (async () => {
-      try {
-        const summaries = await fetchEdLessons(courseId)
-        if (!active) return
-        const details = await Promise.all(
-          summaries.map(async (summary) => {
-            try {
-              return await fetchEdLesson(summary.id)
-            } catch {
-              return null
-            }
-          }),
-        )
-        if (!active) return
-        setLessons(details.filter((detail): detail is EdLessonDetail => detail !== null))
-        if (details.some((detail) => detail === null)) setError('部分 lesson 内容读取失败，先显示已读取的部分。')
-      } catch (cause) {
-        if (active) setError(cause instanceof Error ? cause.message : '无法读取 Ed lessons')
-      } finally {
-        if (active) setLoading(false)
-      }
-    })()
-    return () => {
-      active = false
-    }
   }, [courseId])
 
   const course = courses.find((item) => item.id === courseId) ?? null
@@ -173,6 +128,7 @@ export function EdPage() {
   }
 
   const downloadCourse = () => {
+    if (!lessonQuery.complete) return
     const files = filesOf(lessons)
     const title = course?.code ?? 'Ed course'
     return runJob(title, files.length, 'bundle', async () => {
@@ -204,16 +160,18 @@ export function EdPage() {
         title="Ed 学习内容"
         description="按课程和 lesson 浏览 Ed 中的视频、文字与附件，可以一键下载到本机。"
         actions={
-          courses.length > 0 ? (
-            <Segmented
+          <>
+            {courses.length > 0 && <Segmented
               label="课程"
               value={course ? String(course.id) : ''}
               onChange={(value) => setCourseId(Number(value))}
               options={courses.map((c) => ({ value: String(c.id), label: c.code }))}
-            />
-          ) : undefined
+            />}
+            <Button disabled={courseQuery.loading || lessonQuery.loading || lessonQuery.detailsLoading} onClick={() => { courseQuery.refresh(); lessonQuery.refresh() }}>刷新内容</Button>
+          </>
         }
       />
+      <CacheStatus cache={lessonQuery.cache ?? courseQuery.cache} loading={courseQuery.loading || lessonQuery.loading || lessonQuery.detailsLoading} error={null} />
 
       {error && (
         <div role="alert" className="mb-5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-[13px] text-red-800">
@@ -230,14 +188,14 @@ export function EdPage() {
         <>
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <p className="text-[13px] text-slate-500">
-              {loading ? '正在读取 lesson…' : `${lessons.length} 个 lesson · ${slides.length} 个内容 · ${fileCount} 个附件`}
+              {loading ? '正在读取 lesson…' : `${lessons.length} / ${summaries.length} 个 lesson 已读取 · ${slides.length} 个内容 · ${fileCount} 个附件${lessonQuery.detailsLoading ? ' · 其余内容正在加载' : ''}`}
             </p>
             <div className="flex items-center gap-2">
               <Button disabled={!current || job.state === 'busy'} onClick={() => current && void downloadLesson(current.lesson)}>
                 <Download className="h-4 w-4" />
                 下载本课{current ? `（${lessonFileCount(current.lesson)} 个附件）` : ''}
               </Button>
-              <Button variant="primary" disabled={lessons.length === 0 || job.state === 'busy'} onClick={() => void downloadCourse()}>
+              <Button variant="primary" disabled={lessons.length === 0 || !lessonQuery.complete || job.state === 'busy'} onClick={() => void downloadCourse()}>
                 <Download className="h-4 w-4" />
                 下载整门课（{fileCount} 个附件）
               </Button>
@@ -264,10 +222,13 @@ export function EdPage() {
             <Panel className="overflow-hidden">
               {loading && lessons.length === 0 ? (
                 <EmptyLine>正在读取 lesson 内容…</EmptyLine>
-              ) : lessons.length === 0 ? (
+              ) : summaries.length === 0 ? (
                 <EmptyLine>{error ? 'lesson 读取失败，见上方提示。' : '这门课还没有 Ed lesson。'}</EmptyLine>
               ) : (
-                lessons.map((lesson, index) => (
+                summaries.map((summary, index) => {
+                  const lesson = lessons.find((detail) => detail.id === summary.id)
+                  if (!lesson) return <div key={summary.id} className="border-b border-line px-5 py-4 text-sm text-slate-600">{summary.title}<p className="mt-1 text-xs text-slate-500">{lessonQuery.detailsLoading ? '正在读取内容…' : '内容读取失败，刷新可重试。'}</p></div>
+                  return (
                   <div key={lesson.id} className="border-b border-line last:border-b-0">
                     <div className="flex items-center justify-between gap-2 bg-slate-50/70 px-5 py-3">
                       <div className="min-w-0">
@@ -306,7 +267,8 @@ export function EdPage() {
                       })}
                     </ul>
                   </div>
-                ))
+                  )
+                })
               )}
             </Panel>
 
