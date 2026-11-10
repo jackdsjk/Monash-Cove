@@ -95,6 +95,8 @@ Tests use Vitest and mirror production behavior under `tests/`; `npm run check` 
 
 ## Commit & Pull Request Guidelines
 
+Every completed change, including code, configuration, tests, documentation, and agent instructions, must be verified as appropriate and committed locally immediately. Do not accumulate multiple completed changes for a final batch commit. Stage only the current change; preserve unrelated work. Do not push unless the user requests it.
+
 Use short, imperative subjects and keep commits focused. Pull requests should explain the change, list validation results, link the relevant issue, and call out API, configuration, migration, or documentation changes. Include screenshots only for rendered interfaces.
 
 ## Security & Configuration Tips
