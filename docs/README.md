@@ -6,7 +6,7 @@
 
 | 文档 | 职责 | 当前状态 |
 |---|---|---|
-| [PRD-Monash-Agent.md](PRD-Monash-Agent.md) | 当前产品问题、用户、价值主张、AI 边界和第一版方案 | **当前产品定义** |
+| [PRD-Monash-Agent.md](PRD-Monash-Agent.md) | 当前产品定位、原则、能力盘点、功能需求、范围与指标 | **当前产品定义 v1.0** |
 | [project-resume-roadmap.md](project-resume-roadmap.md) | 从产品定义到 MVP、评测、Demo 和简历证据的阶段路线 | **当前执行路线** |
 | [mvp-scope-2026-10-29.md](mvp-scope-2026-10-29.md) | 第一版 P0/P1、功能评分、验收标准和明确砍掉项 | **P0 初版已锁定** |
 | [webapp-design.md](webapp-design.md) | 本地 Web App 的信息架构、布局、token、组件映射和状态设计 | **设计已落地为 v0.1 骨架** |
