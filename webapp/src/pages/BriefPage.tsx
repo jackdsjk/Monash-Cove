@@ -43,7 +43,7 @@ function useOnline() {
 
 export function BriefPage() {
   const { fmtDate, fmtWhen, hm, timezone } = useTime()
-  const { items, changes, marks, now, lastViewedAt, sources, courses, markWindowViewed, syncAll, syncSource, openItem, connectSource, restartSetup } = useStore()
+  const { items, changes, marks, now, lastViewedAt, sources, courses, markWindowViewed, syncAll, syncSource, openItem, restartSetup } = useStore()
   const online = useOnline()
   const [view, setView] = useState<View>('since')
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -260,7 +260,7 @@ export function BriefPage() {
             </span>
             <span className="flex max-w-full flex-wrap items-center gap-2">
               {unconnected.map((s) => (
-                <Button key={s.id} size="sm" disabled={s.state === 'syncing'} onClick={() => connectSource(s.id)}>
+                <Button key={s.id} size="sm" title={`前往来源页连接 ${SOURCE_LABEL[s.id]}`} disabled={s.state === 'syncing'} onClick={() => navigate('/sources')}>
                   {s.state === 'syncing' ? '连接中…' : `连接 ${SOURCE_LABEL[s.id]}`}
                 </Button>
               ))}
