@@ -177,7 +177,7 @@ export class MoodleClient {
     // Grading is usually a separate row. "Not graded" and "ungraded" are not
     // positive evidence, and an unfamiliar status must not clear known work.
     const isGraded = (text: string): boolean =>
-      (/\bgraded\b/.test(text) && !/\bnot\s+graded\b/.test(text)) || /已评分|已批改/.test(text);
+      (/\bgraded\b/.test(text) && !/\b(?:not|never|pending|awaiting)\b/.test(text)) || /已评分|已批改/.test(text);
     if (isGraded(grading) || isGraded(value)) return "graded";
     if (/no submissions?|nothing submitted|not submitted|未提交|尚未提交/.test(value)) return "none";
     if (/\bsubmitted\b|已提交/.test(value)) return "submitted";

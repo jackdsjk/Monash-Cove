@@ -63,6 +63,7 @@ describe("moodle submission detection", () => {
 
   it("does not mistake Not graded for Graded", async () => {
     expect(await client("Not graded").submissionStatus(event.url)).toBe("unknown");
+    expect(await client("Not yet graded").submissionStatus(event.url)).toBe("unknown");
     expect(await client("Ungraded").submissionStatus(event.url)).toBe("unknown");
   });
 
@@ -71,6 +72,7 @@ describe("moodle submission detection", () => {
       assignmentPage("Submitted for grading").replace("</tbody>", `<tr><th>Grading status</th><td>${grading}</td></tr></tbody>`),
     ));
     expect(await make("Not graded").submissionStatus(event.url)).toBe("submitted");
+    expect(await make("Not yet graded").submissionStatus(event.url)).toBe("submitted");
     expect(await make("Graded").submissionStatus(event.url)).toBe("graded");
   });
 
