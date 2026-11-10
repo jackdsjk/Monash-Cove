@@ -1,530 +1,358 @@
-import { useEffect, useMemo, useState } from "react";
-import { Alert, App as AntApp, Button, Card, Checkbox, Empty, Input, Segmented, Select, Space, Tag, Typography } from "antd";
-import { BookOutlined, DownloadOutlined, FileTextOutlined, NotificationOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
-import { Link } from "react-router-dom";
-import CoveLoader from "../components/CoveLoader";
-import { fetchMoodleContent, fetchMoodleCourses, syncMoodleContent } from "../data/repository";
-import type { MoodleContentItem, MoodleCourse } from "../types";
-import { REGION_LABELS, REGION_OPTIONS, contentMatchesRegion, courseMatchesRegion, defaultRegionForCourses, loadRegion, saveRegion, type CampusRegion } from "../lib/region";
+import { useEffect, useMemo, useState } from 'react'
+import { CheckCircle2, Download, RefreshCw } from 'lucide-react'
+import { Button, EmptyLine, PageTitle, Panel, Segmented, Tag } from '../components/ui'
+import { fetchMoodleContent, fetchMoodleCourses, syncMoodleContent } from '../data/repository'
+import type { MoodleContentItem, MoodleCourse } from '../types'
+import { courseMatchesRegion, defaultRegionForCourses, loadRegion, type CampusRegion } from '../lib/region'
+import { navigate } from '../lib/router'
 
-const MODULE_LABELS: Record<string, string> = {
-  resource: "资料",
-  folder: "资料夹",
-  book: "资料",
-  assign: "作业",
-  quiz: "Quiz",
-  forum: "公告/讨论",
-  page: "页面",
-  url: "链接",
-  lti: "外部工具",
-  label: "说明",
-};
+type MaterialKind = '资料' | '作业' | '公告'
 
-function categoryOf(item: MoodleContentItem) {
-  // Resources attached to the assessment section belong to the assignment
-  // workflow, not the general weekly reading list.
-  if (
-    /assessment|assignment|考核|作业/i.test(item.sectionTitle) &&
-    ["resource", "folder", "book", "url", "page", "assign", "quiz"].includes(item.module)
-  ) {
-    return "work";
-  }
-  if (item.module === "resource" || item.module === "folder" || item.module === "book") return "materials";
-  if (item.module === "assign" || item.module === "quiz") return "work";
-  return "other";
+interface MaterialEntry {
+  id: string
+  name: string
+  kind: MaterialKind
+  // The local service does not expose a byte size for Moodle resources, so this
+  // column stays "—" rather than showing an invented number.
+  size: string | null
+  downloadable: boolean
 }
 
+interface MaterialWeek {
+  number: number
+  /** Bold heading: "Week 5" when Moodle says so, otherwise the section name. */
+  label: string
+  /** Muted rest of the heading, e.g. "Operating Systems, Input/Output". */
+  title: string
+  entries: MaterialEntry[]
+}
+
+type DownloadStatus = {
+  state: 'idle' | 'busy' | 'done' | 'error'
+  count: number
+  message?: string
+}
+
+/** Gradable activities, content files and announcements, as Moodle reports them. */
+const ASSIGNMENT_MODULES = new Set(['assign', 'quiz', 'questionnaire', 'choice', 'groupselect', 'hvp', 'lesson', 'scorm'])
+const ANNOUNCEMENT_MODULES = new Set(['forum', 'hsuforum'])
+
+function kindOf(module: string): MaterialKind {
+  if (ASSIGNMENT_MODULES.has(module)) return '作业'
+  if (ANNOUNCEMENT_MODULES.has(module)) return '公告'
+  return '资料'
+}
+
+/** Moodle section numbers are indices, not weeks; the title carries the week. */
+function weekHeading(section: MoodleContentItem): { label: string; title: string } {
+  const title = section.sectionTitle.trim()
+  const match = /^week\s*(\d+)\s*[-–—:·]?\s*(.*)$/i.exec(title)
+  if (match) return { label: `Week ${match[1]}`, title: match[2].trim() }
+  return { label: title || '未命名板块', title: '' }
+}
+
+/** Only files the local service can fetch back through a Moodle session. */
 function isDownloadable(item: MoodleContentItem) {
-  return item.module === "resource" || item.module === "url";
+  return item.module === 'resource' || item.module === 'url'
 }
 
-interface Section {
-  number: number;
-  title: string;
-  items: MoodleContentItem[];
+/** Same preference order the old page used, so the default course stays put. */
+const COURSE_PREFERENCE = [/FIT1047/i, /FIT1045/i, /MPU3312/i, /ETW2001/i]
+
+function preferredCourse(courses: MoodleCourse[]): MoodleCourse | undefined {
+  for (const pattern of COURSE_PREFERENCE) {
+    const hit = courses.find((course) => pattern.test(course.shortname))
+    if (hit) return hit
+  }
+  return courses[0]
 }
 
-export default function MaterialsPage() {
-  const { message } = AntApp.useApp();
-  const [courses, setCourses] = useState<MoodleCourse[]>([]);
-  const [courseId, setCourseId] = useState<number | null>(null);
-  const [region, setRegion] = useState<CampusRegion>(() => loadRegion() ?? "malaysia");
-  const [items, setItems] = useState<MoodleContentItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState<"all" | "materials" | "work" | "forum" | "other">("all");
-  const [sectionFilter, setSectionFilter] = useState("all");
-  const [selected, setSelected] = useState<string[]>([]);
-  const [downloading, setDownloading] = useState(false);
+/** Honour the campus picked elsewhere, but never leave the page with no course. */
+function resolveRegion(courses: MoodleCourse[]): CampusRegion {
+  const stored = loadRegion()
+  if (stored && courses.some((course) => courseMatchesRegion(course, stored))) return stored
+  return defaultRegionForCourses(courses)
+}
+
+export function MaterialsPage() {
+  const [courses, setCourses] = useState<MoodleCourse[]>([])
+  const [courseId, setCourseId] = useState<number | null>(null)
+  const [region, setRegion] = useState<CampusRegion>(() => loadRegion() ?? 'malaysia')
+  const [items, setItems] = useState<MoodleContentItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [status, setStatus] = useState<DownloadStatus>({ state: 'idle', count: 0 })
 
   useEffect(() => {
-    let active = true;
+    let active = true
     void fetchMoodleCourses()
       .then((next) => {
-        if (!active) return;
-        setCourses(next);
-        const effectiveRegion = loadRegion() ?? defaultRegionForCourses(next);
-        setRegion(effectiveRegion);
-        saveRegion(effectiveRegion);
-        const visible = next.filter((course) => courseMatchesRegion(course, effectiveRegion));
-        const preferred =
-          visible.find((course) => /FIT1047/i.test(course.shortname)) ??
-          visible.find((course) => /FIT1045/i.test(course.shortname)) ??
-          visible.find((course) => /MPU3312/i.test(course.shortname)) ??
-          visible.find((course) => /ETW2001/i.test(course.shortname)) ??
-          visible[0];
-        if (preferred) setCourseId(preferred.id);
+        if (!active) return
+        setCourses(next)
+        const effective = resolveRegion(next)
+        setRegion(effective)
+        const visible = next.filter((course) => courseMatchesRegion(course, effective))
+        const preferred = preferredCourse(visible)
+        if (preferred) setCourseId(preferred.id)
       })
       .catch((cause) => {
-        if (active) setError(cause instanceof Error ? cause.message : "无法读取 Moodle 课程");
+        if (active) setError(cause instanceof Error ? cause.message : '无法读取 Moodle 课程')
       })
       .finally(() => {
-        if (active) setLoading(false);
-      });
+        if (active) setLoading(false)
+      })
     return () => {
-      active = false;
-    };
-  }, []);
+      active = false
+    }
+  }, [])
 
   useEffect(() => {
-    if (!courseId) return;
-    let active = true;
-    setLoading(true);
+    if (courseId === null) return
+    let active = true
+    setLoading(true)
+    // Never show one course's files under another course's heading.
+    setItems([])
     void fetchMoodleContent(courseId)
       .then((next) => {
-        if (active) setItems(next);
+        if (active) setItems(next)
       })
       .catch((cause) => {
-        if (active) setError(cause instanceof Error ? cause.message : "无法读取每周资料");
+        if (active) setError(cause instanceof Error ? cause.message : '无法读取每周资料')
       })
       .finally(() => {
-        if (active) setLoading(false);
-      });
+        if (active) setLoading(false)
+      })
     return () => {
-      active = false;
-    };
-  }, [courseId]);
-
-  const sync = async () => {
-    if (!courseId) return;
-    setSyncing(true);
-    setError(null);
-    try {
-      const result = await syncMoodleContent(courseId);
-      setItems(await fetchMoodleContent(courseId));
-      message.success(`已同步 ${result.sections} 个板块、${result.items} 条内容`);
-    } catch (cause) {
-      const text = cause instanceof Error ? cause.message : "同步失败";
-      setError(text);
-      message.error(text);
-    } finally {
-      setSyncing(false);
+      active = false
     }
-  };
+  }, [courseId])
 
   const visibleCourses = useMemo(
     () => courses.filter((course) => courseMatchesRegion(course, region)),
     [courses, region],
-  );
+  )
 
-  const selectRegion = (next: CampusRegion) => {
-    setRegion(next);
-    saveRegion(next);
-    setSelected([]);
-    const visible = courses.filter((course) => courseMatchesRegion(course, next));
-    setCourseId(visible[0]?.id ?? null);
-  };
-
-  const sectionOptions = useMemo(
-    () =>
-      [...new Map(
-        items
-          .filter((item) => contentMatchesRegion(item, region))
-          .map((item) => [item.sectionNumber, item.sectionTitle]),
-      ).entries()]
-        .sort(([a], [b]) => a - b)
-        .map(([value, label]) => ({ value: String(value), label })),
-    [items, region],
-  );
-
-  const filteredItems = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return items.filter((item) => {
-      if (!contentMatchesRegion(item, region)) return false;
-      if (typeFilter === "forum") {
-        if (item.module !== "forum") return false;
-      } else if (typeFilter !== "all" && categoryOf(item) !== typeFilter) {
-        return false;
+  /**
+   * The campus preference only narrows which courses are offered. Items inside the
+   * chosen course stay visible: Moodle stores most of them as "shared", and hiding
+   * real announcements on a campus guess would lose content with no way to undo it.
+   */
+  const weeks = useMemo<MaterialWeek[]>(() => {
+    const map = new Map<number, MaterialWeek>()
+    for (const item of items) {
+      let week = map.get(item.sectionNumber)
+      if (!week) {
+        const heading = weekHeading(item)
+        week = { number: item.sectionNumber, label: heading.label, title: heading.title, entries: [] }
+        map.set(item.sectionNumber, week)
       }
-      if (sectionFilter !== "all" && String(item.sectionNumber) !== sectionFilter) return false;
-      if (!needle) return true;
-      return [item.title, item.text, item.sectionTitle, item.courseName, item.module]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle);
-    });
-  }, [items, query, region, sectionFilter, typeFilter]);
-
-  const announcements = useMemo(
-    () =>
-      filteredItems.filter(
-        (item) => item.module === "forum" && !/^\d+$/.test(item.title.trim()) && !item.url.includes("#unread"),
-      ),
-    [filteredItems],
-  );
-  const sections = useMemo<Section[]>(() => {
-    const map = new Map<number, Section>();
-    for (const item of filteredItems) {
-      if (item.module === "forum") continue;
-      const section = map.get(item.sectionNumber) ?? { number: item.sectionNumber, title: item.sectionTitle, items: [] };
-      section.items.push(item);
-      map.set(item.sectionNumber, section);
+      week.entries.push({
+        id: item.id,
+        name: item.title,
+        kind: kindOf(item.module),
+        size: null,
+        downloadable: isDownloadable(item),
+      })
     }
-    return [...map.values()].sort((a, b) => a.number - b.number);
-  }, [filteredItems]);
+    return [...map.values()].sort((a, b) => a.number - b.number)
+  }, [items])
 
-  const materialCount = filteredItems.filter((item) => categoryOf(item) === "materials").length;
-  const otherCount = filteredItems.filter((item) => categoryOf(item) === "other").length;
-  const downloadableItems = useMemo(() => filteredItems.filter(isDownloadable), [filteredItems]);
-  const allSelected = downloadableItems.length > 0 && downloadableItems.every((item) => selected.includes(item.id));
-  const someSelected = downloadableItems.some((item) => selected.includes(item.id));
+  const course = courses.find((entry) => entry.id === courseId)
 
-  useEffect(() => {
-    setSelected([]);
-  }, [courseId, query, region, sectionFilter, typeFilter]);
+  const toggle = (ids: string[], on: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      ids.forEach((id) => (on ? next.add(id) : next.delete(id)))
+      return next
+    })
 
-  const toggleAll = (checked: boolean) => {
-    setSelected(checked ? downloadableItems.map((item) => item.id) : []);
-  };
-
-  const toggleOne = (id: string, checked: boolean) => {
-    setSelected((current) => (checked ? [...new Set([...current, id])] : current.filter((value) => value !== id)));
-  };
-
-  const downloadSelected = async () => {
-    const chosen = items.filter((item) => isDownloadable(item) && selected.includes(item.id));
-    if (chosen.length === 0) return;
-    const currentCourse = courses.find((course) => course.id === courseId);
-    const currentSection = sectionFilter === "all" ? null : sectionOptions.find((option) => option.value === sectionFilter);
-    const archiveBase = `${currentCourse?.shortname ?? "Moodle"}${currentSection ? `-${currentSection.label}` : "-Materials"}`;
-    const archiveName = `${archiveBase}.zip`;
-    setDownloading(true);
+  const sync = async () => {
+    if (courseId === null) return
+    setSyncing(true)
+    setError(null)
     try {
-      const response = await fetch("/api/moodle/download-batch", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
+      await syncMoodleContent(courseId)
+      setItems(await fetchMoodleContent(courseId))
+      setSelected(new Set())
+      setStatus({ state: 'idle', count: 0 })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '同步失败')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const download = async () => {
+    const chosen = items.filter((item) => isDownloadable(item) && selected.has(item.id))
+    if (chosen.length === 0) return
+    const count = chosen.length
+    const archiveName = `${course?.shortname || 'Moodle'}-Materials.zip`
+    setStatus({ state: 'busy', count })
+    try {
+      const response = await fetch('/api/moodle/download-batch', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           archiveName,
           items: chosen.map((item) => ({ url: item.url, name: item.title })),
         }),
-      });
+      })
       if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-        throw new Error(body?.error?.message ?? `下载失败：HTTP ${response.status}`);
+        const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
+        throw new Error(body?.error?.message ?? `下载失败：HTTP ${response.status}`)
       }
-      const blob = await response.blob();
-      const href = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = href;
-      anchor.download = archiveName;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(href), 1000);
-      const count = response.headers.get("x-cove-batch-count") ?? String(chosen.length);
-      const skipped = response.headers.get("x-cove-batch-skipped");
-      message.success(`已打包 ${count} 个资料${skipped && skipped !== "0" ? `，跳过 ${skipped} 个` : ""}`);
+      const blob = await response.blob()
+      const href = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = href
+      anchor.download = archiveName
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.setTimeout(() => URL.revokeObjectURL(href), 1000)
+      const packed = Number(response.headers.get('x-cove-batch-count') ?? count)
+      const skipped = Number(response.headers.get('x-cove-batch-skipped') ?? 0)
+      setStatus({
+        state: 'done',
+        count: Number.isFinite(packed) ? packed : count,
+        message: skipped > 0 ? `已打包 ${packed} 个文件，跳过 ${skipped} 个` : undefined,
+      })
+      setSelected(new Set())
     } catch (cause) {
-      message.error(cause instanceof Error ? cause.message : "批量下载失败");
-    } finally {
-      setDownloading(false);
+      setStatus({ state: 'error', count, message: cause instanceof Error ? cause.message : '批量下载失败' })
     }
-  };
-
-  const resetFilters = () => {
-    setQuery("");
-    setTypeFilter("all");
-    setSectionFilter("all");
-  };
-
-  if (loading) {
-    return <CoveLoader label="正在整理每周资料" />;
   }
 
   return (
-    <>
-      <header className="page-header materials-header">
-        <div className="page-header__main">
-          <Typography.Title level={1} className="page-title">
-            每周资料
-          </Typography.Title>
-          <Typography.Paragraph className="page-subtitle" type="secondary">
-            按 Moodle 课程板块列出每周资料、公告和其他说明；资料会按马来西亚 / 澳大利亚 / 印尼校区标记过滤。
-          </Typography.Paragraph>
-        </div>
-        <div className="page-header__side">
-        <Space wrap className="materials-actions">
-          <Select
-            className="region-select"
-            value={region}
-            options={REGION_OPTIONS}
-            onChange={selectRegion}
-            aria-label="选择地区"
-          />
-          <Select
-            className="course-select"
-            value={courseId ?? undefined}
-            placeholder={`选择${REGION_LABELS[region]}课程`}
-            options={visibleCourses.map((course) => ({ value: course.id, label: course.shortname || course.fullname }))}
-            onChange={setCourseId}
-            showSearch
-            optionFilterProp="label"
-          />
-          <Button icon={<ReloadOutlined />} loading={syncing} disabled={!courseId} onClick={() => void sync()}>
-            同步资料
-          </Button>
-        </Space>
-          <div className="board-counters">
-            <div className="board-counter">
-              <div className="board-flap"><b>{sections.length}</b></div>
-              <span>板块</span>
-            </div>
-            <div className="board-counter">
-              <div className="board-flap"><b>{materialCount}</b></div>
-              <span>资料</span>
-            </div>
-            <div className="board-counter">
-              <div className="board-flap"><b>{otherCount}</b></div>
-              <span>说明与其他</span>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {error ? (
-        <Alert
-          className="page-alert"
-          type="warning"
-          showIcon
-          message="Moodle 资料未就绪"
-          description={
-            <span>
-              {error}。先到 <Link to="/sources">数据源</Link> 连接 Moodle，再同步资料。
-            </span>
-          }
-          action={
-            <Button size="small" loading={syncing} onClick={() => void sync()}>
-              重试
-            </Button>
-          }
-        />
-      ) : null}
-
-      {items.length > 0 ? (
-        <>
-          <Card className="materials-filter-bar" size="small">
-            <Space wrap size={[8, 8]}>
-              <Input
-                className="materials-search"
-                allowClear
-                prefix={<SearchOutlined />}
-                placeholder="搜索资料、说明或公告"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
+    <div className="mx-auto max-w-[1240px] px-10 py-8">
+      <PageTitle
+        title="每周资料"
+        description="按 Moodle 板块列出资料、作业和公告。资料文件可以批量下载到本机。"
+        actions={
+          <>
+            {visibleCourses.length > 0 && (
               <Segmented
-                value={typeFilter}
-                options={[
-                  { label: "全部", value: "all" },
-                  { label: "资料", value: "materials" },
-                  { label: "作业", value: "work" },
-                  { label: "公告", value: "forum" },
-                  { label: "说明", value: "other" },
-                ]}
-                onChange={(value) => setTypeFilter(value as typeof typeFilter)}
+                label="课程"
+                value={courseId === null ? '' : String(courseId)}
+                onChange={(v) => {
+                  setCourseId(Number(v))
+                  setSelected(new Set())
+                  setStatus({ state: 'idle', count: 0 })
+                  setError(null)
+                }}
+                options={visibleCourses.map((c) => ({ value: String(c.id), label: c.shortname || c.fullname }))}
               />
-              <Select
-                className="section-filter"
-                value={sectionFilter}
-                onChange={setSectionFilter}
-                options={[{ value: "all", label: "全部板块" }, ...sectionOptions]}
-                showSearch
-                optionFilterProp="label"
-              />
-              <Typography.Text type="secondary">{filteredItems.length} 条</Typography.Text>
-              <Checkbox
-                className="materials-select-all"
-                checked={allSelected}
-                indeterminate={someSelected && !allSelected}
-                disabled={downloadableItems.length === 0}
-                onChange={(event) => toggleAll(event.target.checked)}
-              >
-                全选可下载资料（{downloadableItems.length}）
-              </Checkbox>
-              <Button
-                type="primary"
-                icon={<DownloadOutlined />}
-                loading={downloading}
-                disabled={selected.length === 0}
-                onClick={() => void downloadSelected()}
-              >
-                下载选中{selected.length > 0 ? `（${selected.length}）` : ""}
-              </Button>
-            </Space>
-          </Card>
+            )}
+            <Button variant="secondary" size="sm" disabled={courseId === null || syncing} onClick={() => void sync()}>
+              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} /> {syncing ? '正在同步' : '同步资料'}
+            </Button>
+          </>
+        }
+      />
 
-          {filteredItems.length === 0 ? (
-            <Empty
-              className="brief-empty"
-              description={
-                <div>
-                  <Typography.Title level={2}>没有匹配的内容</Typography.Title>
-                  <Typography.Paragraph type="secondary">调整搜索词、类型或板块筛选。</Typography.Paragraph>
-                </div>
-              }
-            >
-              <Button onClick={resetFilters}>清除筛选</Button>
-            </Empty>
-          ) : null}
-
-          {announcements.length > 0 ? (
-            <section className="mat-section mat-section--announcements">
-              <div className="mat-section__head">
-                <NotificationOutlined />
-                <span>公告与讨论</span>
-                <Tag>{announcements.length}</Tag>
-              </div>
-              <div className="mat-table">
-                <div className="mat-thead">
-                  <span />
-                  <span>标题</span>
-                  <span>类型</span>
-                  <span>校区</span>
-                  <span className="mat-right">操作</span>
-                </div>
-                {announcements.map((item) => (
-                  <div className="mat-trow" key={item.id}>
-                    <span />
-                    <div className="mat-name">
-                      <a href={item.url} target="_blank" rel="noreferrer">
-                        {item.title}
-                      </a>
-                      {item.text ? (
-                        <Typography.Paragraph className="mat-excerpt" type="secondary" ellipsis={{ rows: 1 }}>
-                          {item.text}
-                        </Typography.Paragraph>
-                      ) : null}
-                    </div>
-                    <span className="mat-kind">
-                      <Tag>Moodle</Tag>
-                    </span>
-                    <span className="mat-campus">
-                      {item.campus && item.campus !== "shared" ? (
-                        <Tag color={item.campus === "malaysia" ? "blue" : "default"}>
-                          {item.campus === "malaysia" ? "马来西亚" : item.campus === "australia" ? "澳大利亚" : "印度尼西亚"}
-                        </Tag>
-                      ) : null}
-                    </span>
-                    <span className="mat-ops">
-                      <a href={item.url} target="_blank" rel="noreferrer">
-                        打开
-                      </a>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          <div className="mat-sections">
-            {sections.map((section) => (
-              <section className="mat-section" key={`${section.number}-${section.title}`}>
-                <div className="mat-section__head">
-                  <BookOutlined />
-                  <span>{section.title}</span>
-                  <Tag>{section.items.length}</Tag>
-                </div>
-                <div className="mat-table">
-                  <div className="mat-thead">
-                    <span />
-                    <span>标题</span>
-                    <span>类型</span>
-                    <span>校区</span>
-                    <span className="mat-right">操作</span>
-                  </div>
-                  {section.items.map((item) => (
-                    <div className="mat-trow" key={item.id}>
-                      <span>
-                        {isDownloadable(item) ? (
-                          <Checkbox
-                            checked={selected.includes(item.id)}
-                            onChange={(event) => toggleOne(item.id, event.target.checked)}
-                            aria-label={`选择 ${item.title}`}
-                          />
-                        ) : null}
-                      </span>
-                      <div className="mat-name">
-                        <a href={item.url} target="_blank" rel="noreferrer">
-                          {item.title}
-                        </a>
-                        {item.text ? (
-                          <Typography.Paragraph className="mat-excerpt" type="secondary" ellipsis={{ rows: 1 }}>
-                            {item.text}
-                          </Typography.Paragraph>
-                        ) : null}
-                      </div>
-                      <span className="mat-kind">
-                        <Tag>{MODULE_LABELS[item.module] ?? item.module}</Tag>
-                      </span>
-                      <span className="mat-campus">
-                        {item.campus && item.campus !== "shared" ? (
-                          <Tag color={item.campus === "malaysia" ? "blue" : "default"}>
-                            {item.campus === "malaysia" ? "马来西亚" : item.campus === "australia" ? "澳大利亚" : "印度尼西亚"}
-                          </Tag>
-                        ) : null}
-                      </span>
-                      <span className="mat-ops">
-                        {isDownloadable(item) ? (
-                          <a
-                            href={`/api/moodle/download?url=${encodeURIComponent(item.url)}&name=${encodeURIComponent(item.title)}`}
-                            download
-                          >
-                            下载
-                          </a>
-                        ) : item.module === "label" || item.module === "page" ? (
-                          <a
-                            href={`/api/moodle/page?url=${encodeURIComponent(item.url)}&name=${encodeURIComponent(item.title)}`}
-                            download
-                          >
-                            下载页面
-                          </a>
-                        ) : null}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-        </>
-      ) : (
-        <Empty
-          className="brief-empty"
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={
-            <div>
-              <Typography.Title level={2}>还没有同步这门课的资料</Typography.Title>
-              <Typography.Paragraph type="secondary">点击“同步资料”读取每周板块；不会下载或提交作业。</Typography.Paragraph>
-            </div>
-          }
-        >
-          <Button type="primary" icon={<FileTextOutlined />} loading={syncing} onClick={() => void sync()}>
-            同步资料
-          </Button>
-        </Empty>
+      {error && (
+        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-[13px] text-red-700">{error}</div>
       )}
-    </>
-  );
+
+      <div className="mb-4 flex h-10 items-center justify-between rounded-md border border-line bg-white px-4 text-[13px]">
+        <span className="text-slate-600">
+          {status.state === 'done' ? (
+            <span className="flex items-center gap-1.5 text-emerald-700">
+              <CheckCircle2 className="h-4 w-4" /> {status.message ?? `已打包 ${status.count} 个文件到下载文件夹`}
+            </span>
+          ) : status.state === 'error' ? (
+            <span className="text-red-700">{status.message}</span>
+          ) : (
+            `已选 ${selected.size} 个文件`
+          )}
+        </span>
+        <Button
+          variant="primary"
+          size="sm"
+          disabled={selected.size === 0 || status.state === 'busy'}
+          onClick={() => void download()}
+        >
+          <Download className="h-3.5 w-3.5" />
+          {status.state === 'busy' ? `正在下载 ${status.count} 个文件` : '下载所选'}
+        </Button>
+      </div>
+
+      <div className="space-y-5">
+        {weeks.map((w) => {
+          const ids = w.entries.filter((e) => e.downloadable).map((e) => e.id)
+          const all = ids.length > 0 && ids.every((id) => selected.has(id))
+          return (
+            <Panel key={w.number} className="overflow-hidden">
+              <div className="flex items-center justify-between border-b border-line bg-slate-50/70 px-5 py-3">
+                <h2 className="text-[15px] font-bold text-slate-900">
+                  {w.label} {w.title && <span className="font-normal text-slate-500">· {w.title}</span>}
+                </h2>
+                <label className="flex items-center gap-2 text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={all}
+                    disabled={ids.length === 0}
+                    onChange={(e) => toggle(ids, e.target.checked)}
+                    className="accent-brand-600 disabled:opacity-30"
+                  />
+                  选择本周全部资料
+                </label>
+              </div>
+              <ul className="divide-y divide-line">
+                {w.entries.map((e) => (
+                  <li key={e.id} className="grid grid-cols-[24px_56px_minmax(0,1fr)_80px] items-center gap-3 px-5 py-3 text-sm">
+                    <input
+                      type="checkbox"
+                      aria-label={`选择 ${e.name}`}
+                      disabled={!e.downloadable}
+                      checked={selected.has(e.id)}
+                      onChange={(ev) => toggle([e.id], ev.target.checked)}
+                      className="accent-brand-600 disabled:opacity-30"
+                    />
+                    <Tag tone={e.kind === '作业' ? 'brand' : e.kind === '公告' ? 'amber' : 'slate'}>{e.kind}</Tag>
+                    <span className="truncate text-slate-800">{e.name}</span>
+                    <span className="text-right text-xs text-slate-500">{e.size ?? '—'}</span>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          )
+        })}
+      </div>
+
+      {loading && (
+        <Panel>
+          <EmptyLine>正在读取 Moodle 板块…</EmptyLine>
+        </Panel>
+      )}
+
+      {!loading && weeks.length === 0 && (
+        <Panel>
+          <EmptyLine>
+            <p className="font-semibold text-slate-700">
+              {courses.length === 0 ? '还没有 Moodle 课程' : syncing ? '正在同步资料…' : '还没有这门课的资料'}
+            </p>
+            <p className="mt-1">
+              {courses.length === 0
+                ? '先到「来源」连接 Moodle，再回来同步课程资料。'
+                : '点击「同步资料」读取 Moodle 板块；不会下载或提交作业。'}
+            </p>
+            <div className="mt-3 flex justify-center">
+              {courses.length === 0 ? (
+                <Button variant="secondary" size="sm" onClick={() => navigate('/sources')}>
+                  打开来源
+                </Button>
+              ) : (
+                <Button variant="primary" size="sm" disabled={courseId === null || syncing} onClick={() => void sync()}>
+                  <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} /> 同步资料
+                </Button>
+              )}
+            </div>
+          </EmptyLine>
+        </Panel>
+      )}
+    </div>
+  )
 }

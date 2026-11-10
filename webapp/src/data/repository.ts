@@ -1,4 +1,4 @@
-import type { CredentialInfo, OnTrackAccount, OnTrackCommentView, OnTrackProjectView, OnTrackTaskView, OnTrackOverview, AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
+import type { CredentialInfo, OnTrackAccount, OnTrackCommentView, OnTrackProjectView, OnTrackTaskView, OnTrackOverview, AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, MoodleGradeCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
 
 export interface BriefData {
   items: BriefItem[];
@@ -16,8 +16,8 @@ function request(path: string, init: RequestInit = {}): Promise<Response> {
   return fetch(`${API}${path}`, { ...init, signal: init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
 }
 
-async function getJson<T>(path: string): Promise<T> {
-  const response = await request(path);
+async function getJson<T>(path: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+  const response = await request(path, { signal: AbortSignal.timeout(timeoutMs) });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
     throw new Error(body?.error?.message ?? `Local API returned ${response.status}`);
@@ -279,6 +279,12 @@ export async function fetchMoodleCourses(): Promise<MoodleCourse[]> {
 export async function fetchMoodleContent(courseId: number): Promise<MoodleContentItem[]> {
   const data = await getJson<{ items: MoodleContentItem[] }>(`/moodle/content?courseId=${courseId}`);
   return data.items;
+}
+
+/** 成绩册要逐门课程抓取，比普通接口慢，所以单独放宽超时。 */
+export async function fetchMoodleGrades(): Promise<MoodleGradeCourse[]> {
+  const data = await getJson<{ courses: MoodleGradeCourse[] }>("/moodle/grades", 90_000);
+  return data.courses;
 }
 
 export async function syncMoodleContent(courseId: number): Promise<{ sections: number; items: number }> {

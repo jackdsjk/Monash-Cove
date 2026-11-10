@@ -1,217 +1,190 @@
-import { Alert, Badge, Button, Descriptions, Drawer, Grid, Space, Tag, Typography } from "antd";
-import { useEffect, useState } from "react";
-import { fetchItemDetail } from "../data/repository";
-import {
-  ACTION_LABELS,
-  CONTENT_TYPE_LABELS,
-  IMPORTANCE_LABELS,
-  OPEN_LABELS,
-  SOURCE_LABELS,
-  formatAge,
-} from "../lib/triage";
-import type { BriefItem, Correction, Importance, ItemSourceDetail } from "../types";
+import { useEffect, useState } from 'react'
+import { ArrowRight, Check, ExternalLink, Layers, X } from 'lucide-react'
+import { useStore } from '../store'
+import { COURSES, FIELD_LABEL, JUDGMENT_LABEL, SOURCE_LABEL, type ItemChange } from '../data/model'
+import { fmtCountdown, fmtDue, fmtWhen } from '../lib/time'
+import { Button, Role, Source } from './ui'
 
-interface ItemDrawerProps {
-  item: BriefItem | null;
-  open: boolean;
-  correction?: Correction;
-  onClose: () => void;
-  onTogglePin: (id: string) => void;
-  onDismiss: (id: string) => void;
-  onFeedback: (item: BriefItem) => void;
-  /** 手动标记提交状态（有些作业在 Moodle 之外的界面提交） */
-  onToggleCompleted?: (id: string, completed: boolean) => void;
+export function formatChangeValue(c: ItemChange, v: string | number) {
+  return c.field === 'due_at' && typeof v === 'number' ? fmtDue(v) : String(v)
 }
 
-function roleLabel(role: "staff" | "student" | "unknown") {
-  return role === "staff" ? "老师" : role === "student" ? "学生" : "未知角色";
-}
-
-function roleColor(role: "staff" | "student" | "unknown") {
-  return role === "staff" ? "gold" : role === "student" ? "blue" : "default";
-}
-
-function statusOf(importance: Importance): "error" | "warning" | "default" {
-  if (importance === "critical") return "error";
-  if (importance === "important") return "warning";
-  return "default";
-}
-
-function highlighted(text: string, quote: string) {
-  const index = quote ? text.indexOf(quote) : -1;
-  if (index === -1) return text;
-  return (
-    <>
-      {text.slice(0, index)}
-      <Typography.Text mark>{quote}</Typography.Text>
-      {text.slice(index + quote.length)}
-    </>
-  );
-}
-
-/** OnTrack items link to the task page; the download routes need both ids. */
-function parseOnTrackTarget(url: string | undefined) {
-  const match = url?.match(/#\/projects\/(\d+)\/tasks\/(\d+)/);
-  if (!match) return null;
-  return { project: match[1], task: match[2] };
-}
-
-export default function ItemDrawer({ item, open, correction = {}, onClose, onTogglePin, onDismiss, onFeedback, onToggleCompleted }: ItemDrawerProps) {
-  const screens = Grid.useBreakpoint();
-  const ontrackTarget = item?.source === "ontrack" ? parseOnTrackTarget(item.url) : null;
-  const [detail, setDetail] = useState<ItemSourceDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
+export function ItemDrawer() {
+  const { openItemId, openItem, items, changes, marks, setMark, now } = useStore()
+  const item = items.find((i) => i.id === openItemId)
+  const [fullText, setFullText] = useState(false)
 
   useEffect(() => {
-    if (!open || !item) {
-      setDetail(null);
-      return;
-    }
-    let active = true;
-    setDetailLoading(true);
-    void fetchItemDetail(item.id)
-      .then((next) => {
-        if (active) setDetail(next);
-      })
-      .catch(() => {
-        if (active) setDetail(null);
-      })
-      .finally(() => {
-        if (active) setDetailLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [open, item?.id]);
+    setFullText(false)
+  }, [openItemId])
 
-  const sourceText = detail?.text || item?.text || "";
-  const authorRole = detail?.authorRole ?? (["staff", "student", "unknown"].includes(item?.authorRole ?? "") ? item?.authorRole as "staff" | "student" | "unknown" : "unknown");
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && openItem(null)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [openItem])
+
+  if (!item) return null
+
+  const mark = marks[item.id] ?? {}
+  const itemChanges = changes.filter((c) => c.itemId === item.id).sort((a, b) => b.detectedAt - a.detectedAt)
+  const course = COURSES.find((c) => c.code === item.course)
+  const canSubmit = !!item.dueAt
 
   return (
-    <Drawer
-      className="item-drawer"
-      size={screens.md ? 640 : "100%"}
-      open={open}
-      onClose={onClose}
-      title={
-        item ? (
-          <div>
-            <Typography.Text type="secondary" className="drawer-kicker">
-              {SOURCE_LABELS[item.source]} · {item.course || "未归属课程"} · {formatAge(item.ageHours)}
-            </Typography.Text>
-            <Typography.Title level={2} className="drawer-title">
-              {item.title}
-            </Typography.Title>
+    <div className="fixed inset-0 z-40 flex justify-end" role="dialog" aria-modal="true" aria-label="条目详情">
+      <div className="overlay-enter absolute inset-0 bg-slate-900/20" onClick={() => openItem(null)} />
+      <aside className="drawer-enter relative flex h-full w-[500px] flex-col border-l border-line bg-white shadow-xl">
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-line px-5">
+          <div className="flex items-center gap-2 text-[13px] text-slate-600">
+            <Source id={item.source} />
+            <span className="text-slate-300">/</span>
+            <span className="truncate">{item.location}</span>
           </div>
-        ) : null
-      }
-    >
-      {item ? (
-        <div className="drawer-body">
-          <Space size={[6, 6]} wrap className="drawer-labels">
-            <Badge status={statusOf(item.importance)} text={IMPORTANCE_LABELS[item.importance]} />
-            <Tag>{CONTENT_TYPE_LABELS[item.contentType]}</Tag>
-            <Tag>{ACTION_LABELS[item.actionRequired]}</Tag>
-            <Tag>{OPEN_LABELS[item.openOriginal]}</Tag>
-            {correction.feedback ? <Tag color="blue">已反馈</Tag> : null}
-          </Space>
+          <button onClick={() => openItem(null)} aria-label="关闭" className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
 
-          {item.dueAt ? (
-            <Space wrap className="drawer-submit-state">
-              <Tag color={item.completedAt ? "success" : "default"}>{item.completedAt ? "已提交" : "未提交"}</Tag>
-              <Button size="small" onClick={() => onToggleCompleted?.(item.id, !item.completedAt)}>
-                {item.completedAt ? "撤销标记（恢复倒计时）" : "标记为已提交"}
-              </Button>
-              <Typography.Text type="secondary">在 Moodle 以外提交的作业，可以手动标记。</Typography.Text>
-            </Space>
-          ) : null}
+        <div className="scroll-y flex-1 space-y-6 px-5 py-5">
+          <div>
+            <p className="text-xs text-slate-500">
+              {course ? `${course.code} · ${course.name}` : '没能归到课程'} · {item.objectType}
+            </p>
+            <h2 className="mt-1.5 text-[17px] leading-snug font-semibold text-slate-900">{item.title}</h2>
+          </div>
 
-          <section className="drawer-section">
-            <Space wrap>
-              <Typography.Title level={3}>原文与回复</Typography.Title>
-              <Tag color={roleColor(authorRole)}>{roleLabel(authorRole)}</Tag>
-              <Typography.Text>{detail?.authorName || "作者未提供姓名"}</Typography.Text>
-            </Space>
-            {detailLoading ? <Typography.Text type="secondary">正在读取来源回复…</Typography.Text> : null}
-            <Typography.Paragraph className="source-text">{highlighted(sourceText, item.evidenceQuote)}</Typography.Paragraph>
-            <Space wrap className="drawer-source-actions">
-              <Button type="primary" href={detail?.url || item.url} target="_blank" rel="noreferrer">
-                查看原文
-              </Button>
-              {ontrackTarget ? (
-                <>
-                  <Button href={`/api/ontrack/artifact?project=${ontrackTarget.project}&task=${ontrackTarget.task}&kind=resources`} download>
-                    下载任务资源
-                  </Button>
-                  <Button href={`/api/ontrack/artifact?project=${ontrackTarget.project}&task=${ontrackTarget.task}&kind=submission`} download>
-                    下载提交 PDF
-                  </Button>
-                </>
-              ) : null}
-              <Typography.Text type="secondary" className="drawer-caption">
-                高亮句是模型判断引用的原文片段。
-              </Typography.Text>
-            </Space>
-          </section>
+          <dl className="grid grid-cols-[88px_1fr] gap-x-3 gap-y-2.5 text-[13px]">
+            <dt className="text-slate-500">发布者</dt>
+            <dd className="flex flex-wrap items-center gap-2 text-slate-800">
+              {item.author.name}
+              {item.author.title && <span className="text-slate-500">{item.author.title}</span>}
+              <Role role={item.author.role} />
+            </dd>
+            <dt className="text-slate-500">发布时间</dt>
+            <dd className="text-slate-800">{fmtWhen(item.publishedAt, now)}</dd>
+            <dt className="text-slate-500">首次同步</dt>
+            <dd className="text-slate-800">{fmtWhen(item.firstSeenAt, now)}</dd>
+            {item.dueAt && (
+              <>
+                <dt className="text-slate-500">截止时间</dt>
+                <dd className="text-slate-800">
+                  {fmtDue(item.dueAt)}
+                  <span className="ml-2 text-slate-500">{fmtCountdown(item.dueAt, now)}</span>
+                </dd>
+              </>
+            )}
+          </dl>
 
-          <section className="drawer-section">
-            <Typography.Title level={3}>回复</Typography.Title>
-            {detail?.replies?.length ? (
-              <div className="source-replies">
-                {detail.replies.map((reply) => (
-                  <div className="source-reply" key={reply.id} style={{ marginLeft: Math.min(reply.depth, 3) * 18 }}>
-                    <Space wrap>
-                      <Typography.Text strong>{reply.authorName || "未知作者"}</Typography.Text>
-                      <Tag color={roleColor(reply.authorRole)}>{roleLabel(reply.authorRole)}</Tag>
-                      {reply.createdAt ? <Typography.Text type="secondary" className="source-reply-date">{new Date(reply.createdAt).toLocaleString("zh-CN")}</Typography.Text> : null}
-                    </Space>
-                    <Typography.Paragraph className="source-reply-text">{reply.text}</Typography.Paragraph>
+          {item.merged && item.merged.length > 0 && (
+            <div className="rounded-md border border-brand-200 bg-brand-50/60 px-3.5 py-3 text-[13px]">
+              <p className="flex items-center gap-1.5 font-medium text-brand-900">
+                <Layers className="h-3.5 w-3.5" />
+                已合并 {item.merged.length + 1} 个来源，只计为一条
+              </p>
+              <ul className="mt-2 space-y-1 text-slate-700">
+                <li>
+                  主条目：{SOURCE_LABEL[item.source]} · {item.location}
+                </li>
+                {item.merged.map((m) => (
+                  <li key={m.url}>
+                    同一事件：{SOURCE_LABEL[m.source]} ·{' '}
+                    <a href={m.url} target="_blank" rel="noreferrer" className="text-brand-700 underline-offset-2 hover:underline">
+                      {m.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {itemChanges.length > 0 && (
+            <section>
+              <h3 className="mb-2 text-xs font-semibold text-slate-500">字段变更</h3>
+              <div className="divide-y divide-line rounded-md border border-line">
+                {itemChanges.map((c) => (
+                  <div key={c.id} className="px-3.5 py-2.5 text-[13px]">
+                    <div className="flex items-center justify-between text-xs text-slate-500">
+                      <span className="font-medium text-slate-700">{FIELD_LABEL[c.field]}</span>
+                      <span>检测于 {fmtWhen(c.detectedAt, now)}</span>
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      <span className="text-slate-500 line-through decoration-slate-400">{formatChangeValue(c, c.before)}</span>
+                      <ArrowRight className="h-3.5 w-3.5 text-slate-400" aria-label="改为" />
+                      <span className="font-medium text-slate-900">{formatChangeValue(c, c.after)}</span>
+                    </div>
                   </div>
                 ))}
               </div>
-            ) : (
-              <Typography.Text type="secondary">来源没有返回回复，或该内容本身是公告。</Typography.Text>
+            </section>
+          )}
+
+          <section>
+            <h3 className="mb-2 text-xs font-semibold text-slate-500">原文关键句</h3>
+            <blockquote className="border-l-2 border-brand-400 bg-slate-50 px-3.5 py-2.5 text-[13px] leading-relaxed text-slate-800">
+              {item.excerpt}
+            </blockquote>
+            <button onClick={() => setFullText((v) => !v)} className="mt-2 text-xs font-medium text-brand-700 hover:underline">
+              {fullText ? '收起全文' : '查看本地保存的全文'}
+            </button>
+            {fullText && (
+              <pre className="mt-2 rounded-md border border-line bg-white px-3.5 py-3 font-sans text-[13px] leading-relaxed whitespace-pre-wrap text-slate-700">
+                {item.body}
+              </pre>
             )}
           </section>
 
-          <Alert
-            className="drawer-alert"
-            type="info"
-            showIcon
-            message={item.model?.startsWith("deterministic") ? "这是规则判断，不是模型结论" : `判断来源：${item.model ?? "unknown"}`}
-            description={`${item.triageVersion ? `规则/模型版本：${item.triageVersion}。` : ""}判断可能出错，请以原文和学校系统为准。`}
-          />
-
-          <section className="drawer-section">
-            <Typography.Title level={3}>判断字段</Typography.Title>
-            <Descriptions
-              size="small"
-              column={2}
-              colon={false}
-              items={[
-                { key: "type", label: "内容类型", children: CONTENT_TYPE_LABELS[item.contentType] },
-                { key: "importance", label: "重要性", children: IMPORTANCE_LABELS[item.importance] },
-                { key: "action", label: "行动要求", children: ACTION_LABELS[item.actionRequired] },
-                { key: "open", label: "原文建议", children: OPEN_LABELS[item.openOriginal] },
-              ]}
-            />
-          </section>
-
-          <Space className="drawer-actions" wrap>
-            <Button onClick={() => onTogglePin(item.id)}>{correction.pinned ? "取消置顶" : "标为重要"}</Button>
-            <Button onClick={() => onDismiss(item.id)}>{correction.dismissed ? "恢复显示" : "标为不重要"}</Button>
-            <Button type="primary" onClick={() => onFeedback(item)}>
-              反馈判断
-            </Button>
-          </Space>
-
-          {correction.feedback ? (
-            <Typography.Text type="secondary" className="drawer-caption">
-              已保存反馈：{correction.feedback.reason} · {correction.feedback.note || "无补充说明"}
-            </Typography.Text>
-          ) : null}
+          <a
+            href={item.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-between rounded-md border border-slate-300 px-3.5 py-2.5 text-[13px] font-medium text-slate-800 hover:border-brand-400 hover:bg-brand-50/50"
+          >
+            在 {SOURCE_LABEL[item.source]} 中打开原文
+            <ExternalLink className="h-4 w-4 text-slate-500" />
+          </a>
         </div>
-      ) : null}
-    </Drawer>
-  );
+
+        <div className="shrink-0 border-t border-line bg-slate-50/70 px-5 py-3.5">
+          <p className="mb-2 text-xs text-slate-500">你的标记（只影响你自己的视图）</p>
+          <div className="flex flex-wrap gap-2">
+            <Toggle on={!!mark.read} onClick={() => setMark(item.id, { read: mark.read ? undefined : true })}>
+              已读
+            </Toggle>
+            {canSubmit && (
+              <Toggle on={!!mark.submitted} onClick={() => setMark(item.id, { submitted: mark.submitted ? undefined : true })}>
+                已提交
+              </Toggle>
+            )}
+            {(Object.keys(JUDGMENT_LABEL) as (keyof typeof JUDGMENT_LABEL)[]).map((k) => (
+              <Toggle
+                key={k}
+                on={mark.judgment === k}
+                onClick={() => setMark(item.id, { judgment: mark.judgment === k ? undefined : k })}
+              >
+                {JUDGMENT_LABEL[k]}
+              </Toggle>
+            ))}
+          </div>
+          {mark.judgment && (
+            <p className="mt-2 text-xs text-slate-500">这条不会出现在「自上次查看」中，切换到「全部」可以找回。</p>
+          )}
+        </div>
+      </aside>
+    </div>
+  )
+}
+
+function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; children: string }) {
+  return (
+    <Button
+      size="sm"
+      aria-pressed={on}
+      variant={on ? 'primary' : 'secondary'}
+      onClick={onClick}
+    >
+      {on && <Check className="h-3.5 w-3.5" />}
+      {children}
+    </Button>
+  )
 }

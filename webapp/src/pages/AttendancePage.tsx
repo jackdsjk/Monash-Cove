@@ -1,491 +1,486 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, App as AntApp, Badge, Button, Card, Checkbox, Empty, Modal, Select, Space, Tag, Typography } from "antd";
-import { CheckCircleOutlined, FormOutlined, ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
-import { Link } from "react-router-dom";
-import CoveLoader from "../components/CoveLoader";
+import { useCallback, useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
+import { AlertCircle, CheckCircle2, RefreshCw, ShieldAlert, Wand2 } from 'lucide-react'
 import {
   cancelAttendanceAssistant,
   fetchAttendanceAssistant,
   fetchAttendanceCodes,
-  fetchUnmatchedAttendance,
   fetchAttendanceStatus,
-  fillAttendanceCode,
   fillAllAttendanceCodes,
-  detectAttendancePreferences,
-  fetchAttendancePreferences,
-  saveAttendancePreferences,
+  fillAttendanceCode,
   startAttendanceAssistant,
-} from "../data/repository";
-import type { AttendanceAssistantState, AttendanceCode, AttendancePreferenceCourse, AttendancePreferences } from "../types";
-import type { UnmatchedAttendanceImage } from "../data/repository";
+} from '../data/repository'
+import type { AttendanceAssistantState, AttendanceCode } from '../types'
+import { fmtDue, fmtWhen } from '../lib/time'
+import { Button, EmptyLine, PageTitle, Panel, Tag } from '../components/ui'
 
-function courseKey(value: string) {
-  return (/^[A-Z]{2,5}\d{3,4}/i.exec(value)?.[0] ?? value).toUpperCase();
+const COLS = 'grid-cols-[80px_100px_190px_minmax(0,1fr)_230px_190px]'
+
+/** fill-all 每个 code 都要新开一次浏览器；一次请求里塞太多会被 20s 客户端超时截断 */
+const BULK_CHUNK = 3
+
+function endOfWeek(now: number) {
+  const d = new Date(now)
+  const toSunday = (7 - d.getDay()) % 7
+  d.setDate(d.getDate() + toSunday)
+  d.setHours(23, 59, 0, 0)
+  return d.getTime()
 }
 
-function sessionKey(value: string) {
-  return value.replace(/\b0+(\d+)\b/g, "$1").trim().toLowerCase();
+function startOfWeek(now: number) {
+  const d = new Date(now)
+  const toMonday = (d.getDay() + 6) % 7
+  d.setDate(d.getDate() - toMonday)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
 }
 
-interface GroupedCode {
-  key: string;
-  course: string;
-  week: number;
-  session: string;
-  code: string;
-  sources: AttendanceCode[];
-  publishedAt: string;
-  /** 至少一条来自图片 OCR，需要人工核对 */
-  fromOcr: boolean;
+function sourceLabel(source: string) {
+  if (source === 'gmail') return 'Gmail'
+  if (source === 'moodle') return 'Moodle'
+  if (source === 'ed') return 'Ed'
+  return source
 }
 
-function groupCodes(codes: AttendanceCode[]): GroupedCode[] {
-  const groups = new Map<string, GroupedCode>();
-  for (const item of codes) {
-    const key = `${item.course}:${item.week}:${item.session}:${item.code}`;
-    const existing = groups.get(key);
-    if (existing) {
-      if (!existing.sources.some((source) => source.source === item.source)) existing.sources.push(item);
-      if (item.publishedAt > existing.publishedAt) existing.publishedAt = item.publishedAt;
-    } else {
-      groups.set(key, {
-        key,
-        course: item.course,
-        week: item.week,
-        session: item.session,
-        code: item.code,
-        sources: [item],
-        publishedAt: item.publishedAt,
-        fromOcr: item.origin === "ocr",
-      });
+function Confirm({
+  open,
+  title,
+  children,
+  confirmLabel,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean
+  title: string
+  children: ReactNode
+  confirmLabel: string
+  busy: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  if (!open) return null
+  return (
+    <div className="overlay-enter fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30" onClick={onCancel}>
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+        className="dialog-enter w-[480px] rounded-2xl border border-line bg-white shadow-2xl"
+      >
+        <div className="px-5 pt-5">
+          <h2 className="text-[15px] font-semibold text-slate-900">{title}</h2>
+          <div className="mt-2 text-[13px] leading-relaxed text-slate-600">{children}</div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2 border-t border-line bg-slate-50/70 px-5 py-3">
+          <Button onClick={onCancel} disabled={busy}>
+            取消
+          </Button>
+          <Button variant="primary" onClick={onConfirm} disabled={busy} autoFocus>
+            {confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function AttendancePage() {
+  const [now, setNow] = useState(() => Date.now())
+  const [codes, setCodes] = useState<AttendanceCode[]>([])
+  const [connected, setConnected] = useState(false)
+  const [assistant, setAssistant] = useState<AttendanceAssistantState>({ status: 'idle', message: '' })
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [starting, setStarting] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [confirming, setConfirming] = useState<AttendanceCode[] | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const weekEnd = endOfWeek(now)
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const load = useCallback(async (refresh = false) => {
+    const [status, result] = await Promise.all([fetchAttendanceStatus(), fetchAttendanceCodes(refresh)])
+    setConnected(status.connected)
+    setAssistant(status.assistant)
+    setCodes(result.codes)
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    void load()
+      .catch((cause: unknown) => {
+        if (active) setError(cause instanceof Error ? cause.message : '无法读取考勤数据')
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [load])
+
+  useEffect(() => {
+    if (assistant.status !== 'waiting_login') return
+    const timer = window.setInterval(() => {
+      void fetchAttendanceAssistant()
+        .then((next) => {
+          setAssistant(next)
+          if (next.status === 'connected') {
+            setNotice('Attendance 已连接，可以填写了。')
+            void load().catch(() => undefined)
+          }
+        })
+        .catch(() => undefined)
+    }, 1_500)
+    return () => window.clearInterval(timer)
+  }, [assistant.status, load])
+
+  const connect = async () => {
+    setStarting(true)
+    setError(null)
+    try {
+      setAssistant(await startAttendanceAssistant())
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '无法启动 Attendance 登录')
+    } finally {
+      setStarting(false)
     }
   }
-  return [...groups.values()].sort((a, b) => b.week - a.week || a.course.localeCompare(b.course) || a.session.localeCompare(b.session));
-}
 
-export default function AttendancePage() {
-  const { message } = AntApp.useApp();
-  const [codes, setCodes] = useState<AttendanceCode[]>([]);
-  const [connected, setConnected] = useState(false);
-  const [assistant, setAssistant] = useState<AttendanceAssistantState>({ status: "idle", message: "" });
-  const [loading, setLoading] = useState(true);
-  const [starting, setStarting] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [filling, setFilling] = useState<string | null>(null);
-  const [fillingAll, setFillingAll] = useState(false);
-  const [courseFilter, setCourseFilter] = useState("all");
-  const [weekFilter, setWeekFilter] = useState("latest");
-  const [preferences, setPreferences] = useState<AttendancePreferences>({ courses: [] });
-  const [detecting, setDetecting] = useState(false);
-  const [manualOpen, setManualOpen] = useState(false);
-  const [draftPreferences, setDraftPreferences] = useState<AttendancePreferenceCourse[]>([]);
-  const [unmatched, setUnmatched] = useState<UnmatchedAttendanceImage[]>([]);
-  const autoDetected = useRef(false);
-
-  const load = async (refresh = false, rescan = false) => {
-    const [status, nextCodes, nextPreferences] = await Promise.all([
-      fetchAttendanceStatus(),
-      fetchAttendanceCodes(refresh, rescan),
-      fetchAttendancePreferences(),
-    ]);
-    setConnected(status.connected);
-    setAssistant(status.assistant);
-    setCodes(nextCodes.codes);
-    setPreferences(nextPreferences);
-    setUnmatched(await fetchUnmatchedAttendance().catch(() => []));
-    return nextCodes;
-  };
-
-  useEffect(() => {
-    let active = true;
-    void load().catch(() => message.error("无法读取 Attendance 状态")).finally(() => {
-      if (active) setLoading(false);
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const detect = async () => {
-    setDetecting(true);
+  const cancelConnect = async () => {
     try {
-      const detected = await detectAttendancePreferences();
-      const saved = await saveAttendancePreferences(detected);
-      setPreferences(saved);
-      setCodes((await fetchAttendanceCodes()).codes);
-      message.success(`已识别你的签到班次：${saved.courses.length} 门课程`);
+      setAssistant(await cancelAttendanceAssistant())
     } catch (cause) {
-      message.warning(cause instanceof Error ? cause.message : "自动识别签到班次失败，可以手动调整");
-    } finally {
-      setDetecting(false);
+      setError(cause instanceof Error ? cause.message : '无法取消登录')
     }
-  };
+  }
 
-  useEffect(() => {
-    if (loading || !connected || preferences.courses.length > 0 || autoDetected.current) return;
-    autoDetected.current = true;
-    void detect();
-  }, [loading, connected, preferences.courses.length]);
+  const refresh = async () => {
+    setRefreshing(true)
+    setError(null)
+    try {
+      await load(true)
+      setNotice('已重新读取考勤代码。')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '刷新考勤代码失败')
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
-  useEffect(() => {
-    if (assistant.status !== "waiting_login") return;
-    const timer = window.setInterval(() => {
-      void fetchAttendanceAssistant().then((next) => {
-        setAssistant(next);
-        if (next.status === "connected") {
-          message.success("Attendance 已连接，session 已保存到本机");
-          void load();
+  const publishedAt = (code: AttendanceCode) => {
+    const parsed = Date.parse(code.publishedAt)
+    return Number.isNaN(parsed) ? now : parsed
+  }
+
+  const codeOf = (code: AttendanceCode) => drafts[code.id] ?? code.code
+
+  /** 每个 code 的填写窗口只到它自己那一周的周日，跨周的旧 code 不能一直可填 */
+  const deadlineOf = (code: AttendanceCode) => endOfWeek(publishedAt(code))
+
+  const isOpen = (code: AttendanceCode) => now >= publishedAt(code) && now <= deadlineOf(code)
+
+  const weekCount = codes.filter((code) => publishedAt(code) >= startOfWeek(now)).length
+  const fillable = codes.filter((code) => isOpen(code) && !code.filledAt)
+  const fillableWithCode = fillable.filter((code) => codeOf(code).length >= 4)
+  const missingCode = fillable.filter((code) => codeOf(code).length < 4)
+  const filled = codes.filter((code) => code.filledAt)
+  const closed = codes.filter((code) => !isOpen(code) && !code.filledAt)
+
+  const stats: Array<[string, number, string]> = [
+    ['已填写', filled.length, 'text-emerald-700'],
+    ['可填写', fillableWithCode.length, 'text-brand-700'],
+    ['未开放', closed.length, 'text-slate-900'],
+    ['没有识别到代码', missingCode.length, 'text-amber-700'],
+  ]
+
+  const applyFill = async (items: AttendanceCode[]) => {
+    if (items.length === 0) return
+    setBusy(true)
+    setError(null)
+    let summary = ''
+    let failure: string | null = null
+    try {
+      if (items.length === 1) {
+        const item = items[0]
+        const result = await fillAttendanceCode({ ...item, code: codeOf(item) })
+        if (result.status === 'filled') {
+          summary = result.message || `已填入 ${item.course} ${item.session} 的考勤代码，尚未提交。`
+        } else {
+          failure = result.message || (result.status === 'inactive' ? '当前没有打开的考勤表单。' : '没有在 Attendance 页面找到对应活动。')
         }
-      }).catch(() => undefined);
-    }, 1_500);
-    return () => window.clearInterval(timer);
-  }, [assistant.status]);
-
-  const start = async () => {
-    setStarting(true);
-    try {
-      setAssistant(await startAttendanceAssistant());
-    } catch (cause) {
-      message.error(cause instanceof Error ? cause.message : "Attendance 登录助手启动失败");
-    } finally {
-      setStarting(false);
-    }
-  };
-
-  const cancel = async () => {
-    setAssistant(await cancelAttendanceAssistant());
-  };
-
-  const refresh = async (rescan = false) => {
-    setRefreshing(true);
-    try {
-      const result = await load(true, rescan);
-      if (result?.ocr && result.ocr.scanned > 0) {
-        const failed = result.ocr.failed > 0 ? `，${result.ocr.failed} 张图片识别失败（下次刷新会重试）` : "";
-        message.success(`识别了 ${result.ocr.scanned} 个新页面${failed}`);
       } else {
-        message.success("没有需要重新识别的页面，已使用本机保存的签到码");
+        let filledCount = 0
+        let inactiveCount = 0
+        let notFoundCount = 0
+        for (let index = 0; index < items.length; index += BULK_CHUNK) {
+          const chunk = items.slice(index, index + BULK_CHUNK)
+          try {
+            const result = await fillAllAttendanceCodes(chunk.map((c) => ({ ...c, code: codeOf(c) })))
+            filledCount += result.filled
+            inactiveCount += result.inactive
+            notFoundCount += result.notFound
+          } catch (cause) {
+            const handled = filledCount + inactiveCount + notFoundCount
+            const reason = cause instanceof Error ? cause.message : '填写失败'
+            failure = handled > 0 ? `已处理 ${handled} 项后中断：${reason}` : reason
+            break
+          }
+        }
+        const extra = [inactiveCount ? `${inactiveCount} 项当前不可填` : '', notFoundCount ? `${notFoundCount} 项未找到` : '']
+          .filter(Boolean)
+          .join('，')
+        summary = `已填写 ${filledCount} 项，尚未提交。` + (extra ? `另有${extra}。` : '')
+        if (filledCount === 0 && !failure) {
+          failure = extra ? `没有填写成功：另有${extra}。` : '后端没有填写任何一项，请确认 Attendance 已连接、当前有打开的考勤表单。'
+        }
+      }
+      setConfirming(null)
+      if (failure) {
+        // 失败时保留用户手动改过的 code，方便直接重试
+        setError(failure)
+      } else {
+        setDrafts((prev) => {
+          const next = { ...prev }
+          for (const item of items) delete next[item.id]
+          return next
+        })
+        setNotice(summary)
       }
     } catch (cause) {
-      message.error(cause instanceof Error ? cause.message : "刷新失败");
+      setConfirming(null)
+      setError(cause instanceof Error ? cause.message : '填写考勤失败')
     } finally {
-      setRefreshing(false);
+      setBusy(false)
+      // 后端可能已经写入了一部分；重新读取真实状态，不用本地草稿假装成功
+      void load().catch(() => undefined)
     }
-  };
-
-  const fillAll = async () => {
-    if (groups.length === 0) return;
-    setFillingAll(true);
-    try {
-      const result = await fillAllAttendanceCodes(groups.map((item) => item.sources[0]));
-      message.success(`批量填写完成：已填入 ${result.filled} 个，未开始 ${result.inactive} 个，未找到 ${result.notFound} 个`);
-    } catch (cause) {
-      message.error(cause instanceof Error ? cause.message : "批量填写失败");
-    } finally {
-      setFillingAll(false);
-    }
-  };
-
-  const fill = async (item: GroupedCode) => {
-    setFilling(item.key);
-    try {
-      const result = await fillAttendanceCode(item.sources[0]);
-      if (result.status === "filled") {
-        message.success(result.message);
-      } else if (result.status === "inactive") {
-        message.warning(result.message);
-      } else {
-        message.error(result.message);
-      }
-    } catch (cause) {
-      message.error(cause instanceof Error ? cause.message : "填写失败");
-    } finally {
-      setFilling(null);
-    }
-  };
-
-  const allGroups = useMemo(() => groupCodes(codes), [codes]);
-  const sessionOptions = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    for (const item of allGroups) {
-      const key = courseKey(item.course);
-      const set = map.get(key) ?? new Set<string>();
-      set.add(item.session);
-      map.set(key, set);
-    }
-    for (const item of preferences.courses) {
-      const set = map.get(item.course) ?? new Set<string>();
-      for (const session of item.sessions) set.add(session);
-      map.set(item.course, set);
-    }
-    return map;
-  }, [allGroups, preferences]);
-
-  const openManual = () => {
-    const draft = [...sessionOptions.entries()].map(([course, sessions]) => {
-      const existing = preferences.courses.find((item) => item.course === course);
-      return { course, sessions: existing ? [...existing.sessions] : [...sessions] };
-    });
-    setDraftPreferences(draft);
-    setManualOpen(true);
-  };
-
-  const saveManual = async () => {
-    try {
-      const saved = await saveAttendancePreferences({ courses: draftPreferences.filter((item) => item.sessions.length > 0) });
-      setPreferences(saved);
-      setManualOpen(false);
-      message.success("签到班次已保存，后续只显示这些班次的 code");
-    } catch (cause) {
-      message.error(cause instanceof Error ? cause.message : "保存失败");
-    }
-  };
-
-  const preferred = (course: string, session: string) => {
-    if (preferences.courses.length === 0) return true;
-    const item = preferences.courses.find((entry) => entry.course === courseKey(course));
-    if (!item || item.sessions.length === 0) return true;
-    return item.sessions.some((entry) => sessionKey(entry) === sessionKey(session));
-  };
-  const latestWeek = useMemo(() => Math.max(0, ...allGroups.map((item) => item.week)), [allGroups]);
-  const courses = useMemo(() => [...new Set(allGroups.map((item) => item.course))].sort(), [allGroups]);
-  const groups = useMemo(
-    () => allGroups.filter((item) => {
-      if (!preferred(item.course, item.session)) return false;
-      if (courseFilter !== "all" && item.course !== courseFilter) return false;
-      if (weekFilter === "latest" && item.week !== latestWeek) return false;
-      if (weekFilter !== "latest" && item.week !== Number(weekFilter)) return false;
-      return true;
-    }),
-    [allGroups, courseFilter, latestWeek, preferences, weekFilter],
-  );
-  const waiting = assistant.status === "waiting_login";
-
-  if (loading) return <CoveLoader label="正在整理 attendance code" />;
+  }
 
   return (
-    <>
-      <header className="page-header">
-        <div>
-          <Typography.Text className="eyebrow" type="secondary">
-            ATTENDANCE
-          </Typography.Text>
-          <Typography.Title level={1} className="page-title">
-            签到
-          </Typography.Title>
-          <Typography.Paragraph className="page-subtitle" type="secondary">
-            从 Gmail 和 Moodle 汇总 attendance code。填写是本地代码逻辑，不使用模型；默认只填入，不自动提交。
-          </Typography.Paragraph>
-        </div>
-        <Space wrap>
-          <Button icon={<ReloadOutlined />} loading={refreshing} onClick={() => void refresh()}>
-            刷新 code
-          </Button>
-          <Button loading={refreshing} onClick={() => void refresh(true)}>
-            重新识别全部
-          </Button>
-          <Button type="link" href="https://attendance.monash.edu.my/student/" target="_blank">
-            打开 Attendance
-          </Button>
-        </Space>
-      </header>
+    <div className="mx-auto max-w-[1240px] px-10 py-8">
+      <PageTitle
+        title="考勤"
+        description={`本周 ${weekCount} 个班次（共 ${codes.length} 个代码）。上课开始后开放填写，截止到 ${fmtDue(weekEnd)}。`}
+        actions={
+          <>
+            <Button onClick={() => void refresh()} disabled={refreshing || loading}>
+              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+              刷新代码
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => setConfirming(fillableWithCode)}
+              disabled={fillableWithCode.length === 0 || busy || !connected}
+              title={!connected ? '先连接 Attendance' : undefined}
+            >
+              <Wand2 className="h-4 w-4" />
+              一键填写本周{fillableWithCode.length ? `（${fillableWithCode.length}）` : ''}
+            </Button>
+          </>
+        }
+      />
 
-      <Card className="attendance-connect-card" title="Attendance 登录">
-        <Space wrap>
-          <Badge status={connected ? "success" : "default"} text={connected ? "已连接" : "未连接"} />
-          {waiting ? (
-            <>
-              <Typography.Text type="secondary">请在打开的 Chrome 窗口完成 Monash 登录</Typography.Text>
-              <Button onClick={() => void cancel()}>取消登录</Button>
-            </>
+      <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-line bg-white px-4 py-2.5 text-[13px]">
+        <span className="flex min-w-0 items-center gap-2 text-slate-700">
+          <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${connected ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+          <span className="font-medium">{connected ? 'Attendance 已连接' : 'Attendance 未连接'}</span>
+          <span className="truncate text-slate-500">
+            {assistant.status === 'waiting_login'
+              ? '请在打开的 Chrome 窗口完成 Monash 登录'
+              : assistant.status === 'error'
+                ? assistant.message
+                : connected
+                  ? 'session 保存在本机，过期后需要重新连接。'
+                  : '填写前需要先连接考勤门户。'}
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
+          {assistant.status === 'waiting_login' ? (
+            <Button size="sm" onClick={() => void cancelConnect()}>
+              取消登录
+            </Button>
           ) : (
-            <Button type="primary" icon={<FormOutlined />} loading={starting} onClick={() => void start()}>
-              {connected ? "重新登录 Attendance" : "连接 Attendance"}
+            <Button
+              size="sm"
+              variant={connected ? 'secondary' : 'primary'}
+              disabled={starting}
+              onClick={() => void connect()}
+            >
+              {starting ? '正在启动…' : connected ? '重新连接' : '连接 Attendance'}
             </Button>
           )}
-          <Typography.Text type="secondary">只保存 session cookie 到本机 Keychain，不保存密码。</Typography.Text>
-        </Space>
-        {assistant.status === "error" ? <Alert className="page-alert" type="error" showIcon message={assistant.message} /> : null}
-        {assistant.status === "connected" ? <Alert className="page-alert" type="success" showIcon message="Attendance session 已保存；过期后需要重新登录。" /> : null}
-      </Card>
-
-      <Card
-        className="attendance-connect-card"
-        title="我的签到班次"
-        extra={(
-          <Space wrap>
-            <Button size="small" loading={detecting} onClick={() => void detect()}>重新识别</Button>
-            <Button size="small" onClick={openManual}>手动调整</Button>
-          </Space>
-        )}
-      >
-        {detecting ? <Alert type="info" showIcon message="正在从 Attendance 页面识别你的 Workshop / Applied / Tutorial 班次…" /> : null}
-        {preferences.courses.length > 0 ? (
-          <Space wrap>
-            {preferences.courses.map((item) => (
-              <Tag key={item.course} color="success">
-                {item.course} · {item.sessions.join(" / ")}
-              </Tag>
-            ))}
-          </Space>
-        ) : (
-          <Typography.Text type="secondary">
-            首次连接后会自动从 Attendance 页面识别你的班次；识别失败时点“手动调整”。
-          </Typography.Text>
-        )}
-        <Typography.Paragraph type="secondary" className="attendance-source-note">
-          后续只显示你实际参加的班次对应的 attendance code；不同学生会看到不同的 Workshop / Applied。
-        </Typography.Paragraph>
-      </Card>
-
-      {!connected ? (
-        <Alert
-          className="page-alert"
-          type="info"
-          showIcon
-          message="先连接 Attendance"
-          description="连接后可以自动打开签到页，并在 active code 窗口出现时尝试填入。"
-          action={<Button size="small" onClick={() => void start()}>连接</Button>}
-        />
-      ) : null}
-
-      <div className="attendance-toolbar">
-        <Space wrap>
-          <Select
-            value={courseFilter}
-            onChange={setCourseFilter}
-            options={[{ value: "all", label: "全部课程" }, ...courses.map((course) => ({ value: course, label: course }))]}
-            style={{ width: 180 }}
-          />
-          <Select
-            value={weekFilter}
-            onChange={setWeekFilter}
-            options={[
-              { value: "latest", label: `最新周（Week ${latestWeek || "-"}）` },
-              ...[...new Set(allGroups.map((item) => item.week))].sort((a, b) => b - a).map((week) => ({ value: String(week), label: `Week ${week}` })),
-            ]}
-            style={{ width: 150 }}
-          />
-          <Typography.Text type="secondary">
-            {groups.length} 个 code / {new Set(groups.map((item) => item.course)).size} 门课程
-          </Typography.Text>
-          <Button
-            type="primary"
-            icon={<ThunderboltOutlined />}
-            loading={fillingAll}
-            disabled={!connected || groups.length === 0 || filling !== null}
-            onClick={() => void fillAll()}
-          >
-            {weekFilter === "latest" ? `一键填写当周（${groups.length}）` : `一键填写当前列表（${groups.length}）`}
-          </Button>
-        </Space>
-        <Typography.Text type="secondary">Moodle 图片 code 使用本地 OCR；批量默认只填入，不自动提交。</Typography.Text>
+        </span>
       </div>
 
-      {groups.length === 0 ? (
-        <Empty description="还没有解析到 attendance code。先同步 Gmail 或 Moodle。" />
-      ) : (
-        <div className="attendance-list">
-          {groups.map((item) => (
-            <Card key={item.key} className="attendance-code-card" size="small">
-              <div className="attendance-code-row">
-                <div className="attendance-code-main">
-                  <Space wrap>
-                    <Tag color="success">Week {item.week}</Tag>
-                    <Typography.Text strong>{item.course}</Typography.Text>
-                    <Tag>{item.session}</Tag>
-                    <Typography.Text code className="attendance-code">{item.code}</Typography.Text>
-                    {item.fromOcr ? <Tag color="orange">OCR 识别，请核对</Tag> : null}
-                  </Space>
-                  <Typography.Paragraph type="secondary" className="attendance-source-note">
-                    来源：{item.sources.map((source) => source.source === "moodle" ? "Moodle" : source.source === "gmail" ? "Gmail" : "Ed").join(" / ")}
-                    {" · "}
-                    {new Date(item.publishedAt).toLocaleDateString("zh-CN")}
-                  </Typography.Paragraph>
-                </div>
-                <Space>
-                  <Button
-                    type="primary"
-                    icon={<CheckCircleOutlined />}
-                    loading={filling === item.key}
-                    disabled={!connected}
-                    onClick={() => void fill(item)}
-                  >
-                    一键填写
-                  </Button>
-                  {item.sources[0] ? <Button type="link" href={item.sources[0].url} target="_blank">来源</Button> : null}
-                </Space>
-              </div>
-            </Card>
-          ))}
+      <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-brand-200 bg-brand-50/60 px-4 py-3 text-[13px] text-brand-900">
+        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-brand-700" />
+        <p>
+          这是 Cove 唯一会写入学校系统的操作。「填写」只把代码放进考勤表单，<strong className="font-semibold">不会提交</strong>；填写前会列出全部班次让你确认。
+        </p>
+      </div>
+
+      <div className="mb-5 grid grid-cols-4 gap-4">
+        {stats.map(([label, value, tone]) => (
+          <div key={label} className="rounded-2xl border border-line bg-white px-5 py-4">
+            <p className="text-[13px] font-medium text-slate-600">{label}</p>
+            <p className={`mt-1.5 text-[26px] leading-none font-bold ${tone}`}>{value}</p>
+          </div>
+        ))}
+      </div>
+
+      {(error || notice) && (
+        <div
+          role="status"
+          className={`mb-5 flex items-center justify-between gap-3 rounded-xl border px-4 py-2.5 text-[13px] ${
+            error ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            {error ? <AlertCircle className="h-4 w-4 shrink-0" /> : <CheckCircle2 className="h-4 w-4 shrink-0" />}
+            {error ?? notice}
+          </span>
+          <button
+            onClick={() => {
+              setError(null)
+              setNotice(null)
+            }}
+            className="text-xs font-medium hover:underline"
+          >
+            知道了
+          </button>
         </div>
       )}
 
-      {unmatched.length > 0 ? (
-        <Card className="attendance-connect-card" title={`没识别出来的签到图（${unmatched.length}）`}>
-          <Typography.Paragraph type="secondary">
-            这些图片读到了，但没有匹配到 <Typography.Text code>Workshop 3: ABC123</Typography.Text> 这种格式。点开原图自己核对，格式对得上就是 OCR 认错了字。
-          </Typography.Paragraph>
-          <div className="attendance-unmatched-list">
-            {unmatched.map((entry) => (
-              <div className="attendance-unmatched-item" key={entry.id}>
-                <div>
-                  <Space wrap>
-                    {entry.week ? <Tag color="success">Week {entry.week}</Tag> : null}
-                    <Typography.Text strong>{entry.course}</Typography.Text>
-                    <Tag color={entry.status === "error" ? "red" : "orange"}>{entry.status === "error" ? "识别失败" : "格式不符"}</Tag>
-                  </Space>
-                  <Typography.Paragraph type="secondary" style={{ marginBottom: 4 }}>{entry.title}</Typography.Paragraph>
-                </div>
-                <Space wrap>
-                  {entry.images.map((image) => (
-                    <a key={image} href={`/api/moodle/asset?url=${encodeURIComponent(image)}`} target="_blank" rel="noreferrer">
-                      <img
-                        className="attendance-unmatched-thumb"
-                        src={`/api/moodle/asset?url=${encodeURIComponent(image)}`}
-                        alt={`${entry.title} 原图`}
-                        loading="lazy"
-                      />
-                    </a>
-                  ))}
-                </Space>
-              </div>
-            ))}
-          </div>
-        </Card>
-      ) : null}
-
-      <Typography.Paragraph type="secondary" className="page-footnote">
-        自动填写只会操作 attendance.monash.edu.my；如果当前没有 active code 表单，会提示而不是伪造提交。需要重新登录时，回到本页连接 Attendance。
-        <Link to="/settings"> 设置</Link>
-      </Typography.Paragraph>
-      <Modal
-        title="调整我的签到班次"
-        open={manualOpen}
-        onCancel={() => setManualOpen(false)}
-        onOk={() => void saveManual()}
-        okText="保存班次"
-        cancelText="取消"
-      >
-        <Typography.Paragraph type="secondary">
-          只勾选你实际参加的 Workshop / Applied / Tutorial。之后签到页只显示这些班次的 code。
-        </Typography.Paragraph>
-        <div className="attendance-session-editor">
-          {draftPreferences.map((item) => (
-            <div key={item.course} className="attendance-session-row">
-              <Typography.Text strong>{item.course}</Typography.Text>
-              <Checkbox.Group
-                value={item.sessions}
-                options={[...(sessionOptions.get(item.course) ?? [])].map((session) => ({ label: session, value: session }))}
-                onChange={(values) => {
-                  setDraftPreferences((current) => current.map((entry) => entry.course === item.course ? { ...entry, sessions: values as string[] } : entry));
-                }}
-              />
-            </div>
-          ))}
-          {draftPreferences.length === 0 ? <Typography.Text type="secondary">还没有可选择的班次；请先在 Attendance 页面确认课程活动。</Typography.Text> : null}
+      <Panel className="overflow-hidden">
+        <div className={`grid ${COLS} gap-3 border-b border-line bg-slate-50/70 px-5 py-2.5 text-xs font-medium text-slate-500`}>
+          <span>课程</span>
+          <span>班次</span>
+          <span>时间</span>
+          <span>地点</span>
+          <span>考勤代码</span>
+          <span className="text-right">状态</span>
         </div>
-      </Modal>
-    </>
-  );
+        <ul className="divide-y divide-line">
+          {loading ? (
+            <li>
+              <EmptyLine>正在读取考勤代码…</EmptyLine>
+            </li>
+          ) : codes.length === 0 ? (
+            <li>
+              <EmptyLine>还没有识别到考勤代码。先同步 Gmail 或 Moodle。</EmptyLine>
+            </li>
+          ) : (
+            codes.map((code) => {
+              const open = isOpen(code)
+              const value = codeOf(code)
+              const published = publishedAt(code)
+              return (
+                <li
+                  key={code.id}
+                  className={`grid ${COLS} items-center gap-3 px-5 py-3 text-sm ${!open && !code.filledAt ? 'text-slate-500' : ''}`}
+                >
+                  <span className="font-semibold text-slate-800">{code.course}</span>
+                  <span className="text-slate-700">{code.session}</span>
+                  <span className="text-slate-700">
+                    Week {code.week} · {fmtWhen(published, now)}
+                    {open && !code.filledAt && <span className="block text-[11px] font-medium text-brand-700">本周可填</span>}
+                  </span>
+                  <span className="truncate text-slate-400" title="本地 API 没有提供教室信息">
+                    —
+                  </span>
+                  <span className="min-w-0">
+                    {code.filledAt ? (
+                      <span className="font-mono text-[13px] text-slate-800">{code.code}</span>
+                    ) : (
+                      <>
+                        <input
+                          aria-label={`${code.course} ${code.session} 考勤代码`}
+                          disabled={!open}
+                          value={value}
+                          onChange={(e) =>
+                            setDrafts({ ...drafts, [code.id]: e.target.value.toUpperCase().replace(/\s/g, '').slice(0, 8) })
+                          }
+                          placeholder={open ? '输入代码' : '未开放'}
+                          className="h-8 w-32 rounded-lg border border-line bg-white px-2.5 font-mono text-[13px] tracking-wider outline-none focus:border-brand-500 disabled:bg-slate-50"
+                        />
+                        {open && (
+                          <span
+                            className={`mt-1 block truncate text-[11px] ${
+                              value === code.code ? 'text-brand-700' : 'text-slate-500'
+                            }`}
+                          >
+                            代码来自 {sourceLabel(code.source)}
+                            {code.origin === 'ocr' && '（图片识别，请核对）'}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </span>
+                  <span className="flex items-center justify-end gap-2">
+                    {code.filledAt ? (
+                      <>
+                        <Tag tone="green">已填写</Tag>
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          disabled={!open || !connected || busy}
+                          onClick={() => setConfirming([code])}
+                        >
+                          重新填写…
+                        </Button>
+                      </>
+                    ) : !open ? (
+                      <Tag>{now < published ? '未开始' : '已过期'}</Tag>
+                    ) : (
+                      <Button
+                        size="sm"
+                        disabled={value.length < 4 || !connected || busy}
+                        onClick={() => setConfirming([code])}
+                      >
+                        填写
+                      </Button>
+                    )}
+                  </span>
+                </li>
+              )
+            })
+          )}
+        </ul>
+      </Panel>
+
+      <Confirm
+        open={!!confirming}
+        title={confirming && confirming.length > 1 ? `确认填写 ${confirming.length} 项考勤` : '确认填写考勤'}
+        confirmLabel={busy ? '正在填写…' : '确认填写'}
+        busy={busy}
+        onCancel={() => {
+          if (!busy) setConfirming(null)
+        }}
+        onConfirm={() => {
+          if (confirming) void applyFill(confirming)
+        }}
+      >
+        将以你的身份向 Monash 考勤门户填写以下班次。Cove 只把代码放进表单，不会提交，提交仍由你在门户里完成：
+        <ul className="mt-3 divide-y divide-line rounded-lg border border-line">
+          {confirming?.map((c) => (
+            <li key={c.id} className="flex items-center justify-between px-3 py-2 text-[13px]">
+              <span className="text-slate-800">
+                <strong className="font-semibold">{c.course}</strong> {c.session} · Week {c.week}
+              </span>
+              <code className="font-mono text-slate-900">{codeOf(c)}</code>
+            </li>
+          ))}
+        </ul>
+      </Confirm>
+    </div>
+  )
 }

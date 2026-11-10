@@ -1,153 +1,263 @@
-import { DeleteOutlined } from "@ant-design/icons";
-import { Alert, App as AntApp, Badge, Button, Card, Descriptions, Input, Popconfirm, Select, Space, Tag, Typography } from "antd";
-import { useEffect, useState } from "react";
-import FullSyncCard from "../components/FullSyncCard";
-import { fetchRuntimeStatus, fetchSources } from "../data/repository";
-import { useDemoStore } from "../state/DemoStateContext";
-import type { RuntimeStatus } from "../types";
-import { REGION_OPTIONS, loadRegion, saveRegion, type CampusRegion } from "../lib/region";
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Copy, Download, RefreshCw } from 'lucide-react'
+import { useStore } from '../store'
+import { navigate } from '../lib/router'
+import { fetchSyncStatus, startFullSync } from '../data/repository'
+import { Button, PageTitle, Panel, Select } from '../components/ui'
 
-export default function SettingsPage() {
-  const { message } = AntApp.useApp();
-  const { state, reset } = useDemoStore();
-  const [itemsCount, setItemsCount] = useState(0);
-  const [profileName, setProfileName] = useState(() => window.localStorage.getItem("cove-profile-name") ?? "");
-  const [region, setRegion] = useState<CampusRegion>(() => loadRegion() ?? "malaysia");
-  const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
+const MCP_SNIPPET = `{
+  "mcpServers": {
+    "cove": {
+      "command": "cove",
+      "args": ["mcp", "--read-only"]
+    }
+  }
+}`
+
+function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+  return (
+    <section className="grid grid-cols-[240px_minmax(0,1fr)] gap-8 border-b border-line py-6 last:border-b-0">
+      <div>
+        <h2 className="text-[14px] font-semibold text-slate-900">{title}</h2>
+        {description && <p className="mt-1 text-xs leading-relaxed text-slate-500">{description}</p>}
+      </div>
+      <div>{children}</div>
+    </section>
+  )
+}
+
+function Line({ label, detail, action }: { label: string; detail?: string; action: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-6 px-4 py-3">
+      <div>
+        <p className="text-[13px] font-medium text-slate-800">{label}</p>
+        {detail && <p className="mt-0.5 text-xs text-slate-500">{detail}</p>}
+      </div>
+      {action}
+    </div>
+  )
+}
+
+function Confirm({
+  open,
+  danger,
+  title,
+  confirmLabel,
+  children,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean
+  danger?: boolean
+  title: string
+  confirmLabel: string
+  children: ReactNode
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  if (!open) return null
+  return (
+    <div className="overlay-enter fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-6" onClick={onCancel}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+        className="dialog-enter w-[440px] overflow-hidden rounded-2xl border border-line bg-white shadow-2xl"
+      >
+        <div className="px-5 py-4">
+          <h2 className="text-[15px] font-semibold text-slate-900">{title}</h2>
+          <p className="mt-2 text-[13px] leading-relaxed text-slate-600">{children}</p>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-line px-5 py-3">
+          <Button onClick={onCancel}>取消</Button>
+          <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm}>
+            {confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
+
+export function SettingsPage() {
+  const { settings, updateSettings, items, changes, marks, sources, clearAllData, clearMarks, restartSetup, refresh } = useStore()
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [confirmMarks, setConfirmMarks] = useState(false)
+  const [showData, setShowData] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [fullSyncing, setFullSyncing] = useState(false)
+  const [syncError, setSyncError] = useState<string | null>(null)
+  const mounted = useRef(true)
+  const syncing = fullSyncing || sources.some((s) => s.state === 'syncing')
+  const markCount = Object.values(marks).filter((m) => Object.keys(m).length).length
+  const dump = JSON.stringify({ settings, items: items.length, item_changes: changes.length, marks }, null, 2)
 
   useEffect(() => {
-    let active = true;
-    void fetchSources()
-      .then((sources) => {
-        if (active) setItemsCount(sources.reduce((total, source) => total + source.itemCount, 0));
-      })
-      .catch(() => undefined);
-    void fetchRuntimeStatus()
-      .then((status) => {
-        if (active) setRuntime(status);
-      })
-      .catch(() => undefined);
+    mounted.current = true
     return () => {
-      active = false;
-    };
-  }, []);
-
-  const saveProfile = () => {
-    window.localStorage.setItem("cove-profile-name", profileName.trim());
-    saveRegion(region);
-    message.success("本地称呼和地区已保存");
-  };
-
-  const clear = async () => {
-    const cleared = await reset();
-    if (!cleared) {
-      message.error("清除失败，请确认本地服务正在运行");
-      return;
+      mounted.current = false
     }
-    window.localStorage.removeItem("cove-profile-name");
-    window.localStorage.removeItem("cove-campus-region");
-    message.success("本地数据和凭据已清除");
-  };
+  }, [])
+
+  const exportAll = () => {
+    const url = URL.createObjectURL(new Blob([JSON.stringify({ settings, items, item_changes: changes, marks }, null, 2)], { type: 'application/json' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'cove-export.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // 全量同步是一个后台任务：POST 只负责排队，进度和结束状态都以 /api/sync/status 为准。
+  const runFullSync = async () => {
+    if (fullSyncing) return
+    setFullSyncing(true)
+    setSyncError(null)
+    try {
+      await startFullSync()
+      const deadline = Date.now() + 30 * 60_000
+      let current = await fetchSyncStatus()
+      while (mounted.current && current.job?.status === 'running' && Date.now() < deadline) {
+        await wait(2_000)
+        if (!mounted.current) return
+        current = await fetchSyncStatus()
+      }
+      if (current.job?.status === 'running') throw new Error('全量同步仍在运行，请稍后到来源页查看状态')
+      if (current.job?.status === 'error') throw new Error('全量同步失败，请在来源页查看失败的来源')
+      await refresh()
+    } catch (cause) {
+      if (mounted.current) setSyncError(cause instanceof Error ? cause.message : '全量同步失败')
+    } finally {
+      if (mounted.current) setFullSyncing(false)
+    }
+  }
 
   return (
-    <>
-      <header className="page-header">
-        <div>
-          <Typography.Text className="eyebrow" type="secondary">
-            本地模式
-          </Typography.Text>
-          <Typography.Title level={1} className="page-title">
-            设置
-          </Typography.Title>
-          <Typography.Paragraph className="page-subtitle" type="secondary">
-            控制本地数据和查看数据边界。真实凭据、SQLite 和同步都只在本机；没有云端账号或第三方分析。
-          </Typography.Paragraph>
-        </div>
-      </header>
+    <div className="mx-auto max-w-[1040px] px-10 py-8">
+      <PageTitle title="设置" />
+      <Panel className="px-6">
+        <Section title="称呼与地区" description="地区决定截止时间的显示时区。">
+          <div className="flex flex-wrap items-center gap-5">
+            <label className="flex items-center gap-2 text-[13px] text-slate-600">
+              称呼
+              <input
+                value={settings.name}
+                onChange={(e) => updateSettings({ name: e.target.value })}
+                className="h-8 w-44 rounded-md border border-slate-300 px-2.5 text-[13px] text-slate-800 outline-none focus:border-brand-500"
+              />
+            </label>
+            <Select
+              label="时区"
+              value={settings.timezone}
+              onChange={(v) => updateSettings({ timezone: v })}
+              options={[
+                { value: 'Australia/Melbourne', label: 'Australia/Melbourne (AEST)' },
+                { value: 'Asia/Shanghai', label: 'Asia/Shanghai (CST)' },
+                { value: 'Asia/Kuala_Lumpur', label: 'Asia/Kuala_Lumpur (MYT)' },
+              ]}
+            />
+          </div>
+        </Section>
 
-      <Card className="settings-card" title="个人与地区">
-        <div className="settings-profile-row">
-          <Input
-            value={profileName}
-            onChange={(event) => setProfileName(event.target.value)}
-            placeholder="Monash Cove 在本机怎么称呼你"
-            maxLength={40}
-          />
-          <Select
-            value={region}
-            onChange={(value) => { setRegion(value); saveRegion(value); }}
-            options={REGION_OPTIONS}
-            style={{ width: 132 }}
-            aria-label="所在地区"
-          />
-          <Button onClick={saveProfile}>保存</Button>
-        </div>
-        <Typography.Paragraph type="secondary" className="settings-note">
-          地区用于过滤 Moodle 课程和资料；只保存在本机浏览器。
-        </Typography.Paragraph>
-      </Card>
+        <Section title="打开时" description="每次打开 Cove，弹出自上次打开以来的更新摘要。">
+          <label className="flex items-center gap-2.5 text-[13px] text-slate-800">
+            <input
+              type="checkbox"
+              checked={settings.showLaunchSummary !== false}
+              onChange={(e) => updateSettings({ showLaunchSummary: e.target.checked })}
+              className="h-4 w-4 accent-brand-600"
+            />
+            显示本次打开摘要
+          </label>
+        </Section>
 
-      <Card className="settings-card" title="运行环境">
-        {runtime ? (
-          <>
-            <div className="runtime-meta">
-              <Tag>{runtime.platform} / {runtime.arch}</Tag>
-              <Tag>Node {runtime.node}</Tag>
-              {runtime.desktop ? <Tag color="success">桌面 App</Tag> : <Tag>浏览器模式</Tag>}
-            </div>
-            <div className="runtime-checks">
-              {runtime.checks.map((check) => (
-                <div className="runtime-row" key={check.id}>
-                  <Badge status={check.status === "ok" ? "success" : check.status === "warn" ? "warning" : "error"} />
-                  <span className="runtime-label">{check.label}</span>
-                  <span className="runtime-detail">{check.detail}</span>
-                </div>
-              ))}
-            </div>
-            <Typography.Text type="secondary" className="settings-note">
-              数据目录：{runtime.dataDir}
-            </Typography.Text>
-          </>
-        ) : (
-          <Typography.Text type="secondary">正在检查运行环境…</Typography.Text>
-        )}
-      </Card>
+        <Section title="同步" description="平时只做增量同步。全量同步会重新读取所有来源，耗时较长。">
+          <div className="divide-y divide-line rounded-md border border-line">
+            <Line
+              label="全量同步"
+              detail="重新读取 Gmail、Ed、Moodle、OnTrack 的全部内容，并重建字段快照"
+              action={
+                <Button onClick={() => void runFullSync()} disabled={syncing}>
+                  <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                  {syncing ? '同步中' : '开始全量同步'}
+                </Button>
+              }
+            />
+            {syncError && (
+              <p role="alert" className="px-4 py-3 text-xs text-red-700">
+                {syncError}
+              </p>
+            )}
+            <Line label="设置向导" detail="逐个连接还没连接的来源，已连接的会保留" action={<Button onClick={() => { restartSetup(); navigate('/setup') }}>重新运行</Button>} />
+          </div>
+        </Section>
 
-      <FullSyncCard />
+        <Section title="本地数据" description="所有内容只保存在这台电脑上，不上传云端，也不写入 Git。">
+          <div className="divide-y divide-line rounded-md border border-line">
+            <Line label="当前数据" detail={`${items.length} 条条目 · ${changes.length} 处字段变更 · ${markCount} 条你的标记`} action={<Button onClick={() => setShowData((v) => !v)}>{showData ? '收起' : '查看'}</Button>} />
+            {showData && <pre className="scroll-y max-h-56 bg-slate-50 px-4 py-3 font-mono text-xs leading-relaxed text-slate-700">{dump}</pre>}
+            <Line label="导出" detail="下载全部本地数据（JSON）" action={<Button onClick={exportAll}><Download className="h-3.5 w-3.5" />导出</Button>} />
+            <Line label="清除我的标记" detail="已读、已提交、不重要、不是给我的" action={<Button onClick={() => setConfirmMarks(true)} disabled={!markCount}>清除标记</Button>} />
+            <Line label="清除全部本地数据" detail="删除所有条目、变更记录和标记；来源连接保留" action={<Button variant="danger" onClick={() => setConfirmClear(true)} disabled={!items.length}>清除数据</Button>} />
+          </div>
+        </Section>
 
-      <Card title="本地数据">
-        <Descriptions
-          size="small"
-          column={2}
-          colon={false}
-          items={[
-            { key: "items", label: "本地条目", children: `${itemsCount} 条` },
-            { key: "window", label: "查看窗口", children: state.windowHours === 0 ? "上次查看后（无新内容）" : `${state.windowHours} 小时` },
-            { key: "corrections", label: "纠错记录", children: `${Object.keys(state.corrections).length} 条` },
-            { key: "read", label: "已读条目", children: `${Object.keys(state.read).length} 条` },
-          ]}
-        />
-        <Space className="settings-actions" wrap>
-          <Popconfirm title="清除全部本地数据？" description="会删除条目、纠错、已读，并断开 Gmail/Ed/Moodle、删除本机凭据。此操作不可撤销。" okText="清除" cancelText="取消" onConfirm={clear}>
-            <Button danger icon={<DeleteOutlined />}>
-              清除全部本地数据
+        <Section title="MCP 只读接入" description="把本地数据以只读方式提供给你自己的 Agent。不会暴露凭据，也不能写入。">
+          <div className="relative">
+            <pre className="rounded-md border border-line bg-slate-50 px-4 py-3 font-mono text-xs leading-relaxed text-slate-700">{MCP_SNIPPET}</pre>
+            <Button
+              size="sm"
+              className="absolute top-2 right-2"
+              onClick={() => {
+                void navigator.clipboard?.writeText(MCP_SNIPPET)
+                setCopied(true)
+                window.setTimeout(() => setCopied(false), 1500)
+              }}
+            >
+              <Copy className="h-3 w-3" />
+              {copied ? '已复制' : '复制'}
             </Button>
-          </Popconfirm>
-          <Tag>SQLite + Keychain</Tag>
-        </Space>
-      </Card>
+          </div>
+        </Section>
 
-      <Card className="info-card" title="边界">
-        <Alert
-          type="warning"
-          showIcon
-          message="真实数据只在本机"
-          description="当前三个来源均已真实连接。清除后会断开来源并删除本机凭据；未连接来源才会显示匿名样本。"
-        />
-        <Typography.Paragraph type="secondary" className="settings-note">
-          产品不会自动提交作业、回复教师或代表用户发消息。高风险结论必须能回到原文。
-        </Typography.Paragraph>
-      </Card>
-    </>
-  );
+        <Section title="产品边界">
+          <ul className="list-disc space-y-1.5 pl-4 text-[13px] text-slate-700">
+            <li>不判断单条内容是否重要，不显示「必须处理」一类标签</li>
+            <li>不自动提交作业，不代你回复老师或发送消息</li>
+            <li>考勤默认只填写不提交，提交需要你确认</li>
+            <li>不提供日历与提醒，也不生成摘要结论</li>
+          </ul>
+        </Section>
+      </Panel>
+
+      <Confirm
+        open={confirmClear}
+        danger
+        title="清除全部本地数据？"
+        confirmLabel="清除"
+        onCancel={() => setConfirmClear(false)}
+        onConfirm={() => {
+          clearAllData()
+          setConfirmClear(false)
+        }}
+      >
+        将删除 {items.length} 条条目、{changes.length} 处字段变更和 {markCount} 条标记。来源连接会保留，之后可以通过全量同步重新获取。
+      </Confirm>
+      <Confirm
+        open={confirmMarks}
+        title="清除你的标记？"
+        confirmLabel="清除"
+        onCancel={() => setConfirmMarks(false)}
+        onConfirm={() => {
+          clearMarks()
+          setConfirmMarks(false)
+        }}
+      >
+        {markCount} 条标记会被删除，标为「不重要」或「不是给我的」的条目会重新出现在首页。
+      </Confirm>
+    </div>
+  )
 }

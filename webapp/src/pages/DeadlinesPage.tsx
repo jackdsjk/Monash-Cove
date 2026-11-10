@@ -1,124 +1,102 @@
-import { useEffect, useMemo, useState } from "react";
-import { App as AntApp, Empty, Typography } from "antd";
-import { useNavigate } from "react-router-dom";
-import DeadlineCountdown from "../components/DeadlineCountdown";
-import CoveLoader from "../components/CoveLoader";
-import { fetchBrief, setItemCompleted } from "../data/repository";
-import { useDemoStore } from "../state/DemoStateContext";
-import type { BriefItem } from "../types";
+import { useEffect, useState } from 'react'
+import { useStore } from '../store'
+import { fetchBrief, setItemCompleted } from '../data/repository'
+import type { Item } from '../data/model'
+import { fmtCountdown, fmtDue } from '../lib/time'
+import { Button, Course, DuePill, PageTitle, Panel, SectionHeader, Source, Tag } from '../components/ui'
 
-const HOUR = 3_600_000;
+const H = 3600_000
+const COLS = 'grid-cols-[180px_110px_76px_84px_minmax(0,1fr)_110px]'
 
-export default function DeadlinesPage() {
-  const { message } = AntApp.useApp();
-  const navigate = useNavigate();
-  const { state, hydrate } = useDemoStore();
-  const [items, setItems] = useState<BriefItem[]>([]);
-  const [loading, setLoading] = useState(true);
+export function DeadlinesPage() {
+  const { items, now, marks, openItem, setMark } = useStore()
+  const [completed, setCompleted] = useState<Record<string, boolean>>({})
 
+  // 已提交以本地服务的 completed_at 为准；服务不可用时退回本地标记，不展示推断结果。
   useEffect(() => {
-    let active = true;
+    let active = true
     void fetchBrief()
-      .then((data) => {
-        if (!active) return;
-        setItems(data.items);
-        hydrate(data.items);
+      .then(({ items: brief }) => {
+        if (!active) return
+        const next: Record<string, boolean> = {}
+        for (const item of brief) next[item.id] = Boolean(item.completedAt)
+        setCompleted(next)
       })
       .catch(() => {
-        if (active) message.error("无法读取本地截止时间，请确认本地服务正在运行。");
+        /* 读不到就沿用本地标记 */
       })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
     return () => {
-      active = false;
-    };
-  }, [hydrate, message]);
-
-  const markSubmitted = async (id: string) => {
-    try {
-      await setItemCompleted(id, true);
-      setItems(await fetchBrief().then((data) => data.items));
-      message.success("已标记为提交完成，倒计时已移除");
-    } catch (cause) {
-      message.error(cause instanceof Error ? cause.message : "标记失败");
+      active = false
     }
-  };
+  }, [])
 
-  const open = useMemo(
-    () =>
-      items.filter(
-        (item) =>
-          (item.source === "moodle" || item.source === "ontrack") &&
-          item.dueAt &&
-          Number.isFinite(Date.parse(item.dueAt)) &&
-          !item.completedAt &&
-          !state.corrections[item.id]?.dismissed,
-      ),
-    [items, state.corrections],
-  );
+  const withDue = items.filter((i) => i.dueAt).sort((a, b) => a.dueAt! - b.dueAt!)
 
-  const soonCount = useMemo(() => {
-    const now = Date.now();
-    return open.filter((item) => {
-      const remaining = Date.parse(item.dueAt ?? "") - now;
-      return remaining > 0 && remaining <= 48 * HOUR;
-    }).length;
-  }, [open]);
+  const groups: { title: string; list: Item[] }[] = [
+    { title: '已截止', list: withDue.filter((i) => i.dueAt! <= now).reverse() },
+    { title: '24 小时内', list: withDue.filter((i) => i.dueAt! > now && i.dueAt! - now <= 24 * H) },
+    { title: '7 天内', list: withDue.filter((i) => i.dueAt! - now > 24 * H && i.dueAt! - now <= 7 * 24 * H) },
+    { title: '更晚', list: withDue.filter((i) => i.dueAt! - now > 7 * 24 * H) },
+  ]
 
-  if (loading) {
-    return <CoveLoader label="正在读取截止时间" />;
+  const isSubmitted = (id: string) => Boolean(marks[id]?.submitted) || Boolean(completed[id])
+
+  const toggleSubmitted = (id: string, next: boolean) => {
+    const previous = isSubmitted(id)
+    setMark(id, { submitted: next ? true : undefined })
+    setCompleted((prev) => ({ ...prev, [id]: next }))
+    void setItemCompleted(id, next ? true : null).catch(() => {
+      setMark(id, { submitted: previous ? true : undefined })
+      setCompleted((prev) => ({ ...prev, [id]: previous }))
+    })
   }
 
   return (
-    <>
-      <header className="page-header">
-        <div className="page-header__main">
-          <Typography.Title level={1} className="page-title">
-            截止倒计时
-          </Typography.Title>
-          <Typography.Paragraph className="page-subtitle" type="secondary">
-            来自 Moodle 和 OnTrack 的截止时间；这里只处理有结构化截止日期的条目。
-          </Typography.Paragraph>
-        </div>
-        <div className="page-header__side">
-          <div className="board-counters">
-            <div className="board-counter board-counter--hot">
-              <div className="board-flap">
-                <b>{soonCount}</b>
-              </div>
-              <span>48h 内</span>
-            </div>
-            <div className="board-counter">
-              <div className="board-flap">
-                <b>{open.length}</b>
-              </div>
-              <span>总计</span>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {open.length === 0 ? (
-        <Empty
-          className="brief-empty"
-          description={
-            <div>
-              <Typography.Title level={2}>暂时没有可计算的截止时间</Typography.Title>
-              <Typography.Paragraph type="secondary">
-                等 Moodle 同步到带截止时间的作业后，这里会自动出现倒计时。
-              </Typography.Paragraph>
-            </div>
-          }
-        />
-      ) : (
-        <DeadlineCountdown
-          items={items}
-          corrections={state.corrections}
-          onOpen={(id) => navigate("/", { state: { openItemId: id } })}
-          onMarkSubmitted={(id) => void markSubmitted(id)}
-        />
-      )}
-    </>
-  );
+    <div className="mx-auto max-w-[1240px] px-10 py-8">
+      <PageTitle title="截止时间" description={`共 ${withDue.length} 项有结构化截止时间。没有结构化截止时间的条目不显示。`} />
+      <div className="space-y-8">
+        {groups.map((g) => (
+          <section key={g.title}>
+            <SectionHeader title={g.title} count={g.list.length} />
+            <Panel className="overflow-hidden">
+              {g.list.length === 0 ? (
+                <p className="px-5 py-4 text-sm text-slate-500">无</p>
+              ) : (
+                <div className="divide-y divide-line">
+                  {g.list.map((i) => {
+                    const submitted = isSubmitted(i.id)
+                    return (
+                      <div key={i.id} className={`grid items-center gap-3 px-5 py-3 text-sm hover:bg-brand-50/50 ${COLS} ${submitted ? 'text-slate-500' : 'text-slate-800'}`}>
+                        <span>{fmtDue(i.dueAt!)}</span>
+                        <span className="flex items-center gap-2">
+                          <DuePill due={i.dueAt!} now={now} />
+                          <span className="sr-only">{fmtCountdown(i.dueAt!, now)}</span>
+                        </span>
+                        <Course code={i.course} />
+                        <Source id={i.source} />
+                        <button onClick={() => openItem(i.id)} className="truncate text-left hover:text-brand-700 hover:underline">
+                          {i.title}
+                        </button>
+                        <span className="flex justify-end">
+                          {submitted ? (
+                            <button onClick={() => toggleSubmitted(i.id, false)} title="撤销已提交标记">
+                              <Tag tone="green">已提交</Tag>
+                            </button>
+                          ) : (
+                            <Button size="sm" variant="ghost" onClick={() => toggleSubmitted(i.id, true)}>
+                              标记已提交
+                            </Button>
+                          )}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </Panel>
+          </section>
+        ))}
+      </div>
+    </div>
+  )
 }

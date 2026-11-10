@@ -176,6 +176,8 @@ export interface SourceStatus {
   lastError: string | null;
   itemCount: number;
   contentCount?: number;
+  /** 平台上报的登录账号；拿不到时为 null */
+  account?: string | null;
 }
 
 export interface MoodleCourse {
@@ -196,6 +198,30 @@ export interface MoodleContentItem {
   text: string;
   updatedAt: string;
   campus?: "malaysia" | "australia" | "indonesia" | "shared";
+}
+
+/** Moodle 成绩册里的一个评分项。表格里没有的字段是 null / 空字符串，不补默认值。 */
+export interface MoodleGradeItem {
+  id: string;
+  name: string;
+  /** 已发布的分数；未发布时为 null（不是 0） */
+  grade: number | null;
+  /** 分项满分，来自 Range 列；Moodle 没印 Range 时为 null */
+  gradeMax: number | null;
+  /** 占总评的权重；没有 Weight 列时为 null */
+  weight: number | null;
+  feedback: string;
+  /** Moodle 原文日期（按账号语言渲染），无法可靠转成时间戳 */
+  gradedAt: string | null;
+}
+
+/** 一门课的成绩册内容，直接对应 Moodle 的用户成绩报告页。 */
+export interface MoodleGradeCourse {
+  courseId: string;
+  courseName: string;
+  items: MoodleGradeItem[];
+  /** 课程总分行；Moodle 没印总分行时两项都是 null */
+  total: { earned: number | null; max: number | null };
 }
 
 /** 已连接的 OnTrack 账号，用于在界面上显示"现在是谁在用"。 */

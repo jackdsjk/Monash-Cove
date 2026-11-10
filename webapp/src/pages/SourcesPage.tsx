@@ -1,451 +1,387 @@
-import { ApiOutlined, CheckCircleOutlined, ProfileOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Alert, App as AntApp, Badge, Button, Card, Col, Descriptions, Form, Input, Modal, Row, Select, Space, Tag, Typography } from "antd";
-import { useCallback, useEffect, useState } from "react";
-import CoveLoader from "../components/CoveLoader";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { AlertCircle, CheckCircle2, RefreshCw } from 'lucide-react'
+import { useStore } from '../store'
+import { SOURCE_LABEL } from '../data/model'
+import type { SourceId } from '../data/model'
 import {
   cancelMoodleAssistant,
   cancelOnTrackAssistant,
-  fetchMoodleAssistant,
-  fetchOnTrackAccount,
-  fetchOnTrackAssistant,
   fetchCredentials,
-  fetchSources,
+  fetchMoodleAssistant,
+  fetchOnTrackAssistant,
   startMoodleAssistant,
   startOnTrackAssistant,
-} from "../data/repository";
-import { SOURCE_LABELS } from "../lib/triage";
-import type { CredentialInfo, MoodleAssistantState, OnTrackAccount, Source, SourceStatus } from "../types";
+} from '../data/repository'
+import { fmtWhen } from '../lib/time'
+import { Button, PageTitle, Panel, Select, SOURCE_MARK } from '../components/ui'
+import type { CredentialInfo, MoodleAssistantState } from '../types'
 
-const sources: Array<{ source: Source; status: "success" | "warning"; lastSync: string; scope: string }> = [
-  { source: "gmail", status: "success", lastSync: "12 分钟前", scope: "只读邮件与线程" },
-  { source: "ed", status: "success", lastSync: "18 分钟前", scope: "只读课程讨论" },
-  { source: "moodle", status: "warning", lastSync: "2 小时前", scope: "只读 assessment 与公告" },
-];
+const DESC: Record<SourceId, string> = {
+  gmail: '学校邮箱中的课程通知与教务邮件 · 只读权限 gmail.readonly',
+  ed: '课程讨论、公告与学习内容 · Ed API token',
+  moodle: '作业、成绩、资料与课程板块 · 本地登录助手（Monash SSO）',
+  ontrack: '任务状态与评论 · 复用 Moodle 的 Monash SSO 凭据',
+}
 
-export default function SourcesPage() {
-  const { message } = AntApp.useApp();
-  const [statuses, setStatuses] = useState<SourceStatus[]>([]);
-  const [onTrack, setOnTrack] = useState<OnTrackAccount | null>(null);
-  const [onTrackChecking, setOnTrackChecking] = useState(false);
-  const [onTrackAssistant, setOnTrackAssistant] = useState<MoodleAssistantState>({ status: "idle", message: "未开始" });
-  const [credentials, setCredentials] = useState<CredentialInfo[]>([]);
-  const [connectSource, setConnectSource] = useState<Source | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [form] = Form.useForm();
-  const [manualMoodle, setManualMoodle] = useState(false);
-  const [moodleAssistant, setMoodleAssistant] = useState<MoodleAssistantState | null>(null);
-  const [assistantStarting, setAssistantStarting] = useState(false);
+const CONNECT_HINT: Record<SourceId, string> = {
+  gmail: 'Gmail 使用 Google OAuth，授权后凭据只保存在本机 Keychain。',
+  ed: 'Ed 使用 API token，token 只保存在本机 Keychain。',
+  moodle: '登录助手会打开一个 Chrome 窗口，完成 Monash 登录后凭据自动保存到本机，不需要手动复制。',
+  ontrack: '登录助手会打开一个 Chrome 窗口，完成 Monash SSO 登录后 OnTrack 凭据自动保存到本机。',
+}
 
-  const loadStatuses = useCallback(async () => {
-    try {
-      setStatuses(await fetchSources());
-    } catch {
-      setStatuses([]);
-    }
-  }, []);
+/**
+ * local-service 在会话过期时写入的固定文案（见 local-service/src/moodle-session.ts）。
+ * 匹配到它说明 Cookie 还在本机、只是失效了：按钮应该回到登录助手，而不是再同步一次。
+ */
+const SESSION_EXPIRED = /会话已过期|session expired/i
 
-  useEffect(() => {
-    let active = true;
-    void Promise.resolve(loadStatuses()).finally(() => {
-      if (active) setLoading(false);
-    });
-    return () => {
-      active = false;
-    };
-  }, [loadStatuses]);
+/** 凭据有效期来自本地服务的 /api/credentials，不把“已连接”当成永不过期。 */
+function credentialLine(entry: CredentialInfo | undefined, now: number): string {
+  if (!entry?.connected) return '凭据未保存在本机'
+  if (!entry.expiresAt) return entry.renewable ? '长期有效，自动续期' : '无固定到期，失效时需重连'
+  const at = Date.parse(entry.expiresAt)
+  if (!Number.isFinite(at)) return entry.note
+  if (at <= now) return `凭据已于 ${fmtWhen(at, now)} 过期`
+  return `凭据有效至 ${fmtWhen(at, now)}${entry.renewable ? '，自动续期' : ''}`
+}
 
-  useEffect(() => {
-    if (connectSource !== "moodle" || moodleAssistant?.status !== "waiting_login") return;
-    const timer = window.setInterval(() => {
-      void fetchMoodleAssistant().then((next) => {
-        setMoodleAssistant(next);
-        if (next.status === "connected") {
-          message.success("Moodle 已连接");
-          setConnectSource(null);
-          void loadStatuses();
-        }
-      }).catch(() => undefined);
-    }, 1_500);
-    return () => window.clearInterval(timer);
-  }, [connectSource, loadStatuses, message, moodleAssistant?.status]);
+function Dialog({ title, description, onClose, children }: { title: string; description?: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="overlay-enter fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-6" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+        className="dialog-enter w-[520px] overflow-hidden rounded-2xl border border-line bg-white shadow-2xl"
+      >
+        <div className="border-b border-line px-5 py-4">
+          <h2 className="text-[15px] font-semibold text-slate-900">{title}</h2>
+          {description && <p className="mt-1 text-xs leading-relaxed text-slate-500">{description}</p>}
+        </div>
+        <div className="px-5 py-4">{children}</div>
+      </div>
+    </div>
+  )
+}
 
-  const syncSource = async (source: Source) => {
-    const response = await fetch("/api/sync", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ source }),
-    });
-    const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-    if (!response.ok) {
-      message.warning(body?.error?.message ?? "同步失败");
-      await loadStatuses();
-      return;
-    }
-    message.success(`${SOURCE_LABELS[source]} 同步完成`);
-    await loadStatuses();
-  };
+export function SourcesPage() {
+  const { sources, now, syncSource, syncAll, refresh } = useStore()
+  const busy = sources.some((s) => s.state === 'syncing')
+  const [credentials, setCredentials] = useState<CredentialInfo[]>([])
+  const [dialog, setDialog] = useState<SourceId | null>(null)
+  const [assistant, setAssistant] = useState<MoodleAssistantState | null>(null)
+  const [edToken, setEdToken] = useState('')
+  const [edRegion, setEdRegion] = useState<'us' | 'au' | 'eu'>('au')
+  const [working, setWorking] = useState(false)
+  const [dialogError, setDialogError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ title: string; message: string } | null>(null)
 
-  const openConnect = (source: Source) => {
-    setConnectSource(source);
-    setManualMoodle(false);
-    form.resetFields();
-    if (source === "ed") form.setFieldsValue({ region: "au" });
-    if (source === "moodle") {
-      form.setFieldsValue({ baseUrl: "https://learning.monash.edu" });
-      void fetchMoodleAssistant().then(setMoodleAssistant).catch(() => undefined);
-    }
-  };
-
-  const startMoodle = async () => {
-    setAssistantStarting(true);
-    try {
-      setMoodleAssistant(await startMoodleAssistant());
-    } catch (cause) {
-      message.error(cause instanceof Error ? cause.message : "登录助手启动失败");
-    } finally {
-      setAssistantStarting(false);
-    }
-  };
-
-  const cancelMoodle = async () => {
-    setMoodleAssistant(await cancelMoodleAssistant());
-  };
-
-  const saveCredentials = async (values: Record<string, string>) => {
-    if (!connectSource) return;
-    const response = await fetch(`/api/sources/${connectSource}/credentials`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(values),
-    });
-    const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-    if (!response.ok) {
-      message.error(body?.error?.message ?? "保存凭据失败");
-      return;
-    }
-    message.success(`${SOURCE_LABELS[connectSource]} 凭据已保存到本机`);
-    setConnectSource(null);
-    await loadStatuses();
-  };
-
-  const connectGmail = async () => {
-    const response = await fetch("/api/oauth/google/start");
-    const body = (await response.json().catch(() => null)) as { url?: string; error?: { message?: string } } | null;
-    if (!response.ok || !body?.url) {
-      message.info(body?.error?.message ?? "Google OAuth 尚未配置");
-      return;
-    }
-    window.location.href = body.url;
-  };
-
-  const validityFor = (source: Source) => {
-    const entry = credentials.find((item) => item.source === source);
-    if (!entry || !entry.connected) return { text: "未连接", tone: "idle" as const };
-    if (!entry.expiresAt) {
-      return { text: entry.renewable ? "长期有效，自动续期" : "无固定到期，失效时才需重连", tone: "ok" as const };
-    }
-    const expiresAt = Date.parse(entry.expiresAt);
-    const left = expiresAt - Date.now();
-    const when = new Date(expiresAt).toLocaleString("zh-CN");
-    if (left <= 0) return { text: `已过期（${when}）`, tone: "bad" as const };
-    if (entry.renewable) return { text: `有效至 ${when}，到期自动续期`, tone: "ok" as const };
-    if (left < 60 * 60_000) return { text: `即将到期：${when}`, tone: "warn" as const };
-    return { text: `有效至 ${when}`, tone: "ok" as const };
-  };
-
-  const refreshOnTrack = useCallback(async () => {
-    setOnTrackChecking(true);
-    try {
-      const [result, list] = await Promise.all([fetchOnTrackAccount(), fetchCredentials().catch(() => [])]);
-      setOnTrack(result.connected ? result.account : null);
-      setCredentials(list);
-    } catch {
-      setOnTrack(null);
-    } finally {
-      setOnTrackChecking(false);
-    }
-  }, []);
+  const loadCredentials = useCallback(async () => {
+    setCredentials(await fetchCredentials().catch(() => []))
+  }, [])
 
   useEffect(() => {
-    void refreshOnTrack();
-  }, [refreshOnTrack]);
+    void loadCredentials()
+  }, [loadCredentials])
 
-  const connectOnTrack = async () => {
-    setOnTrackAssistant({ status: "waiting_login", message: "正在打开浏览器窗口…" });
-    try {
-      setOnTrackAssistant(await startOnTrackAssistant());
-    } catch (cause) {
-      setOnTrackAssistant({ status: "error", message: cause instanceof Error ? cause.message : "登录助手启动失败" });
-    }
-  };
-
-  const disconnectOnTrack = async () => {
-    try {
-      setOnTrackAssistant(await cancelOnTrackAssistant());
-    } catch {
-      setOnTrackAssistant({ status: "cancelled", message: "已取消登录" });
-    }
-  };
-
-  useEffect(() => {
-    if (onTrackAssistant.status !== "waiting_login") return;
-    const timer = window.setInterval(() => {
-      void fetchOnTrackAssistant()
-        .then((state) => {
-          setOnTrackAssistant(state);
-          if (state.status === "connected") void refreshOnTrack();
-        })
-        .catch(() => undefined);
-    }, 2_000);
-    return () => window.clearInterval(timer);
-  }, [onTrackAssistant.status, refreshOnTrack]);
-
-  if (loading) {
-    return <CoveLoader label="正在读取本地来源" />;
+  const openDialog = (id: SourceId) => {
+    setDialogError(null)
+    setAssistant(null)
+    setEdToken('')
+    setEdRegion('au')
+    setDialog(id)
   }
 
+  const startAssistant = async (id: 'moodle' | 'ontrack') => {
+    setWorking(true)
+    setDialogError(null)
+    try {
+      setAssistant(id === 'moodle' ? await startMoodleAssistant() : await startOnTrackAssistant())
+    } catch (cause) {
+      setDialogError(cause instanceof Error ? cause.message : '登录助手启动失败')
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  const cancelAssistant = async () => {
+    setWorking(true)
+    try {
+      if (dialog === 'moodle') setAssistant(await cancelMoodleAssistant())
+      if (dialog === 'ontrack') setAssistant(await cancelOnTrackAssistant())
+      setDialog(null)
+    } catch (cause) {
+      setDialogError(cause instanceof Error ? cause.message : '取消登录失败')
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  const closeDialog = () => {
+    if (dialog === 'moodle' || dialog === 'ontrack') {
+      if (assistant?.status === 'waiting_login') {
+        void cancelAssistant()
+        return
+      }
+    }
+    setDialog(null)
+    setDialogError(null)
+  }
+
+  const connectGmail = async () => {
+    setWorking(true)
+    try {
+      const response = await fetch('/api/oauth/google/start')
+      const body = (await response.json().catch(() => null)) as { url?: string; error?: { message?: string } } | null
+      if (!response.ok || !body?.url) throw new Error(body?.error?.message ?? 'Google OAuth 尚未配置')
+      window.location.assign(body.url)
+    } catch (cause) {
+      setNotice({ title: '无法连接 Gmail', message: cause instanceof Error ? cause.message : 'Google OAuth 启动失败' })
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  const connect = (id: SourceId) => {
+    if (id === 'gmail') {
+      void connectGmail()
+      return
+    }
+    openDialog(id)
+    if (id === 'moodle' || id === 'ontrack') void startAssistant(id)
+  }
+
+  const saveEd = async () => {
+    const token = edToken.trim()
+    if (!token) return
+    setWorking(true)
+    setDialogError(null)
+    try {
+      const response = await fetch('/api/sources/ed/credentials', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token, region: edRegion }),
+      })
+      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
+      if (!response.ok) throw new Error(body?.error?.message ?? `保存 Ed 凭据失败（HTTP ${response.status}）`)
+      setDialog(null)
+      syncSource('ed')
+      void loadCredentials()
+    } catch (cause) {
+      setDialogError(cause instanceof Error ? cause.message : '保存 Ed 凭据失败')
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  const disconnect = async (id: SourceId) => {
+    setWorking(true)
+    try {
+      const path = id === 'gmail' ? '/api/oauth/google/disconnect' : `/api/sources/${id}/disconnect`
+      const response = await fetch(path, { method: 'POST' })
+      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
+      if (!response.ok) throw new Error(body?.error?.message ?? `断开失败（HTTP ${response.status}）`)
+      await refresh()
+      await loadCredentials()
+    } catch (cause) {
+      setNotice({ title: `无法断开 ${SOURCE_LABEL[id]}`, message: cause instanceof Error ? cause.message : '断开失败' })
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  // 登录助手在本地开一个 Chrome 窗口，连上后服务端状态变成 connected。
+  useEffect(() => {
+    if ((dialog !== 'moodle' && dialog !== 'ontrack') || assistant?.status !== 'waiting_login') return
+    const load = dialog === 'moodle' ? fetchMoodleAssistant : fetchOnTrackAssistant
+    const timer = window.setInterval(() => {
+      void load()
+        .then((next) => {
+          setAssistant(next)
+          if (next.status === 'connected') {
+            setDialog(null)
+            void refresh()
+            void loadCredentials()
+          }
+        })
+        .catch(() => undefined)
+    }, 1_500)
+    return () => window.clearInterval(timer)
+  }, [assistant?.status, dialog, loadCredentials, refresh])
+
+  const assistantSource = dialog === 'moodle' || dialog === 'ontrack' ? dialog : null
+
   return (
-    <>
-      <header className="page-header">
-        <div>
-          <Typography.Text className="eyebrow" type="secondary">
-            本地模式
-          </Typography.Text>
-          <Typography.Title level={1} className="page-title">
-            数据源
-          </Typography.Title>
-          <Typography.Paragraph className="page-subtitle" type="secondary">
-            只读连接校园来源，确认同步状态和失败原因。第一版不提供代发消息、提交作业或修改源数据的能力。
-          </Typography.Paragraph>
-        </div>
-      </header>
-
-      <Alert
-        className="page-alert"
-        type="info"
-        showIcon
-        message="本地数据源"
-        description={<span>真实凭据只写入本机 Keychain；未连接时才使用匿名样本。全量同步和校区设置在 <Link to="/settings">设置</Link>。</span>}
+    <div className="mx-auto max-w-[1240px] px-10 py-8">
+      <PageTitle
+        title="来源"
+        description="每个来源授权一次，此后在后台增量同步。凭据保存在本机钥匙串。"
+        actions={
+          <Button onClick={() => syncAll()} disabled={busy}>
+            <RefreshCw className={`h-3.5 w-3.5 ${busy ? 'animate-spin' : ''}`} />
+            全部增量同步
+          </Button>
+        }
       />
-
-      <Row gutter={[16, 16]}>
-        {sources.map((config) => {
-          const apiStatus = statuses.find((status) => status.id === config.source);
-          const count = apiStatus?.itemCount ?? 0;
-          const status = apiStatus?.status === "connected" ? "success" : apiStatus?.status === "error" ? "error" : "default";
+      <Panel className="divide-y divide-line">
+        {sources.map((s) => {
+          const entry = credentials.find((c) => c.source === s.id)
+          const needsRelogin = s.id === 'moodle' && s.connected && SESSION_EXPIRED.test(s.error ?? '')
           return (
-            <Col xs={24} md={8} key={config.source}>
-              <Card
-                title={
-                  <Space>
-                    <span className={`source-dot source-dot--${config.source}`} />
-                    <span>{SOURCE_LABELS[config.source]}</span>
-                  </Space>
-                }
-                extra={<Badge status={status} text={status === "success" ? "已连接" : apiStatus?.status === "fixture" ? "演示数据" : "需检查"} />}
-              >
-                <Descriptions
-                  size="small"
-                  column={1}
-                  colon={false}
-                  items={[
-                    { key: "last", label: "最近同步", children: apiStatus?.lastSyncAt ? new Date(apiStatus.lastSyncAt).toLocaleString("zh-CN") : config.lastSync },
-                    {
-                      key: "scope",
-                      label: "读取范围",
-                      children:
-                        config.source === "moodle" && apiStatus?.contentCount
-                          ? `简报 ${count} 条 · 资料 ${apiStatus.contentCount} 条`
-                          : config.scope,
-                    },
-                    { key: "count", label: "样本数", children: `${count} 条` },
-                    {
-                      key: "validity",
-                      label: "登录有效期",
-                      children: (
-                        <span
-                          className={`cred-validity cred-validity--${validityFor(config.source).tone}`}
-                          title={credentials.find((item) => item.source === config.source)?.note}
-                        >
-                          {validityFor(config.source).text}
-                        </span>
-                      ),
-                    },
+            <div key={s.id} className="grid grid-cols-[minmax(0,1fr)_220px_90px_200px] items-center gap-6 px-5 py-4">
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 text-[14px] font-semibold text-slate-900">
+                  <span aria-hidden className={`h-2.5 w-2.5 rounded-[2px] ${SOURCE_MARK[s.id]}`} />
+                  {SOURCE_LABEL[s.id]}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500">{DESC[s.id]}</p>
+                <p className="mt-0.5 truncate text-xs text-slate-500">
+                  {s.connected ? (entry ? credentialLine(entry, now) : s.account) : '未连接'}
+                </p>
+              </div>
+
+              <div className="text-[13px]">
+                {!s.connected ? (
+                  <span className="text-slate-500">未连接</span>
+                ) : s.state === 'syncing' ? (
+                  <span className="flex items-center gap-1.5 text-brand-700">
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" /> 正在同步
+                  </span>
+                ) : s.state === 'error' ? (
+                  <div>
+                    <span className="flex items-center gap-1.5 font-medium text-red-700">
+                      <AlertCircle className="h-3.5 w-3.5" /> 同步失败
+                    </span>
+                    <p className="mt-0.5 text-xs text-slate-600">{s.error}</p>
+                    {s.lastSuccessAt && <p className="text-xs text-slate-500">上次成功：{fmtWhen(s.lastSuccessAt, now)}</p>}
+                  </div>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-slate-700">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    {s.lastSyncAt ? `同步于 ${fmtWhen(s.lastSyncAt, now)}` : '已连接'}
+                  </span>
+                )}
+              </div>
+
+              <div className="text-right text-[13px] text-slate-700">
+                {s.itemCount} <span className="text-xs text-slate-500">条</span>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                {s.connected ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant={s.state === 'error' ? 'primary' : 'secondary'}
+                      disabled={s.state === 'syncing'}
+                      onClick={() => (needsRelogin ? connect('moodle') : syncSource(s.id))}
+                    >
+                      {needsRelogin ? '重新登录' : '重新同步'}
+                    </Button>
+                    <Button size="sm" variant="ghost" disabled={working} onClick={() => void disconnect(s.id)}>
+                      断开
+                    </Button>
+                  </>
+                ) : (
+                  <Button size="sm" variant="primary" disabled={s.state === 'syncing' || working} onClick={() => connect(s.id)}>
+                    {s.state === 'syncing' ? '连接中…' : '连接'}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </Panel>
+
+      {dialog && (
+        <Dialog
+          title={`连接 ${SOURCE_LABEL[dialog]}`}
+          description={CONNECT_HINT[dialog]}
+          onClose={() => {
+            if (!working) closeDialog()
+          }}
+        >
+          {dialog === 'ed' ? (
+            <div>
+              <label className="block text-[13px] text-slate-600">
+                Ed API token
+                <input
+                  type="password"
+                  value={edToken}
+                  onChange={(e) => setEdToken(e.target.value)}
+                  placeholder="只保存在本机 Keychain"
+                  className="mt-1.5 h-9 w-full rounded-lg border border-line px-2.5 text-[13px] text-slate-800 outline-none focus:border-brand-500"
+                />
+              </label>
+              <div className="mt-4 flex items-center justify-between gap-4">
+                <Select
+                  label="区域"
+                  value={edRegion}
+                  onChange={setEdRegion}
+                  options={[
+                    { value: 'au', label: 'AU' },
+                    { value: 'us', label: 'US' },
+                    { value: 'eu', label: 'EU' },
                   ]}
                 />
-                <Space className="source-actions" wrap>
-                  <Tag color="success" icon={<CheckCircleOutlined />}>
-                    只读
-                  </Tag>
-                  {apiStatus?.status !== "connected" ? (
-                    <Button
-                      size="small"
-                      type="primary"
-                      onClick={() => (config.source === "gmail" ? void connectGmail() : openConnect(config.source))}
-                    >
-                      连接 {SOURCE_LABELS[config.source]}
-                    </Button>
-                  ) : (
-                    <Button size="small" onClick={() => openConnect(config.source)}>
-                      管理
-                    </Button>
-                  )}
-                  <Button size="small" icon={<ApiOutlined />} onClick={() => void syncSource(config.source)}>
-                    立即同步
+                <div className="flex gap-2">
+                  <Button onClick={closeDialog} disabled={working}>
+                    取消
                   </Button>
-                </Space>
-              </Card>
-            </Col>
-          );
-        })}
-      </Row>
-
-      <Card
-        className="source-card ot-login-card"
-        title={
-          <Space>
-            <ProfileOutlined />
-            <span>OnTrack</span>
-          </Space>
-        }
-        extra={
-          <Badge
-            status={onTrack ? "success" : "default"}
-            text={onTrack ? "已登录" : "未登录"}
-          />
-        }
-      >
-        {onTrack ? (
-          <Descriptions
-            size="small"
-            column={1}
-            colon={false}
-            items={[
-              { key: "who", label: "当前账号", children: `${onTrack.firstName} ${onTrack.lastName}`.trim() || onTrack.username },
-              { key: "mail", label: "邮箱", children: onTrack.email },
-              {
-                key: "expiry",
-                label: "登录有效期",
-                children: (
-                  <span
-                    className={`cred-validity cred-validity--${validityFor("ontrack").tone}`}
-                    title={credentials.find((item) => item.source === "ontrack")?.note}
-                  >
-                    {validityFor("ontrack").text}
-                  </span>
-                ),
-              },
-            ]}
-          />
-        ) : (
-          <Typography.Paragraph type="secondary" className="ot-login-note">
-            还没登录。点下面的按钮会打开一个 Chrome 窗口，在里面完成 Monash 登录即可，助手会把登录凭据保存到本机 Keychain，你不需要手动复制任何东西。
-          </Typography.Paragraph>
-        )}
-
-        {onTrackAssistant.status === "waiting_login" ? (
-          <Alert type="info" showIcon message="请在打开的 Chrome 窗口完成 Monash 登录" description={onTrackAssistant.message} className="ot-login-alert" />
-        ) : null}
-        {onTrackAssistant.status === "error" ? (
-          <Alert type="error" showIcon message="连接失败" description={onTrackAssistant.message} className="ot-login-alert" />
-        ) : null}
-
-        <Space className="source-actions" wrap>
-          <Tag color="success" icon={<CheckCircleOutlined />}>
-            只读
-          </Tag>
-          <Button
-            size="small"
-            type="primary"
-            loading={onTrackAssistant.status === "waiting_login"}
-            onClick={() => void connectOnTrack()}
-          >
-            {onTrack ? "重新登录 OnTrack" : "连接 OnTrack"}
-          </Button>
-          {onTrackAssistant.status === "waiting_login" ? (
-            <Button size="small" onClick={() => void disconnectOnTrack()}>
-              取消
-            </Button>
-          ) : null}
-          <Button size="small" icon={<ReloadOutlined />} loading={onTrackChecking} onClick={() => void refreshOnTrack()}>
-            重新检测
-          </Button>
-          {onTrack ? (
-            <Button size="small" onClick={() => void syncSource("ontrack" as Source)}>
-              立即同步
-            </Button>
-          ) : null}
-        </Space>
-      </Card>
-
-      <Modal
-        open={Boolean(connectSource)}
-        title={connectSource ? `连接 ${SOURCE_LABELS[connectSource]}` : "连接来源"}
-        okText="保存到本机"
-        cancelText="取消"
-        onCancel={() => setConnectSource(null)}
-        onOk={() => form.submit()}
-        footer={connectSource === "moodle" && !manualMoodle ? null : undefined}
-        destroyOnHidden
-      >
-        {connectSource === "moodle" && !manualMoodle ? (
-          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-            <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-              点下面的按钮会打开一个 Chrome 窗口。在窗口里完成 Monash 登录后，助手会自动捕获 cookie 并保存到本机 Keychain，你不需要手动复制任何东西。
-            </Typography.Paragraph>
-            {moodleAssistant?.status === "waiting_login" ? (
-              <Alert type="info" showIcon message="请在打开的 Chrome 窗口完成 Monash 登录" description={moodleAssistant.message} />
-            ) : null}
-            {moodleAssistant?.status === "error" ? <Alert type="error" showIcon message="连接失败" description={moodleAssistant.message} /> : null}
-            <Space wrap>
-              {moodleAssistant?.status === "waiting_login" ? (
-                <Button danger onClick={() => void cancelMoodle()}>取消登录</Button>
-              ) : (
-                <Button type="primary" loading={assistantStarting} onClick={() => void startMoodle()}>打开登录助手</Button>
+                  <Button variant="primary" onClick={() => void saveEd()} disabled={working || !edToken.trim()}>
+                    {working ? '保存中…' : '保存到本机'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : assistantSource ? (
+            <div>
+              {working && !assistant && <p className="text-xs text-slate-500">正在启动登录助手…</p>}
+              {assistant?.status === 'waiting_login' && (
+                <p className="mt-3 flex items-start gap-1.5 text-xs text-brand-700">
+                  <RefreshCw className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />
+                  <span>{assistant.message || '请在打开的 Chrome 窗口完成登录'}</span>
+                </p>
               )}
-              <Button type="link" onClick={() => { setManualMoodle(true); form.setFieldsValue({ baseUrl: "https://learning.monash.edu" }); }}>
-                改为手动填写 cookie
-              </Button>
-            </Space>
-          </Space>
-        ) : null}
-        <Form form={form} layout="vertical" onFinish={saveCredentials} requiredMark={false} style={connectSource === "moodle" && !manualMoodle ? { display: "none" } : undefined}>
-          {connectSource === "ed" ? (
-            <>
-              <Form.Item name="token" label="Ed API token" rules={[{ required: true, message: "请输入 token" }]}>
-                <Input.Password placeholder="只保存在本机 Keychain" />
-              </Form.Item>
-              <Form.Item name="region" label="区域" rules={[{ required: true }]}>
-                <Select options={[{ value: "us", label: "US" }, { value: "au", label: "AU" }, { value: "eu", label: "EU" }]} />
-              </Form.Item>
-            </>
+              {assistant?.status === 'error' && (
+                <p className="mt-3 flex items-start gap-1.5 text-xs text-red-700">
+                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>{assistant.message}</span>
+                </p>
+              )}
+              <div className="mt-4 flex justify-end gap-2">
+                {assistant?.status === 'waiting_login' ? (
+                  <Button onClick={() => void cancelAssistant()} disabled={working}>
+                    取消登录
+                  </Button>
+                ) : (
+                  <Button variant="primary" onClick={() => void startAssistant(assistantSource)} disabled={working}>
+                    {working ? '启动中…' : '打开登录助手'}
+                  </Button>
+                )}
+              </div>
+            </div>
           ) : null}
-          {connectSource === "moodle" ? (
-            <>
-              <Form.Item name="baseUrl" label="Moodle 地址" rules={[{ required: true, type: "url", message: "请输入完整 URL" }]}>
-                <Input placeholder="https://learning.monash.edu" />
-              </Form.Item>
-              <Form.Item name="session" label="MoodleSession cookie" rules={[{ required: true, message: "请输入 session" }]}>
-                <Input.Password placeholder="只保存在本机 Keychain" />
-              </Form.Item>
-            </>
-          ) : null}
-          {connectSource === "gmail" ? (
-            <Alert type="info" showIcon message="Gmail 使用 OAuth" description="点击来源卡片的“连接 Gmail”完成授权；这里不保存密码。" />
-          ) : null}
-        </Form>
-      </Modal>
 
-      <Card className="info-card" title="接入边界">
-        <Typography.Paragraph type="secondary">
-          真实接入时，登录、凭据和同步都在本机完成；页面只读取本地服务整理后的简报。Ed 和 Moodle 的会话、Gmail 的 OAuth
-          回调不应暴露给浏览器渲染进程。
-        </Typography.Paragraph>
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          下一步：接入本地 Node 服务，先打通一个来源的纵向切片，再扩展到三个来源。
-        </Typography.Paragraph>
-      </Card>
-    </>
-  );
+          {dialogError && (
+            <p className="mt-3 flex items-start gap-1.5 text-xs text-red-700">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{dialogError}</span>
+            </p>
+          )}
+        </Dialog>
+      )}
+
+      {notice && (
+        <Dialog title={notice.title} onClose={() => setNotice(null)}>
+          <p className="text-[13px] leading-relaxed text-slate-600">{notice.message}</p>
+          <div className="mt-4 flex justify-end">
+            <Button onClick={() => setNotice(null)}>知道了</Button>
+          </div>
+        </Dialog>
+      )}
+    </div>
+  )
 }

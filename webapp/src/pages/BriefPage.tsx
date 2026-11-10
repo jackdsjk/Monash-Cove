@@ -1,563 +1,469 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
-import { HistoryOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
-import { Alert, App as AntApp, Button, Collapse, Empty, Input, Segmented, Select, Space, Switch, Tag, Typography } from "antd";
-import { fetchBrief, fetchChanges, fetchSyncStatus, setItemCompleted, startFullSync } from "../data/repository";
-import ItemCard from "../components/ItemCard";
-import ItemDrawer from "../components/ItemDrawer";
-import FeedbackModal from "../components/FeedbackModal";
-import CoveLoader from "../components/CoveLoader";
-import { useDemoStore } from "../state/DemoStateContext";
-import { filterItems, formatWindow, groupBySection, summarize } from "../lib/triage";
-import type { BriefItem, ChangeField, Feedback, ItemChange, Source } from "../types";
+import { useEffect, useMemo, useState } from 'react'
+import { AlertCircle, CalendarClock, ChevronDown, ChevronRight, Filter, GraduationCap, History, ListChecks, Mail, MessagesSquare, PlugZap, RefreshCw, Search, UserCheck, WifiOff, X } from 'lucide-react'
+import { useStore } from '../store'
+import { FIELD_LABEL, JUDGMENT_LABEL, SOURCE_LABEL, SOURCE_ORDER, type Item } from '../data/model'
+import { EMPTY_FILTERS, isHiddenByUser, lastActivity, matchesNonSource, pickSuggestions, type BriefFilters, type View } from '../lib/brief'
+import { fmtDate, fmtWhen, hm } from '../lib/time'
+import { formatChangeValue } from '../components/ItemDrawer'
+import { navigate } from '../lib/router'
+import { Button, Course, DuePill, EmptyLine, IconTile, PageTitle, Panel, Role, Row, SectionHeader, Segmented, Select, Source, Tag } from '../components/ui'
+import type { SourceId } from '../data/model'
 
-type ViewMode = "since" | "all";
-type SourceFilter = "all" | Source;
-type TypeFilter = "all" | "critical" | "important" | "staff" | "material" | "admin" | "folded";
+const CHANGE_COLS = 'grid-cols-[96px_80px_72px_minmax(0,1fr)_72px_minmax(0,320px)]'
 
-const sourceOptions = [
-  { label: "全部", value: "all" },
-  { label: "Gmail", value: "gmail" },
-  { label: "Ed", value: "ed" },
-  { label: "Moodle", value: "moodle" },
-  { label: "OnTrack", value: "ontrack" },
-];
+const SOURCE_ICON: Record<SourceId, { icon: typeof Mail; color: string }> = {
+  gmail: { icon: Mail, color: 'text-[#c5221f]' },
+  ed: { icon: MessagesSquare, color: 'text-[#6d4bc3]' },
+  moodle: { icon: GraduationCap, color: 'text-[#d9730d]' },
+  ontrack: { icon: ListChecks, color: 'text-[#0f766e]' },
+}
 
-const typeOptions = [
-  { label: "全部类型", value: "all" },
-  { label: "必须处理", value: "critical" },
-  { label: "重要", value: "important" },
-  { label: "教师答复", value: "staff" },
-  { label: "学习资料", value: "material" },
-  { label: "行政通知", value: "admin" },
-  { label: "已折叠", value: "folded" },
-];
+const REASON_ICON: Record<string, { icon: typeof Mail; tone: 'red' | 'amber' | 'brand' }> = {
+  '截止时间在 48 小时内': { icon: CalendarClock, tone: 'red' },
+  '截止时间刚被改过': { icon: History, tone: 'amber' },
+  教学人员发布: { icon: UserCheck, tone: 'brand' },
+}
+const ITEM_COLS = 'grid-cols-[96px_80px_72px_minmax(0,1fr)_240px]'
+const NOCOURSE_COLS = 'grid-cols-[96px_80px_minmax(0,1fr)_240px]'
 
-export default function BriefPage() {
-  const { message } = AntApp.useApp();
-  const location = useLocation();
-  const requestedId = (location.state as { openItemId?: string } | null)?.openItemId;
-  const { state, hydrate, toggleCorrection, saveFeedback, markRead, markChecked } = useDemoStore();
-  const [items, setItems] = useState<BriefItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<ViewMode>("since");
-  const [source, setSource] = useState<SourceFilter>("all");
-  const [query, setQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
-  const [courseFilter, setCourseFilter] = useState("all");
-  const [onlyAction, setOnlyAction] = useState(false);
-  const [onlyUnread, setOnlyUnread] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [feedbackItem, setFeedbackItem] = useState<BriefItem | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [pastOpen, setPastOpen] = useState(false);
-  const [pastLimit, setPastLimit] = useState(20);
-  const [changes, setChanges] = useState<ItemChange[]>([]);
-  const [changesOpen, setChangesOpen] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchBrief();
-      setItems(data.items);
-      hydrate(data.items);
-      setChanges(await fetchChanges(data.lastCheckedAt).catch(() => []));
-    } catch {
-      setError("无法读取本地数据。请确认本地服务正在运行。");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
+function useOnline() {
+  const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine)
   useEffect(() => {
-    void load();
-  }, [load]);
-
-  useEffect(() => {
-    if (!requestedId) return;
-    if (!items.some((item) => item.id === requestedId)) return;
-    markRead(requestedId);
-    setSelectedId(requestedId);
-  }, [items, markRead, requestedId]);
-
-  const courseOptions = useMemo(() => {
-    const courses = new Set(items.map((item) => item.course || "未归属课程"));
-    return [{ label: "全部课程", value: "all" }, ...[...courses].sort().map((course) => ({ label: course, value: course }))];
-  }, [items]);
-
-  const matchesExtraFilters = useCallback(
-    (item: BriefItem) => {
-      if (courseFilter !== "all" && (item.course || "未归属课程") !== courseFilter) return false;
-      if (onlyUnread && state.read[item.id]) return false;
-      if (typeFilter === "critical" && item.importance !== "critical") return false;
-      if (typeFilter === "important" && item.importance !== "important") return false;
-      if (typeFilter === "staff" && item.contentType !== "staff_answer") return false;
-      if (typeFilter === "material" && item.contentType !== "learning_material") return false;
-      if (typeFilter === "admin" && item.contentType !== "administrative") return false;
-      if (typeFilter === "folded" && !(item.importance === "skip" || item.importance === "reference" || state.corrections[item.id]?.dismissed)) return false;
-      return true;
-    },
-    [courseFilter, onlyUnread, state.corrections, state.read, typeFilter],
-  );
-
-  const filtered = useMemo(
-    () =>
-      filterItems(items, {
-        source,
-        query,
-        onlyAction,
-        sinceHours: view === "since" ? state.windowHours : null,
-      }).filter(matchesExtraFilters),
-    [items, matchesExtraFilters, onlyAction, query, source, state.windowHours, view],
-  );
-  const pastItems = useMemo(() => {
-    if (view !== "since") return [];
-    return filterItems(items, { source, query, onlyAction, sinceHours: null })
-      .filter((item) => item.ageHours > state.windowHours)
-      .filter(matchesExtraFilters);
-  }, [items, matchesExtraFilters, onlyAction, query, source, state.windowHours, view]);
-  const groups = useMemo(() => groupBySection(filtered, state.corrections), [filtered, state.corrections]);
-  const summary = useMemo(() => summarize(filtered, state.corrections), [filtered, state.corrections]);
-  const selectedItem = selectedId ? items.find((item) => item.id === selectedId) ?? null : null;
-  const selectedCorrection = selectedId ? state.corrections[selectedId] : undefined;
-  const uncertainCount = filtered.filter((item) => item.actionRequired === "uncertain").length;
-  const activeFilterCount =
-    (source !== "all" ? 1 : 0) +
-    (query.trim() ? 1 : 0) +
-    (typeFilter !== "all" ? 1 : 0) +
-    (courseFilter !== "all" ? 1 : 0) +
-    (onlyAction ? 1 : 0) +
-    (onlyUnread ? 1 : 0);
-
-  const clearFilters = () => {
-    setSource("all");
-    setQuery("");
-    setTypeFilter("all");
-    setCourseFilter("all");
-    setOnlyAction(false);
-    setOnlyUnread(false);
-  };
-
-  const subtitle =
-    view === "all"
-      ? `共 ${filtered.length} 条，按注意力层级分组。`
-      : state.windowHours === 0
-        ? "上次查看后没有新内容。过去的内容仍可在下方展开。"
-        : `过去 ${formatWindow(state.windowHours)}，整理了 ${filtered.length} 条更新，其中 ${summary.action} 条需要你处理，${uncertainCount} 条待确认。${pastItems.length > 0 ? ` 另有 ${pastItems.length} 条更早内容可展开。` : ""}`;
-
-  const openItem = (id: string) => {
-    markRead(id);
-    setSelectedId(id);
-  };
-
-  const handleMarkChecked = () => {
-    markChecked(filtered.map((item) => item.id));
-    message.success("已记录本次查看，下一次同步会显示新内容");
-  };
-
-  const handleSync = async () => {
-    setSyncing(true);
-    try {
-      const status = await fetchSyncStatus();
-      if (!status.fullSyncCompleted) {
-        message.info("首次使用：先执行全量同步，完成后会切到增量");
-        try {
-          await startFullSync();
-        } catch (cause) {
-          // A job may already be running (for example from the Sources page).
-          if (!(cause instanceof Error) || !cause.message.includes("already running")) throw cause;
-        }
-        for (let attempt = 0; attempt < 900; attempt += 1) {
-          const current = await fetchSyncStatus();
-          if (current.fullSyncCompleted) break;
-          if (current.job?.status === "error") throw new Error("全量同步失败，请到数据源页查看失败来源");
-          await new Promise((resolve) => window.setTimeout(resolve, 2_000));
-        }
-        await load();
-        setView("since");
-        message.success("首次全量同步完成");
-        return;
-      }
-
-      const failures: string[] = [];
-      for (const itemSource of ["gmail", "ed", "moodle", "ontrack"] as const) {
-        try {
-          const response = await fetch("/api/sync", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ source: itemSource }),
-          });
-          if (!response.ok) {
-            const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-            failures.push(`${itemSource}: ${body?.error?.message ?? response.statusText}`);
-          }
-        } catch (cause) {
-          failures.push(`${itemSource}: ${cause instanceof Error ? cause.message : "network error"}`);
-        }
-      }
-      await load();
-      setView("since");
-      if (failures.length > 0) {
-        message.warning(`部分来源未同步：${failures.join("；")}`);
-      } else {
-        message.success("Gmail / Ed / Moodle 增量同步完成");
-      }
-    } catch (cause) {
-      message.error(cause instanceof Error ? cause.message : "同步失败");
-    } finally {
-      setSyncing(false);
+    const on = () => setOnline(true)
+    const off = () => setOnline(false)
+    window.addEventListener('online', on)
+    window.addEventListener('offline', off)
+    return () => {
+      window.removeEventListener('online', on)
+      window.removeEventListener('offline', off)
     }
-  };
+  }, [])
+  return online
+}
 
-  const handleFeedback = async (feedback: Feedback) => {
-    if (!feedbackItem) return;
-    const saved = await saveFeedback(feedbackItem.id, feedback);
-    if (!saved) {
-      message.error("反馈没有保存成功，请确认本地服务正在运行");
-      return;
-    }
-    message.success("反馈已保存，仅在本机生效");
-    setFeedbackItem(null);
-  };
+export function BriefPage() {
+  const { items, changes, marks, now, lastViewedAt, sources, courses, markWindowViewed, syncAll, syncSource, openItem, connectSource, restartSetup } = useStore()
+  const online = useOnline()
+  const [view, setView] = useState<View>('since')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [f, setF] = useState<BriefFilters>(EMPTY_FILTERS)
+  const [pastShown, setPastShown] = useState(0)
+  const [allShown, setAllShown] = useState(20)
 
-  const handleToggleCompleted = async (id: string, completed: boolean) => {
-    try {
-      const updated = await setItemCompleted(id, completed);
-      setItems((previous) => previous.map((entry) => (entry.id === id ? { ...entry, ...updated } : entry)));
-      message.success(completed ? "已标记为提交完成" : "已恢复为未提交");
-    } catch (cause) {
-      message.error(cause instanceof Error ? cause.message : "更新提交状态失败");
-    }
-  };
-
-  const handleCorrection = async (id: string, key: "pinned" | "dismissed") => {
-    const saved = await toggleCorrection(id, key);
-    if (!saved) message.error("操作没有保存成功，请确认本地服务正在运行");
-  };
-
-  const changeFieldLabel: Record<ChangeField, string> = {
-    due_at: "截止时间",
-    title: "标题",
-    course: "课程",
-    text: "正文",
-  };
-
-  const formatChange = (field: ChangeField, value: string | null) => {
-    if (!value) return "（空）";
-    if (field === "due_at") {
-      const parsed = Date.parse(value);
-      if (Number.isFinite(parsed)) {
-        return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(parsed));
-      }
-    }
-    if (field === "text" && value.length > 60) return `${value.slice(0, 60)}…`;
-    return value;
-  };
-
-  if (loading) {
-    return <CoveLoader label="正在整理简报" />;
+  const windowStart = view === 'since' ? lastViewedAt : 0
+  const syncing = sources.some((s) => s.state === 'syncing')
+  const failed = sources.filter((s) => s.state === 'error')
+  const unconnected = sources.filter((s) => !s.connected)
+  const openSetup = () => {
+    restartSetup()
+    navigate('/setup')
   }
 
+  const d = useMemo(() => {
+    const act = new Map(items.map((i) => [i.id, lastActivity(i, changes)]))
+    const a = (i: Item) => act.get(i.id) ?? i.firstSeenAt
+    const visible = view === 'all' ? items : items.filter((i) => !isHiddenByUser(marks[i.id]))
+    const hiddenCount = view === 'all' ? 0 : items.filter((i) => isHiddenByUser(marks[i.id]) && a(i) >= windowStart).length
+    const filtered = visible.filter((i) => matchesNonSource(i, f, a(i), now))
+    const windowItems = filtered.filter((i) => a(i) >= windowStart)
+    const counts = Object.fromEntries(SOURCE_ORDER.map((s) => [s, windowItems.filter((i) => i.source === s).length])) as Record<string, number>
+    const scoped = f.source ? windowItems.filter((i) => i.source === f.source) : windowItems
+    const scopedIds = new Set(scoped.map((i) => i.id))
+    const byId = new Map(items.map((i) => [i.id, i]))
+    const windowChanges = changes
+      .filter((c) => c.detectedAt >= windowStart && scopedIds.has(c.itemId))
+      .sort((x, y) => y.detectedAt - x.detectedAt)
+    const newItems = scoped
+      .filter((i) => i.course !== '' && i.firstSeenAt >= windowStart)
+      .sort((x, y) => y.firstSeenAt - x.firstSeenAt)
+    const noCourse = scoped.filter((i) => i.course === '').sort((x, y) => y.firstSeenAt - x.firstSeenAt)
+    const past =
+      view === 'since'
+        ? filtered
+            .filter((i) => a(i) < windowStart && (!f.source || i.source === f.source))
+            .sort((x, y) => a(y) - a(x))
+        : []
+    const suggestions = pickSuggestions(windowItems, changes, windowStart, now)
+
+    // 一句话副标题所需的统计（不受来源筛选影响）
+    const changedItemCount = new Set(changes.filter((c) => c.detectedAt >= windowStart && windowItems.some((i) => i.id === c.itemId)).map((c) => c.itemId)).size
+    const newCount = windowItems.filter((i) => i.course !== '' && i.firstSeenAt >= windowStart).length
+    const noCourseCount = windowItems.filter((i) => i.course === '').length
+
+    return { windowItems, counts, windowChanges, byId, newItems, noCourse, past, suggestions, hiddenCount, changedItemCount, newCount, noCourseCount }
+  }, [items, changes, marks, view, windowStart, f, now])
+
+  const activeFilterCount = (f.course !== 'all' ? 1 : 0) + (f.range !== 'any' ? 1 : 0) + (f.query.trim() ? 1 : 0)
+
+  const subtitle =
+    items.length === 0
+      ? '本地还没有数据。连接来源并完成同步后，这里会列出变化。'
+      : view === 'since'
+        ? d.windowItems.length === 0
+          ? `自${fmtWhen(lastViewedAt, now)}以来没有新的变化。`
+          : `自${fmtWhen(lastViewedAt, now)}以来，共 ${d.windowItems.length} 条有变化：${d.changedItemCount} 条有字段变更，${d.newCount} 条新增，${d.noCourseCount} 条没能归到课程。`
+        : `本地共 ${d.windowItems.length} 条记录，${d.windowChanges.length} 处字段变更。`
+
+  const markTags = (i: Item) => {
+    const m = marks[i.id]
+    return (
+      <>
+        {i.merged && <Tag tone="brand">合并 {i.merged.length + 1} 个来源</Tag>}
+        {m?.read && <Tag>已读</Tag>}
+        {m?.submitted && <Tag tone="green">已提交</Tag>}
+        {m?.judgment && <Tag tone="amber">{JUDGMENT_LABEL[m.judgment]}</Tag>}
+      </>
+    )
+  }
+
+  const itemRow = (i: Item, withCourse = true) => (
+    <Row key={i.id} onClick={() => openItem(i.id)} dim={marks[i.id]?.read}>
+      <div className={`grid items-center gap-3 ${withCourse ? ITEM_COLS : NOCOURSE_COLS}`}>
+        <span className="text-slate-500">{fmtWhen(i.firstSeenAt, now)}</span>
+        <Source id={i.source} />
+        {withCourse && <Course code={i.course} />}
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate">{i.title}</span>
+          {markTags(i)}
+        </span>
+        <span className="flex min-w-0 items-center justify-end gap-2">
+          <span className="truncate text-slate-600">{i.author.name}</span>
+          <Role role={i.author.role} />
+        </span>
+      </div>
+    </Row>
+  )
+
+  const tableHead = (cols: string, labels: string[]) => (
+    <div className={`grid ${cols} gap-3 border-b border-line bg-slate-50/70 px-5 py-2.5 text-xs font-medium text-slate-500`}>
+      {labels.map((l, idx) => (
+        <span key={l} className={idx === labels.length - 1 && cols !== CHANGE_COLS ? 'text-right' : ''}>
+          {l}
+        </span>
+      ))}
+    </div>
+  )
+
   return (
-    <>
-      <header className="page-header">
-        <div className="page-header__main">
-          <Typography.Text className="eyebrow" type="secondary">
-            {new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date())}
-          </Typography.Text>
-          <Typography.Title level={1} className="page-title">
-            {view === "since" ? "自上次查看" : "全部内容"}
-          </Typography.Title>
-          <Typography.Paragraph className="page-subtitle" type="secondary">
-            {subtitle}
-          </Typography.Paragraph>
-        </div>
-        <div className="page-header__side">
-          <Space className="page-actions" wrap>
+    <div className="mx-auto max-w-[1240px] px-10 py-8">
+      <p className="mb-1.5 text-[13px] font-medium text-brand-700">{fmtDate(now)}</p>
+      <PageTitle
+        title={view === 'since' ? '自上次查看' : '全部记录'}
+        description={subtitle}
+        actions={
+          <>
+            {!online && (
+              <span className="mr-1 inline-flex items-center gap-1 text-xs text-slate-500">
+                <WifiOff className="h-3.5 w-3.5" /> 离线，显示本地数据
+              </span>
+            )}
             <Segmented
+              label="视图"
               value={view}
+              onChange={(v) => {
+                setView(v)
+                setPastShown(0)
+                setAllShown(20)
+              }}
               options={[
-                { label: "自上次查看", value: "since" },
-                { label: "全部", value: "all" },
+                { value: 'since', label: '自上次查看' },
+                { value: 'all', label: '全部' },
               ]}
-              onChange={(value) => setView(value as ViewMode)}
             />
-            <Button icon={<ReloadOutlined />} loading={syncing} onClick={() => void handleSync()}>
-              同步全部来源
+            <Button aria-expanded={filtersOpen} onClick={() => setFiltersOpen((v) => !v)} variant={filtersOpen || activeFilterCount ? 'primary' : 'secondary'}>
+              <Filter className="h-3.5 w-3.5" />
+              筛选{activeFilterCount ? ` · ${activeFilterCount}` : ''}
             </Button>
-            <Button type="primary" onClick={handleMarkChecked} disabled={view === "all"}>
+            <Button onClick={() => syncAll()} disabled={syncing || !online || unconnected.length === sources.length}>
+              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? '同步中' : '同步'}
+            </Button>
+            <Button variant="primary" onClick={markWindowViewed} disabled={view !== 'since' || d.windowItems.length === 0}>
               标记本次已查看
             </Button>
-          </Space>
-          <div className="board-counters">
-            <div className="board-counter">
-              <div className="board-flap">
-                <b>{filtered.length}</b>
-              </div>
-              <span>本次视图</span>
-            </div>
-            <div className="board-counter board-counter--hot">
-              <div className="board-flap">
-                <b>{summary.action}</b>
-              </div>
-              <span>要处理</span>
-            </div>
-            <div className="board-counter">
-              <div className="board-flap">
-                <b>{summary.folded}</b>
-              </div>
-              <span>已折叠</span>
-            </div>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
-      {error ? (
-        <Alert
-          className="page-alert"
-          type="error"
-          showIcon
-          message="读取失败"
-          description={error}
-          action={<Button onClick={() => void load()}>重试</Button>}
-        />
-      ) : null}
-
-      <div className="toolbar brief-filter-bar">
-        <Segmented
-          className="source-filter"
-          value={source}
-          options={sourceOptions}
-          onChange={(value) => setSource(value as SourceFilter)}
-        />
-        <Input
-          className="search-input"
-          allowClear
-          prefix={<SearchOutlined />}
-          placeholder="搜索标题、课程或原文"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <Select
-          className="brief-select"
-          value={typeFilter}
-          options={typeOptions}
-          onChange={(value) => setTypeFilter(value as TypeFilter)}
-          aria-label="按类型筛选"
-        />
-        <Select
-          className="brief-select brief-select--course"
-          value={courseFilter}
-          options={courseOptions}
-          onChange={setCourseFilter}
-          showSearch
-          optionFilterProp="label"
-          aria-label="按课程筛选"
-        />
-        <label className="switch-label">
-          <Switch checked={onlyAction} onChange={setOnlyAction} />
-          只看需要行动
-        </label>
-        <label className="switch-label">
-          <Switch checked={onlyUnread} onChange={setOnlyUnread} />
-          只看未读
-        </label>
-        {activeFilterCount > 0 ? (
-          <Button type="link" size="small" className="clear-filter" onClick={clearFilters}>
-            清除筛选（{activeFilterCount}）
+      {filtersOpen && (
+        <Panel className="mb-6 flex flex-wrap items-center gap-4 px-5 py-3.5">
+          <Select
+            label="课程"
+            value={f.course}
+            onChange={(v) => setF({ ...f, course: v })}
+            options={[{ value: 'all', label: '全部课程' }, ...courses.map((c) => ({ value: c.code, label: c.code })), { value: '', label: '没能归到课程' }]}
+          />
+          <Select
+            label="时间范围"
+            value={f.range}
+            onChange={(v) => setF({ ...f, range: v })}
+            options={[
+              { value: 'any', label: '不限' },
+              { value: '24h', label: '24 小时内' },
+              { value: '7d', label: '7 天内' },
+            ]}
+          />
+          <label className="relative flex-1">
+            <span className="sr-only">关键词</span>
+            <Search className="absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              value={f.query}
+              onChange={(e) => setF({ ...f, query: e.target.value })}
+              placeholder="关键词：标题、发布者、原文"
+              className="h-9 w-full rounded-lg border border-line bg-slate-50 pr-3 pl-8 text-[13px] outline-none focus:border-brand-500 focus:bg-white"
+            />
+          </label>
+          <Button variant="ghost" onClick={() => setF({ ...EMPTY_FILTERS, source: f.source })} disabled={!activeFilterCount}>
+            清除
           </Button>
-        ) : null}
-      </div>
-
-      {view === "since" && changes.length > 0 ? (
-        <section className="changes-block">
-          <button
-            type="button"
-            className="changes-head"
-            aria-expanded={changesOpen}
-            onClick={() => setChangesOpen((open) => !open)}
-          >
-            <span className="changes-count">{changes.length} 条内容自上次查看后变过</span>
-            <span className="changes-note">改的是源头，不是我们的判断</span>
-            <span className="changes-toggle">{changesOpen ? "收起" : "展开"}</span>
-          </button>
-          {changesOpen ? (
-            <ul className="changes-list">
-              {changes.slice(0, 12).map((change) => (
-                <li key={change.id} className="changes-row">
-                  <span className="changes-field">{changeFieldLabel[change.field]}</span>
-                  <button type="button" className="changes-title" onClick={() => openItem(change.itemId)}>
-                    {change.title}
-                  </button>
-                  <span className="changes-diff">
-                    <del>{formatChange(change.field, change.before)}</del>
-                    <span aria-hidden="true"> → </span>
-                    <ins>{formatChange(change.field, change.after)}</ins>
-                  </span>
-                </li>
-              ))}
-              {changes.length > 12 ? <li className="changes-more">还有 {changes.length - 12} 条未显示</li> : null}
-            </ul>
-          ) : null}
-        </section>
-      ) : null}
-
-      {filtered.length === 0 ? (
-        <Empty
-          className="brief-empty"
-          description={
-            <div>
-              <Typography.Title level={2}>{view === "since" ? "这次巡检没有新内容" : "没有匹配的内容"}</Typography.Title>
-              <Typography.Paragraph type="secondary">
-                {view === "since"
-                  ? pastItems.length > 0
-                    ? "过去的内容仍可展开查看，不会打断当前简报。"
-                    : "下一次同步后，新内容会出现在这里。"
-                  : "调整来源筛选或搜索词后再试。"}
-              </Typography.Paragraph>
-            </div>
-          }
-        >
-          <Space>
-            {view === "since" ? (
-              <Button type="primary" loading={syncing} onClick={() => void handleSync()}>
-                同步全部来源
-              </Button>
-            ) : null}
-            <Button onClick={() => setView("all")}>查看全部内容</Button>
-          </Space>
-        </Empty>
-      ) : (
-        <div className="feed">
-          {groups.map((group) =>
-            group.id === "folded" ? (
-              <Collapse
-                key={group.id}
-                ghost
-                className="folded-collapse"
-                items={[
-                  {
-                    key: "folded",
-                    label: (
-                      <span>
-                        已折叠 <Tag>{group.items.length}</Tag>
-                      </span>
-                    ),
-                    children: (
-                      <div className="item-list">
-                        {group.items.map((item) => (
-                          <ItemCard
-                            key={item.id}
-                            item={item}
-                            correction={state.corrections[item.id] ?? {}}
-                            read={Boolean(state.read[item.id])}
-                            onOpen={openItem}
-                            onTogglePin={(id) => void handleCorrection(id, "pinned")}
-                            onDismiss={(id) => void handleCorrection(id, "dismissed")}
-                          />
-                        ))}
-                      </div>
-                    ),
-                  },
-                ]}
-              />
-            ) : (
-              <section className={`feed-section feed-section--${group.id}`} key={group.id}>
-                <div className="section-heading">
-                  <Typography.Title level={2}>
-                    {group.title} <Tag>{group.items.length}</Tag>
-                  </Typography.Title>
-                  <Typography.Text type="secondary">{group.note}</Typography.Text>
-                </div>
-                <div className="item-list">
-                  {group.items.map((item) => (
-                    <ItemCard
-                      key={item.id}
-                      item={item}
-                      correction={state.corrections[item.id] ?? {}}
-                      read={Boolean(state.read[item.id])}
-                      onOpen={openItem}
-                      onTogglePin={(id) => void handleCorrection(id, "pinned")}
-                      onDismiss={(id) => void handleCorrection(id, "dismissed")}
-                    />
-                  ))}
-                </div>
-              </section>
-            ),
-          )}
-        </div>
+        </Panel>
       )}
 
-      {view === "since" && pastItems.length > 0 ? (
-        <Collapse
-          ghost
-          className="folded-collapse past-collapse"
-          activeKey={pastOpen ? ["past"] : []}
-          onChange={(keys) => setPastOpen(keys.includes("past"))}
-          items={[
-            {
-              key: "past",
-              label: (
-                <span>
-                  <HistoryOutlined /> 过去的内容 <Tag>{pastItems.length}</Tag>
-                </span>
-              ),
-              children: (
-                <div className="past-content">
-                  <Typography.Paragraph type="secondary" className="past-note">
-                    这些内容早于当前查看窗口，默认折叠。只在需要回看时展开。
-                  </Typography.Paragraph>
-                  <div className="item-list">
-                    {pastItems.slice(0, pastLimit).map((item) => (
-                      <ItemCard
-                        key={item.id}
-                        item={item}
-                        correction={state.corrections[item.id] ?? {}}
-                        read={Boolean(state.read[item.id])}
-                        onOpen={openItem}
-                        onTogglePin={(id) => void handleCorrection(id, "pinned")}
-                        onDismiss={(id) => void handleCorrection(id, "dismissed")}
-                      />
-                    ))}
-                  </div>
-                  {pastItems.length > pastLimit ? (
-                    <Button className="past-more" onClick={() => setPastLimit((current) => current + 20)}>
-                      再展开 {Math.min(20, pastItems.length - pastLimit)} 条
-                    </Button>
-                  ) : null}
+      {failed.map((s) => (
+        <div key={s.id} role="status" className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 px-5 py-3 text-[13px] text-red-900">
+          <span className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
+            <span>
+              <strong className="font-semibold">{SOURCE_LABEL[s.id]} 同步失败：</strong>
+              {s.error}。{s.lastSuccessAt ? `${fmtWhen(s.lastSuccessAt, now)} 之后的内容可能不完整。` : ''}
+            </span>
+          </span>
+          <Button size="sm" onClick={() => syncSource(s.id)} className="border-red-300 text-red-800">
+            重新同步 {SOURCE_LABEL[s.id]}
+          </Button>
+        </div>
+      ))}
+
+      {unconnected.length === sources.length ? (
+        <Panel className="mb-8 flex items-center gap-5 px-6 py-5">
+          <IconTile icon={PlugZap} />
+          <div className="min-w-0 flex-1">
+            <p className="text-[15px] font-bold text-slate-900">还没有连接任何来源</p>
+            <p className="mt-0.5 text-[13px] text-slate-600">连接 Gmail、Ed、Moodle 或 OnTrack 后，Cove 会在后台同步，并在这里列出变化。</p>
+          </div>
+          <Button onClick={() => navigate('/sources')}>在来源页连接</Button>
+          <Button variant="primary" onClick={openSetup}>
+            继续设置
+          </Button>
+        </Panel>
+      ) : (
+        unconnected.length > 0 && (
+          <div className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-line bg-slate-50/70 px-5 py-2.5 text-[13px] text-slate-600">
+            <span>
+              还有 {unconnected.length} 个来源未连接：{unconnected.map((s) => SOURCE_LABEL[s.id]).join('、')}。它们的内容不会出现在这里。
+            </span>
+            <span className="flex shrink-0 items-center gap-2">
+              {unconnected.map((s) => (
+                <Button key={s.id} size="sm" disabled={s.state === 'syncing'} onClick={() => connectSource(s.id)}>
+                  {s.state === 'syncing' ? '连接中…' : `连接 ${SOURCE_LABEL[s.id]}`}
+                </Button>
+              ))}
+            </span>
+          </div>
+        )
+      )}
+
+      <div className="space-y-9">
+        {/* 2. 建议先看 */}
+        {d.suggestions.length > 0 && (
+          <section aria-labelledby="sg">
+            <SectionHeader title="建议先看" hint="可能值得先看，理由都可以在原文中核对" />
+            <div className="grid grid-cols-3 gap-4">
+              {d.suggestions.map(({ item, reason }) => {
+                const r = REASON_ICON[reason]
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => openItem(item.id)}
+                    className="group flex flex-col rounded-2xl border border-line bg-white p-5 text-left transition-all hover:border-brand-300 hover:shadow-[0_4px_16px_-6px_rgba(36,111,196,0.25)]"
+                  >
+                    <span className="flex items-start gap-3.5">
+                      <IconTile icon={r.icon} tone={r.tone} />
+                      <span className="min-w-0 flex-1">
+                        <span className="line-clamp-2 text-[15px] leading-snug font-semibold text-slate-900 group-hover:text-brand-800">{item.title}</span>
+                        <span className="mt-1 flex items-center gap-2 text-[13px] text-slate-500">
+                          <Course code={item.course} />
+                          <span className="text-slate-300">·</span>
+                          <Source id={item.source} />
+                        </span>
+                      </span>
+                    </span>
+                    <span className="mt-4 flex items-center justify-between gap-2 border-t border-line pt-3">
+                      <Tag tone={r.tone === 'brand' ? 'brand' : r.tone}>{reason}</Tag>
+                      {item.dueAt && <DuePill due={item.dueAt} now={now} />}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* 3. 按来源计数 */}
+        <section>
+          <SectionHeader
+            title="按来源"
+            right={
+              f.source && (
+                <button onClick={() => setF({ ...f, source: null })} className="inline-flex items-center gap-1 text-xs text-brand-700 hover:underline">
+                  <X className="h-3 w-3" /> 取消仅看 {SOURCE_LABEL[f.source]}
+                </button>
+              )
+            }
+          />
+          <div className="grid grid-cols-4 gap-4">
+            {SOURCE_ORDER.map((s) => {
+              const st = sources.find((x) => x.id === s)!
+              const on = f.source === s
+              const { icon: Icon, color } = SOURCE_ICON[s]
+              return (
+                <button
+                  key={s}
+                  aria-pressed={on}
+                  onClick={() => setF({ ...f, source: on ? null : s })}
+                  className={`rounded-2xl border p-5 text-left transition-all ${
+                    on ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500' : 'border-line bg-white hover:border-slate-300 hover:shadow-[0_4px_14px_-8px_rgba(15,23,42,0.2)]'
+                  }`}
+                >
+                  <span className="flex items-center justify-between text-sm font-medium text-slate-600">
+                    {SOURCE_LABEL[s]}
+                    <Icon className={`h-[18px] w-[18px] ${color}`} aria-hidden />
+                  </span>
+                  <span className="mt-3 block text-[32px] leading-none font-bold tracking-tight text-slate-900">{d.counts[s] ?? 0}</span>
+                  <span className={`mt-3 flex items-center justify-between text-xs ${st.state === 'error' ? 'font-medium text-red-700' : 'text-slate-500'}`}>
+                    <span>
+                      {!st.connected
+                        ? '未连接'
+                        : st.state === 'syncing'
+                          ? '同步中…'
+                          : st.state === 'error'
+                            ? '同步失败'
+                            : st.lastSyncAt
+                              ? `同步于 ${hm(st.lastSyncAt)}`
+                              : '尚未同步'}
+                    </span>
+                    {on && <span className="font-medium text-brand-700">仅看此来源</span>}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </section>
+
+        {/* 4. 变更记录 */}
+        <section>
+          <SectionHeader title="变更记录" count={d.windowChanges.length} hint="字段前后对比" />
+          <Panel className="overflow-hidden">
+            {d.windowChanges.length === 0 ? (
+              <EmptyLine>{view === 'since' ? '自上次查看没有字段级变更' : '没有字段级变更'}</EmptyLine>
+            ) : (
+              <>
+                {tableHead(CHANGE_COLS, ['检测时间', '来源', '课程', '条目', '字段', '变更前 → 变更后'])}
+                <div className="divide-y divide-line">
+                  {d.windowChanges.map((c) => {
+                    const i = d.byId.get(c.itemId)!
+                    return (
+                      <Row key={c.id} onClick={() => openItem(i.id)} dim={marks[i.id]?.read}>
+                        <div className={`grid items-center gap-3 ${CHANGE_COLS}`}>
+                          <span className="text-slate-500">{fmtWhen(c.detectedAt, now)}</span>
+                          <Source id={i.source} />
+                          <Course code={i.course} />
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span className="truncate">{i.title}</span>
+                            {markTags(i)}
+                          </span>
+                          <span className="text-slate-600">{FIELD_LABEL[c.field]}</span>
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <span className="truncate text-slate-500 line-through decoration-slate-400">{formatChangeValue(c, c.before)}</span>
+                            <span className="text-slate-400" aria-label="改为">→</span>
+                            <span className="truncate font-medium text-slate-900">{formatChangeValue(c, c.after)}</span>
+                          </span>
+                        </div>
+                      </Row>
+                    )
+                  })}
                 </div>
-              ),
-            },
-          ]}
-        />
-      ) : null}
+              </>
+            )}
+          </Panel>
+        </section>
 
-      <div className="page-footnote">
-        <Typography.Text type="secondary">
-          本地数据：已连接来源显示真实同步结果，未连接来源显示匿名样本；判断来自规则或模型，证据高亮可在详情中核对。
-        </Typography.Text>
+        {/* 5. 本次新增 / 全部条目 */}
+        <section>
+          <SectionHeader title={view === 'since' ? '本次新增' : '全部条目'} count={d.newItems.length} hint="按时间倒序" />
+          <Panel className="overflow-hidden">
+            {d.newItems.length === 0 ? (
+              <EmptyLine>这段时间没有新增内容</EmptyLine>
+            ) : (
+              <>
+                {tableHead(ITEM_COLS, ['同步时间', '来源', '课程', '标题', '发布者'])}
+                <div className="divide-y divide-line">{(view === 'all' ? d.newItems.slice(0, allShown) : d.newItems).map((i) => itemRow(i))}</div>
+                {view === 'all' && d.newItems.length > allShown && (
+                  <div className="border-t border-line px-5 py-2.5 text-center">
+                    <Button variant="ghost" size="sm" onClick={() => setAllShown((n) => n + 20)}>
+                      再显示 20 条（还有 {d.newItems.length - allShown} 条）
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+          </Panel>
+        </section>
+
+        {/* 6. 没能归到课程（默认展开；为空不渲染） */}
+        {d.noCourse.length > 0 && (
+          <section>
+            <SectionHeader title="没能归到课程" count={d.noCourse.length} hint="没有匹配到你的课程，需要你自己判断是否相关" />
+            <Panel className="overflow-hidden">
+              {tableHead(NOCOURSE_COLS, ['同步时间', '来源', '标题', '发布者'])}
+              <div className="divide-y divide-line">{d.noCourse.map((i) => itemRow(i, false))}</div>
+            </Panel>
+          </section>
+        )}
+
+        {/* 7. 过去的内容（默认折叠，每次 20 条） */}
+        {view === 'since' && d.past.length > 0 && (
+          <section>
+            <button
+              aria-expanded={pastShown > 0}
+              onClick={() => setPastShown((n) => (n > 0 ? 0 : 20))}
+              className={`flex w-full items-center gap-2.5 rounded-2xl border border-line px-5 py-3.5 text-left transition-colors hover:bg-slate-50 ${pastShown > 0 ? 'mb-3' : ''}`}
+            >
+              {pastShown > 0 ? <ChevronDown className="h-4 w-4 text-slate-500" /> : <ChevronRight className="h-4 w-4 text-slate-500" />}
+              <span className="text-[17px] font-bold tracking-tight text-slate-900">过去的内容</span>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">{d.past.length}</span>
+              <span className="text-[13px] text-slate-500">上次查看之前</span>
+              <span className="ml-auto text-[13px] font-medium text-slate-600">{pastShown > 0 ? '收起' : '展开'}</span>
+            </button>
+            {pastShown > 0 && (
+              <Panel className="overflow-hidden">
+                {tableHead(ITEM_COLS, ['同步时间', '来源', '课程', '标题', '发布者'])}
+                <div className="divide-y divide-line">{d.past.slice(0, pastShown).map((i) => itemRow(i))}</div>
+                <div className="flex items-center justify-center gap-2 border-t border-line px-5 py-2.5">
+                  {d.past.length > pastShown && (
+                    <Button variant="ghost" size="sm" onClick={() => setPastShown((n) => n + 20)}>
+                      再显示 20 条（还有 {d.past.length - pastShown} 条）
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="sm" onClick={() => setPastShown(0)}>
+                    收起
+                  </Button>
+                </div>
+              </Panel>
+            )}
+          </section>
+        )}
+
+        {d.hiddenCount > 0 && (
+          <p className="text-[13px] text-slate-500">
+            另有 {d.hiddenCount} 条你标记为「不重要」或「不是给我的」，已从此视图移除，
+            <button onClick={() => setView('all')} className="text-brand-700 hover:underline">
+              在「全部」中查看
+            </button>
+            。
+          </p>
+        )}
       </div>
-
-      <ItemDrawer
-        item={selectedItem}
-        open={Boolean(selectedItem)}
-        correction={selectedCorrection}
-        onClose={() => setSelectedId(null)}
-        onTogglePin={(id) => void handleCorrection(id, "pinned")}
-        onDismiss={(id) => void handleCorrection(id, "dismissed")}
-        onFeedback={setFeedbackItem}
-        onToggleCompleted={(id, completed) => void handleToggleCompleted(id, completed)}
-      />
-
-      <FeedbackModal
-        item={feedbackItem}
-        open={Boolean(feedbackItem)}
-        existing={feedbackItem ? state.corrections[feedbackItem.id]?.feedback : undefined}
-        onCancel={() => setFeedbackItem(null)}
-        onSubmit={handleFeedback}
-      />
-    </>
-  );
+    </div>
+  )
 }
