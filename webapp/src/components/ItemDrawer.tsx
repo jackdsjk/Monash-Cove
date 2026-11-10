@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Drawer } from 'antd'
+import { createFocusTrap, type FocusTrap } from 'focus-trap'
 import { ArrowRight, Check, ExternalLink, Layers, X } from 'lucide-react'
 import { useStore } from '../store'
 import { FIELD_LABEL, JUDGMENT_LABEL, SOURCE_LABEL, type ItemChange } from '../data/model'
@@ -17,19 +18,50 @@ export function ItemDrawer() {
   const { openItemId, openItem, items, changes, courses, marks, setMark, completionUpdates, setCompleted, now } = useStore()
   const item = items.find((i) => i.id === openItemId)
   const [fullText, setFullText] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const focusTrapRef = useRef<FocusTrap | null>(null)
 
   useEffect(() => {
     setFullText(false)
   }, [openItemId])
 
+  useEffect(() => () => {
+    focusTrapRef.current?.deactivate()
+    focusTrapRef.current = null
+  }, [openItemId])
+
   const drawerProps = {
     title: '条目详情',
-    onClose: () => openItem(null),
+    onClose: () => {
+      focusTrapRef.current?.deactivate()
+      focusTrapRef.current = null
+      openItem(null)
+    },
     getContainer: false as const,
     size: 'min(500px, 100vw)',
     closable: { placement: 'end' as const, 'aria-label': '关闭' },
     closeIcon: <X aria-hidden className="h-4 w-4" />,
-    focusable: { trap: true, focusTriggerAfterClose: true },
+    // The installed rc-drawer trap can let Tab escape to the browser chrome.
+    // focus-trap owns containment; Drawer alone restores the trigger on close.
+    focusable: { trap: false, focusTriggerAfterClose: true },
+    autoFocus: false,
+    panelRef,
+    afterOpenChange: (open: boolean) => {
+      focusTrapRef.current?.deactivate()
+      focusTrapRef.current = null
+      const panel = panelRef.current
+      if (open && panel) {
+        panel.tabIndex = -1
+        focusTrapRef.current = createFocusTrap(panel, {
+          fallbackFocus: panel,
+          escapeDeactivates: false,
+          allowOutsideClick: true,
+          returnFocusOnDeactivate: false,
+          preventScroll: true,
+          delayInitialFocus: false,
+        }).activate()
+      }
+    },
     styles: { body: { padding: 0, display: 'flex', flexDirection: 'column' as const, overflow: 'hidden' } },
   }
   // Keep the primitive mounted while closing so it can restore focus to the trigger.
