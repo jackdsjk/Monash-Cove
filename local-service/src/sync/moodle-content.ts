@@ -2,6 +2,7 @@ import type { CoveDatabase } from "../db.js";
 import type { MoodleContentRow } from "../domain.js";
 import { MoodleClient } from "../sources/moodle.js";
 import { MoodleContentClient } from "../sources/moodle-content.js";
+import { selectMoodleCourses, type CoursePreferences } from "../course-preferences.js";
 
 export interface MoodleContentSyncResult {
   courseId: string;
@@ -34,9 +35,11 @@ export async function syncAllMoodleContent(
   session: string,
   fetcher?: typeof fetch,
   onProgress?: (processed: number, total: number | null) => void,
+  preferences?: CoursePreferences,
 ): Promise<{ courses: number; items: number }> {
   const moodle = new MoodleClient(baseUrl, session, fetcher ?? fetch);
-  const courses = await moodle.listCourses();
+  const enrolled = await moodle.listCourses();
+  const courses = preferences ? selectMoodleCourses(enrolled, preferences) : enrolled;
   const scraper = new MoodleContentClient(baseUrl, session, fetcher ?? fetch);
   let items = 0;
   for (const [index, course] of courses.entries()) {

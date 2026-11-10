@@ -1,5 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MoodleContentClient } from "../sources/moodle-content.js";
+import { MoodleClient } from "../sources/moodle.js";
+import { createDatabase } from "../db.js";
+import type { MoodleContentRow } from "../domain.js";
+import { coursePreferencesSchema } from "../course-preferences.js";
+import { syncAllMoodleContent, syncMoodleContent } from "../sync/moodle-content.js";
+
+afterEach(() => vi.restoreAllMocks());
 
 const courseHtml = `
 <html><body>
@@ -40,5 +47,59 @@ describe("Moodle weekly content", () => {
     expect(rows.some((row) => row.title === "[pdf] Malaysia Week 1" && row.campus === "malaysia")).toBe(true);
     expect(rows.some((row) => row.module === "resource" && row.campus === "australia")).toBe(true);
     expect(rows.some((row) => row.sectionTitle === "Week 2 - Next")).toBe(false);
+  });
+});
+
+describe("Moodle content synchronization range", () => {
+  const courses = [
+    { id: 1, shortname: "UNIT_S1_2026", fullname: "Course 1" },
+    { id: 2, shortname: "UNIT_S2_2026", fullname: "Course 2" },
+    { id: 3, shortname: "UNIT_UNKNOWN", fullname: "Course 3" },
+  ];
+  const row = (courseId: number, title: string): MoodleContentRow => ({
+    id: `resource-${courseId}`, courseId: String(courseId), courseName: `Course ${courseId}`,
+    sectionNumber: 1, sectionTitle: "Week 1", module: "resource", title,
+    url: `https://moodle.example.invalid/mod/resource/view.php?id=${courseId}`, text: "",
+    updatedAt: "2026-11-10T00:00:00.000Z",
+  });
+
+  it("scrapes only selected courses without deleting hidden or historical cached materials", async () => {
+    const db = createDatabase({ dbPath: ":memory:", seed: false });
+    try {
+      db.replaceMoodleContent("1", [row(1, "Cached historical course")]);
+      db.replaceMoodleContent("2", [row(2, "Cached hidden course")]);
+      vi.spyOn(MoodleClient.prototype, "listCourses").mockResolvedValue(courses);
+      const scrape = vi.spyOn(MoodleContentClient.prototype, "scrapeCourse").mockImplementation(async (id) => [row(id, "Fresh")]);
+      const progress = vi.fn();
+      const preferences = coursePreferencesSchema.parse({ activeSemester: "2026-S2", hiddenCourseIds: ["2"] });
+      expect(await syncAllMoodleContent(db, "https://moodle.example.invalid", "fixture-only", fetch, progress, preferences)).toEqual({ courses: 1, items: 1 });
+      expect(scrape.mock.calls.map(([id]) => id)).toEqual([3]);
+      expect(progress).toHaveBeenCalledWith(1, 1);
+      expect(db.listMoodleContent("1")[0]?.title).toBe("Cached historical course");
+      expect(db.listMoodleContent("2")[0]?.title).toBe("Cached hidden course");
+      expect(db.listMoodleContent("3")[0]?.title).toBe("Fresh");
+      // An explicit single-course refresh remains available outside the background range.
+      await syncMoodleContent(db, "https://moodle.example.invalid", "fixture-only", 2, fetch);
+      expect(db.listMoodleContent("2")[0]?.title).toBe("Fresh");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("retains each successful course transaction and the failed course's previous materials", async () => {
+    const db = createDatabase({ dbPath: ":memory:", seed: false });
+    try {
+      db.replaceMoodleContent("2", [row(2, "Previous materials")]);
+      vi.spyOn(MoodleClient.prototype, "listCourses").mockResolvedValue(courses);
+      vi.spyOn(MoodleContentClient.prototype, "scrapeCourse").mockImplementation(async (id) => {
+        if (id === 2) throw new Error("Fixture scrape failed");
+        return [row(id, "Fresh")];
+      });
+      await expect(syncAllMoodleContent(db, "https://moodle.example.invalid", "fixture-only", fetch)).rejects.toThrow("Fixture scrape failed");
+      expect(db.listMoodleContent("1")[0]?.title).toBe("Fresh");
+      expect(db.listMoodleContent("2")[0]?.title).toBe("Previous materials");
+    } finally {
+      db.close();
+    }
   });
 });

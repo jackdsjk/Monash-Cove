@@ -53,6 +53,7 @@ npm run retriage
 - `GET /api/items/:id`
 - `GET /api/items/:id/detail`（来源原文、作者、老师/学生回复）
 - `GET /api/moodle/courses` / `POST /api/moodle/content-sync` / `GET /api/moodle/content?courseId=`
+- `GET/PATCH /api/moodle/course-preferences`（完整对象 `{activeSemester:null|"2026-S2",hiddenCourseIds:[],pinnedCourseIds:[]}`；课程 ID 为数字字符串）
 - `GET /api/pack?courseId=`（作业资料包：本机已同步的作业、变更与同课程 Ed 帖子，只读）
 - `GET /api/moodle/download?url=`（仅 `mod/resource`，服务端用本机 session 代理文件）
 - `POST /api/moodle/download-batch`（1–100 个 resource，返回 ZIP）
@@ -81,6 +82,8 @@ Moodle 课程、成绩，Ed 课程/lesson，以及 OnTrack 概览/任务的 GET 
 新鲜期默认值定义在 `src/resource-cache.ts` 的 `RESOURCE_TTL`：课程目录 6 小时、成绩 5 分钟、Ed 内容 15 分钟、OnTrack 2 分钟。这些是后台检查间隔，过期不删除成功数据；页面显示实际成功时间。个别成绩课程失败时保留其旧成绩及原覆盖时间。
 
 快照单项上限 8 MiB，每个来源最多 1,000 项及 96 MiB。连接、断开或替换凭据使对应快照和在途写回失效；凭据指纹变化会隔离数据，无法确认同账号的会话更新按新连接处理。清空本地数据也清空快照。Moodle 资料正文和考试表继续使用原有本地数据表，不重复建立快照。OnTrack 显式断开会禁止全局 CLI 会话回退，重新保存凭据可连接。
+
+每周资料页的“同步范围”按当前 Moodle 凭据隔离保存：默认全部学期，支持显式学期、隐藏与置顶。未知学期保留，隐藏优先，置顶覆盖学期筛选。范围只影响批量资料同步和成绩抓取，不过滤已保存的资料浏览，也不改变简报 assessment/forum 拉取；单课手动同步可绕过范围。成绩快照包含范围版本，设置变更不会误用旧范围的缓存或删除课程目录。无法确认同账号的凭据更新后需重新设置范围。
 
 ## 数据与安全
 

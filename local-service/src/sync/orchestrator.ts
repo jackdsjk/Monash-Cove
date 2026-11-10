@@ -8,6 +8,8 @@ import { syncEd, syncMoodle, syncMoodleForum } from "./sources.js";
 import { syncAllMoodleContent } from "./moodle-content.js";
 import { fetchOnTrackAccount } from "../sources/ontrack.js";
 import { syncOnTrack } from "./ontrack.js";
+import { createHash } from "node:crypto";
+import { getMoodleCoursePreferences } from "../course-preferences.js";
 
 export class SyncOrchestrator {
   private progress?: (source: "gmail" | "ed" | "moodle", processed: number, total: number | null) => void;
@@ -63,7 +65,9 @@ export class SyncOrchestrator {
     const moodleCreds = JSON.parse(moodleRaw) as { baseUrl: string; session: string };
     const assessments = await syncMoodle(this.db, moodleCreds.baseUrl, moodleCookieHeader(moodleCreds), this.fetcher);
     const forum = await syncMoodleForum(this.db, moodleCreds.baseUrl, moodleCookieHeader(moodleCreds), this.fetcher);
-    const content = await syncAllMoodleContent(this.db, moodleCreds.baseUrl, moodleCookieHeader(moodleCreds), this.fetcher, (processed, total) => this.progress?.("moodle", processed, total));
+    const moodleIdentity = createHash("sha256").update("moodle\0" + moodleRaw).digest("hex");
+    const preferences = getMoodleCoursePreferences(this.db, moodleIdentity);
+    const content = await syncAllMoodleContent(this.db, moodleCreds.baseUrl, moodleCookieHeader(moodleCreds), this.fetcher, (processed, total) => this.progress?.("moodle", processed, total), preferences);
     starts.push(`moodle:${assessments.synced + forum.synced + content.items}`);
     this.db.setSetting("moodle_full_synced_at", new Date().toISOString());
     this.db.setSetting("full_sync_completed_at", new Date().toISOString());

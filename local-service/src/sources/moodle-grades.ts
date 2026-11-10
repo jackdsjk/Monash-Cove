@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { parse, type HTMLElement } from "node-html-parser";
 import { MoodleClient } from "./moodle.js";
+import { selectMoodleCourses, type CoursePreferences } from "../course-preferences.js";
 
 /** One row of Moodle's own user grade report, as far as HTML exposes it. */
 export interface MoodleGradeItem {
@@ -73,13 +74,14 @@ export class MoodleGradesClient {
     return (await this.pullDetailed()).courses;
   }
 
-  async pullDetailed(): Promise<{ courses: MoodleGradeCourse[]; failedCourseIds: string[] }> {
+  async pullDetailed(preferences?: CoursePreferences): Promise<{ courses: MoodleGradeCourse[]; failedCourseIds: string[] }> {
     const alive = await this.courses.validateSession().catch(() => false);
     if (!alive) {
       throw new MoodleGradesError("session_expired", "Moodle session expired; reconnect Moodle to read the gradebook.");
     }
     const enrolled = await this.courses.listCourses();
-    const results = await mapLimited(enrolled, COURSE_CONCURRENCY, async (course) => {
+    const targets = preferences ? selectMoodleCourses(enrolled, preferences) : enrolled;
+    const results = await mapLimited(targets, COURSE_CONCURRENCY, async (course) => {
       try {
         const report = await this.scrapeCourse(course.id);
         if (!report) return null;

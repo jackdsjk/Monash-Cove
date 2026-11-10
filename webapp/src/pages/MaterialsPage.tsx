@@ -5,6 +5,7 @@ import { getMoodleContentQuery, moodleCoursesQuery, syncMoodleContent } from '..
 import type { MoodleContentItem, MoodleCourse } from '../types'
 import { useResourceQuery } from '../lib/use-resource-query'
 import { CacheStatus } from '../components/CacheStatus'
+import { CourseSyncScope } from '../components/CourseSyncScope'
 import { courseMatchesRegion, defaultRegionForCourses, loadRegion, type CampusRegion } from '../lib/region'
 import { navigate } from '../lib/router'
 
@@ -222,6 +223,7 @@ export function MaterialsPage() {
         }
       />
       <CacheStatus cache={courseQuery.cache} loading={courseQuery.loading || contentQuery.loading} error={courseQuery.error ?? contentQuery.error} />
+      <CourseSyncScope courses={courses} />
 
       {error && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-[13px] text-red-700">{error}</div>

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { moodleGradesQuery } from './repository';
+import { moodleCoursePreferencesQuery, moodleGradesQuery, saveMoodleCoursePreferences } from './repository';
 import { invalidateQueryCache, invalidateSourceQueries } from './query-cache';
 
 const cache = { fetchedAt: '2026-11-10T00:00:00Z', checkedAt: '2026-11-10T00:00:00Z', identity: 'fixture-owner', stale: false, refreshing: false, error: null };
-const courses = [{ courseId: '101', courseName: 'Fixture course', items: [], total: null }];
+const courses = [{ courseId: '101', courseName: 'Fixture course', items: [], total: { earned: null, max: null } }];
 
 afterEach(() => { invalidateQueryCache(); vi.unstubAllGlobals(); });
 
@@ -38,5 +38,39 @@ describe('page resource requests', () => {
     finishOld?.(new Response(JSON.stringify({ courses, cache })));
     await old;
     expect(moodleGradesQuery.getSnapshot()).toMatchObject({ data: [], cache: { identity: 'new-owner' } });
+  });
+});
+
+describe('course preference writes', () => {
+  const initial = { activeSemester: null, hiddenCourseIds: [], pinnedCourseIds: [] };
+  const updated = { activeSemester: '2026-S2', hiddenCourseIds: ['101'], pinnedCourseIds: ['102'] };
+
+  it('installs server-confirmed preferences and invalidates only the affected grade result', async () => {
+    moodleCoursePreferencesQuery.replace(initial);
+    moodleGradesQuery.replace(courses);
+    const fetcher = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify(updated)));
+    vi.stubGlobal('fetch', fetcher);
+    await expect(saveMoodleCoursePreferences(updated)).resolves.toEqual(updated);
+    expect(fetcher.mock.calls[0]).toMatchObject(['/api/moodle/course-preferences', { method: 'PATCH', body: JSON.stringify(updated) }]);
+    expect(moodleCoursePreferencesQuery.getSnapshot().data).toEqual(updated);
+    expect(moodleGradesQuery.getSnapshot().data).toBeUndefined();
+  });
+
+  it('does not present failed saves as success or discard existing preferences', async () => {
+    moodleCoursePreferencesQuery.replace(initial);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: 'Fixture save failure' } }), { status: 500 })));
+    await expect(saveMoodleCoursePreferences(updated)).rejects.toThrow('Fixture save failure');
+    expect(moodleCoursePreferencesQuery.getSnapshot().data).toEqual(initial);
+  });
+
+  it('does not install a late save result after the Moodle connection changes', async () => {
+    moodleCoursePreferencesQuery.replace(initial);
+    let finish: ((response: Response) => void) | undefined;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; })));
+    const pending = saveMoodleCoursePreferences(updated);
+    invalidateSourceQueries('moodle');
+    finish?.(new Response(JSON.stringify(updated)));
+    await expect(pending).rejects.toThrow('连接状态已改变');
+    expect(moodleCoursePreferencesQuery.getSnapshot().data).toBeUndefined();
   });
 });

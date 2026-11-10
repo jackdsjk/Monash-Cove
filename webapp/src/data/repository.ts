@@ -1,5 +1,6 @@
 import type { CredentialInfo, OnTrackAccount, OnTrackCommentView, OnTrackProjectView, OnTrackTaskView, OnTrackOverview, AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, AttendanceSubmitSummary, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, MoodleGradeCourse, PackResponse, PortalExamsResponse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
 import { invalidateSourceQueries, ResourceQuery, type CacheMetadata, type QueryResult } from "./query-cache";
+import type { MoodleCoursePreferences } from "../lib/course-sync-preferences";
 
 export interface BriefData {
   items: BriefItem[];
@@ -422,6 +423,26 @@ export const moodleCoursesQuery = new ResourceQuery<MoodleCourse[]>("moodle", (f
   resource("/moodle/courses", (body: { courses: MoodleCourse[] }) => body.courses, force), 6 * 60 * 60_000);
 export const moodleGradesQuery = new ResourceQuery<MoodleGradeCourse[]>("moodle", (force) =>
   resource("/moodle/grades", (body: { courses: MoodleGradeCourse[] }) => body.courses, force, 90_000), 5 * 60_000);
+export const moodleCoursePreferencesQuery = new ResourceQuery<MoodleCoursePreferences>("moodle", async () =>
+  ({ data: await getJson<MoodleCoursePreferences>("/moodle/course-preferences") }), 60_000);
+
+export async function saveMoodleCoursePreferences(preferences: MoodleCoursePreferences): Promise<MoodleCoursePreferences> {
+  const generation = moodleCoursePreferencesQuery.getGeneration();
+  const response = await request("/moodle/course-preferences", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(preferences),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+    throw new Error(body?.error?.message ?? `保存同步范围失败（HTTP ${response.status}）`);
+  }
+  const saved = await response.json() as MoodleCoursePreferences;
+  if (generation !== moodleCoursePreferencesQuery.getGeneration()) throw new Error("连接状态已改变，请重新读取同步范围。");
+  moodleCoursePreferencesQuery.replace(saved);
+  moodleGradesQuery.clear();
+  return saved;
+}
 export const edCoursesQuery = new ResourceQuery<EdCourse[]>("ed", (force) =>
   resource("/ed/courses", (body: { courses: EdCourse[] }) => body.courses, force), 15 * 60_000);
 export const onTrackOverviewQuery = new ResourceQuery<OnTrackOverview>("ontrack", (force) =>

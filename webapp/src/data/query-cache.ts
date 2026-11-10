@@ -42,6 +42,18 @@ export class ResourceQuery<T> {
 
   getSnapshot = (): QuerySnapshot<T> => this.snapshot;
 
+  getGeneration(): number { return this.generation; }
+
+  /** Install a server-confirmed mutation result and ignore any older read in flight. */
+  replace(data: T): void {
+    this.generation++;
+    this.inflight = null;
+    this.receivedAt = Date.now();
+    this.polls = 0;
+    clearTimeout(this.timer);
+    this.publish({ data, loading: false, error: null });
+  }
+
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => {

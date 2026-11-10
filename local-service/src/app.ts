@@ -28,6 +28,7 @@ import { captureMoodlePage } from "./moodle-snapshot.js";
 import { AssetFetchError, fetchAsset } from "./safe-download.js";
 import { withTimeout } from "./http.js";
 import { ResourceCache, RESOURCE_TTL, CacheIdentityChangedError } from "./resource-cache.js";
+import { coursePreferencesSchema, getMoodleCoursePreferences, saveMoodleCoursePreferences } from "./course-preferences.js";
 import { attendanceScanKey } from "./attendance/scan-key.js";
 import type { ApiError, ChangesResponse, ItemChange, Source, StoredItem } from "./domain.js";
 import { describeCredentials } from "./credentials.js";
@@ -950,6 +951,23 @@ export function buildApp(options: AppOptions): FastifyInstance {
     return { ok: true };
   });
 
+  app.get("/api/moodle/course-preferences", async (_request, reply) => {
+    const identity = await credentialIdentity("moodle");
+    if (!identity) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
+    reply.header("cache-control", "no-store");
+    return getMoodleCoursePreferences(db, identity);
+  });
+
+  app.patch("/api/moodle/course-preferences", async (request, reply) => {
+    const identity = await credentialIdentity("moodle");
+    if (!identity) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
+    const parsed = coursePreferencesSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: { code: "invalid_preferences", message: "课程同步范围格式无效。", retryable: false } } satisfies ApiError);
+    if (await credentialIdentity("moodle") !== identity) throw new CacheIdentityChangedError();
+    saveMoodleCoursePreferences(db, identity, parsed.data);
+    return parsed.data;
+  });
+
   app.get("/api/moodle/courses", async (request, reply) => {
     const raw = await secrets.get("moodle-credentials");
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
@@ -1324,9 +1342,13 @@ export function buildApp(options: AppOptions): FastifyInstance {
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
       const identity = createHash("sha256").update(`moodle\0${raw}`).digest("hex");
-      const result = await resourceCache.read({ source: "moodle", identity, resource: "grades:v1", ttlMs: RESOURCE_TTL.grades,
+      const preferences = getMoodleCoursePreferences(db, identity);
+      // A range change selects a different snapshot without discarding the course
+      // directory or allowing a refresh for the previous range to overwrite it.
+      const range = createHash("sha256").update(JSON.stringify(preferences)).digest("hex").slice(0, 16);
+      const result = await resourceCache.read({ source: "moodle", identity, resource: `grades:v2:${range}`, ttlMs: RESOURCE_TTL.grades,
         currentIdentity: () => credentialIdentity("moodle"), force: forcedRefresh(request.url) }, async (previous: Awaited<ReturnType<MoodleGradesClient["pull"]>> | undefined, snapshot) => {
-        const pulled = await new MoodleGradesClient(credentials.baseUrl, moodleCookieHeader(credentials), fetcher).pullDetailed();
+        const pulled = await new MoodleGradesClient(credentials.baseUrl, moodleCookieHeader(credentials), fetcher).pullDetailed(preferences);
         const failed = new Set(pulled.failedCourseIds);
         const at = new Date().toISOString();
         const coverage = Object.fromEntries([
@@ -1443,7 +1465,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
         const forum = await syncMoodleForum(db, credentials.baseUrl, moodleCookieHeader(credentials), fetcher);
         const content = await syncAllMoodleContent(db, credentials.baseUrl, moodleCookieHeader(credentials), fetcher, (processed, total) => {
           fullSyncJobs.update("moodle", { processed, total });
-        });
+        }, getMoodleCoursePreferences(db, createHash("sha256").update(`moodle\0${raw}`).digest("hex")));
         fullSyncJobs.update("moodle", { status: "done", processed: content.courses, total: content.courses, message: `${assessments.synced + forum.synced} 条简报，${content.items} 条资料` });
         db.setSetting("moodle_full_synced_at", new Date().toISOString());
       } catch (error) {
