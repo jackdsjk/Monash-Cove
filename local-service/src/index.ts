@@ -17,7 +17,8 @@ process.env.COVE_SECRET_FILE ??= path.join(dataDir, "secrets.json");
 
 const app = buildApp({
   dbPath: process.env.COVE_DB_PATH ?? path.join(dataDir, "cove.sqlite"),
-  // 可选：用独立数据集启动（展示/演示账号），默认仍读仓库内 fixtures/items.json。
+  // 示例数据只在显式启用、且数据库尚未使用时初始化。
+  seed: process.env.COVE_SEED_FIXTURE === "1",
   fixturePath: process.env.COVE_FIXTURE_PATH || undefined,
   logger: true,
   autoSync: process.env.COVE_AUTO_SYNC !== "0",

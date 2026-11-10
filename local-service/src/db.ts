@@ -189,7 +189,7 @@ export class CoveDatabase {
     this.pruneChanges();
     this.ensureColumns();
     this.ensureSources();
-    if (options.seed !== false) this.seedFixture();
+    if (options.seed === true) this.seedFixture();
   }
 
   close() {
@@ -221,15 +221,17 @@ export class CoveDatabase {
 
   private ensureSources() {
     const insert = this.db.prepare(
-      "INSERT OR IGNORE INTO sources (id, label, status, last_sync_at, last_error) VALUES (?, ?, 'fixture', NULL, NULL)",
+      "INSERT OR IGNORE INTO sources (id, label, status, last_sync_at, last_error) VALUES (?, ?, 'disconnected', NULL, NULL)",
     );
     for (const source of SOURCE_IDS) insert.run(source, SOURCE_LABELS[source]);
   }
 
   seedFixture() {
-    const connectedRows = this.db.prepare("SELECT id FROM sources WHERE status = 'connected'").all() as Array<{ id: string }>;
-    const connected = new Set(connectedRows.map((row) => row.id));
-    for (const source of connected) this.removeFixtures(source as Source);
+    // Demo data is an explicit, one-time initialization of a pristine database.
+    // Reopening a database must preserve real data, disconnects and source errors.
+    if (this.getSetting("fixture_initialized_at")) return;
+    if (this.db.prepare("SELECT 1 FROM items LIMIT 1").get()) return;
+    if (this.db.prepare("SELECT 1 FROM sources WHERE status != 'disconnected' OR last_sync_at IS NOT NULL OR last_error IS NOT NULL OR account IS NOT NULL LIMIT 1").get()) return;
     const data = JSON.parse(readFileSync(this.fixturePath, "utf8")) as { items: FixtureItem[] };
     const now = Date.now();
     const insertItem = this.db.prepare(`
@@ -243,7 +245,6 @@ export class CoveDatabase {
       "INSERT OR IGNORE INTO item_content (item_id, text, evidence_quote) VALUES (?, ?, ?)",
     );
     for (const item of data.items) {
-      if (connected.has(item.source)) continue;
       const publishedAt = new Date(now - item.ageHours * 3_600_000).toISOString();
       const hash = createHash("sha256").update(item.text).digest("hex");
       insertItem.run(
@@ -269,8 +270,9 @@ export class CoveDatabase {
       insertContent.run(item.id, item.text, item.evidenceQuote);
     }
     for (const source of SOURCE_IDS) {
-      if (!connected.has(source)) this.setSourceStatus(source, "fixture", new Date().toISOString(), null);
+      this.setSourceStatus(source, "fixture", new Date().toISOString(), null);
     }
+    this.setSetting("fixture_initialized_at", new Date().toISOString());
   }
 
   removeFixtures(source: Source) {
@@ -885,7 +887,7 @@ export class CoveDatabase {
   }
 
   clearAll(options: { keepConnections?: boolean } = {}) {
-    this.db.exec("DELETE FROM resource_snapshots; DELETE FROM corrections; DELETE FROM reads; DELETE FROM sync_cursors; DELETE FROM settings; DELETE FROM item_content; DELETE FROM items; DELETE FROM moodle_content; DELETE FROM attendance_codes; DELETE FROM attendance_scans; DELETE FROM portal_exams;");
+    this.db.exec("DELETE FROM resource_snapshots; DELETE FROM corrections; DELETE FROM reads; DELETE FROM sync_cursors; DELETE FROM settings WHERE key != 'fixture_initialized_at'; DELETE FROM item_content; DELETE FROM items; DELETE FROM moodle_content; DELETE FROM attendance_codes; DELETE FROM attendance_scans; DELETE FROM portal_exams;");
     if (!options.keepConnections) {
       for (const source of SOURCE_IDS) {
         this.setSourceStatus(source, "disconnected", null, null);

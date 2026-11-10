@@ -35,6 +35,35 @@ function contentRow(id: string): MoodleContentRow {
 }
 
 describe("database configuration", () => {
+  it("starts empty and disconnected unless fixtures are explicitly enabled", () => {
+    db.close();
+    db = createDatabase({ dbPath: path.join(dir, "default.sqlite") });
+    expect(db.listItems()).toHaveLength(0);
+    expect(db.listSources().every((source) => source.status === "disconnected")).toBe(true);
+  });
+
+  it("does not seed or overwrite errors when reopening a used database", () => {
+    const dbPath = path.join(dir, "cove.sqlite");
+    db.setSourceStatus("ed", "error", null, "Expired token");
+    db.close();
+    db = createDatabase({ dbPath, seed: true });
+    expect(db.listItems()).toHaveLength(0);
+    expect(db.listSources().find((source) => source.id === "ed")).toMatchObject({ status: "error", lastError: "Expired token" });
+    expect(db.listSources().find((source) => source.id === "gmail")?.status).toBe("disconnected");
+  });
+
+  it("initializes fixtures once and does not restore cleared demo items on restart", () => {
+    const dbPath = path.join(dir, "cove.sqlite");
+    db.close();
+    db = createDatabase({ dbPath, seed: true });
+    expect(db.listItems()).toHaveLength(55);
+    db.clearAll();
+    db.close();
+    db = createDatabase({ dbPath, seed: true });
+    expect(db.listItems()).toHaveLength(0);
+    expect(db.listSources().find((source) => source.id === "ed")?.status).toBe("disconnected");
+  });
+
   it("enables WAL, a busy timeout, and relaxed fsync for file databases", () => {
     expect((db.db.prepare("PRAGMA journal_mode").get() as { journal_mode: string }).journal_mode).toBe("wal");
     expect((db.db.prepare("PRAGMA busy_timeout").get() as { timeout: number }).timeout).toBe(5000);
