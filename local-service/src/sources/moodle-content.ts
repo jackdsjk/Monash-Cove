@@ -82,8 +82,7 @@ export class MoodleContentClient {
     return [...sections.entries()].sort(([a], [b]) => a - b);
   }
 
-  async scrapeCourse(courseId: number, courseName: string): Promise<MoodleContentRow[]> {
-    const course = await this.html(`/course/view.php?id=${courseId}`);
+  async scrapeCourse(courseId: number, courseName: string): Promise<MoodleContentRow[]> {    const course = await this.html(`/course/view.php?id=${courseId}`);
     const sections = this.sectionLinks(course.toString(), courseId);
     const rows: MoodleContentRow[] = [];
     const updatedAt = new Date().toISOString();
@@ -197,9 +196,53 @@ export class MoodleContentClient {
         }
       }
     }
-    return dedupe(rows);
+    const unique = dedupe(rows);
+    await this.fillFileSizes(unique);
+    return unique;
+  }
+
+  /**
+   * A file's size is only advertised by the file response itself, so ask each
+   * resource/URL for its headers. A failure or a missing Content-Length leaves
+   * the size NULL: the materials page shows "—" rather than a guessed number.
+   * At most four requests are in flight so a large course cannot flood Moodle.
+   */
+  private async fillFileSizes(rows: MoodleContentRow[]) {
+    const targets = rows.filter((row) => SIZE_MODULES.has(row.module));
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < targets.length) {
+        const row = targets[cursor];
+        cursor += 1;
+        if (!row) break;
+        row.sizeBytes = await this.headSize(row.url);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(SIZE_CONCURRENCY, targets.length) }, worker));
+  }
+
+  private async headSize(url: string): Promise<number | null> {
+    try {
+      const response = await this.fetcher(url, {
+        method: "HEAD",
+        headers: this.headers(),
+        redirect: "follow",
+        signal: AbortSignal.timeout(SIZE_TIMEOUT_MS),
+      });
+      if (!response.ok) return null;
+      const raw = response.headers.get("content-length");
+      if (!raw) return null;
+      const size = Number(raw);
+      return Number.isFinite(size) && size >= 0 ? size : null;
+    } catch {
+      return null;
+    }
   }
 }
+
+const SIZE_MODULES = new Set(["resource", "url"]);
+const SIZE_TIMEOUT_MS = 5_000;
+const SIZE_CONCURRENCY = 4;
 
 function detectCampus(value: string): "malaysia" | "australia" | "indonesia" | "shared" {
   if (/\[?Malaysia Campus|\bMUM\b|\bMalaysia\b/i.test(value)) return "malaysia";

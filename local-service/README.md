@@ -74,6 +74,7 @@ npm run retriage
 
 - SQLite 表：`sources/items/item_content/sync_cursors/corrections/reads/settings`；
 - 凭据在 macOS Keychain；真实正文和纠错只在本机；
+- Moodle 会话在服务启动时、以及之后每 6 小时用一次 `/my/` 轻量请求校验：会话失效只把来源标成 `degraded`（`lastError` 写明「会话已过期」，凭据保留，Web UI 显示「重新登录」）；凭据 JSON 损坏、缺字段或 Cookie 为空则删除凭据并把来源标成 `disconnected`；
 - 服务只绑 loopback；状态变更请求检查 Origin，返回 CSP/nosniff/referrer 头；
 - 真实数据不进 Git，不上云。
 

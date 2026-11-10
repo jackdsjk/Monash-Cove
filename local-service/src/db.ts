@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS sources (
   label TEXT NOT NULL,
   status TEXT NOT NULL,
   last_sync_at TEXT,
-  last_error TEXT
+  last_error TEXT,
+  account TEXT
 );
 CREATE TABLE IF NOT EXISTS items (
   id TEXT PRIMARY KEY,
@@ -105,7 +106,8 @@ CREATE TABLE IF NOT EXISTS moodle_content (
   text TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL,
   campus TEXT NOT NULL DEFAULT 'shared',
-  images TEXT NOT NULL DEFAULT '[]'
+  images TEXT NOT NULL DEFAULT '[]',
+  size_bytes INTEGER
 );
 CREATE INDEX IF NOT EXISTS moodle_content_course ON moodle_content(course_id, section_number);
 CREATE TABLE IF NOT EXISTS attendance_codes (
@@ -174,11 +176,16 @@ export class CoveDatabase {
     if (!columns.has("deadline_kind")) this.db.exec("ALTER TABLE items ADD COLUMN deadline_kind TEXT");
     if (!columns.has("completed_at")) this.db.exec("ALTER TABLE items ADD COLUMN completed_at TEXT");
     if (!columns.has("completed_source")) this.db.exec("ALTER TABLE items ADD COLUMN completed_source TEXT");
+    const sourceColumns = new Set(
+      (this.db.prepare("PRAGMA table_info(sources)").all() as Array<{ name?: string }>).map((column) => column.name),
+    );
+    if (!sourceColumns.has("account")) this.db.exec("ALTER TABLE sources ADD COLUMN account TEXT");
     const contentColumns = new Set(
       (this.db.prepare("PRAGMA table_info(moodle_content)").all() as Array<{ name?: string }>).map((column) => column.name),
     );
     if (!contentColumns.has("campus")) this.db.exec("ALTER TABLE moodle_content ADD COLUMN campus TEXT NOT NULL DEFAULT 'shared'");
     if (!contentColumns.has("images")) this.db.exec("ALTER TABLE moodle_content ADD COLUMN images TEXT NOT NULL DEFAULT '[]'");
+    if (!contentColumns.has("size_bytes")) this.db.exec("ALTER TABLE moodle_content ADD COLUMN size_bytes INTEGER");
   }
 
   private ensureSources() {
@@ -246,6 +253,11 @@ export class CoveDatabase {
       .run(status, lastSyncAt, lastError, source);
   }
 
+  /** The signed-in account shown on the Sources page; NULL when no platform tells us. */
+  setSourceAccount(source: Source, account: string | null) {
+    this.db.prepare("UPDATE sources SET account = ? WHERE id = ?").run(account && account.trim() ? account.trim() : null, source);
+  }
+
   listSources(): SourceStatus[] {
     const rows = this.db.prepare("SELECT * FROM sources ORDER BY id").all() as Array<Record<string, unknown>>;
     return rows.map((row) => {
@@ -262,6 +274,7 @@ export class CoveDatabase {
         lastError: row.last_error ? String(row.last_error) : null,
         itemCount: count.n,
         contentCount,
+        account: row.account ? String(row.account) : null,
       };
     });
   }
@@ -508,13 +521,13 @@ export class CoveDatabase {
    */
   replaceMoodleContent(courseId: string, rows: MoodleContentRow[]) {
     const insert = this.db.prepare(`
-      INSERT INTO moodle_content (id, course_id, course_name, section_number, section_title, module, title, url, text, updated_at, campus, images)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO moodle_content (id, course_id, course_name, section_number, section_title, module, title, url, text, updated_at, campus, images, size_bytes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.transaction(() => {
       this.db.prepare("DELETE FROM moodle_content WHERE course_id = ?").run(courseId);
       for (const row of rows) {
-        insert.run(row.id, row.courseId, row.courseName, row.sectionNumber, row.sectionTitle, row.module, row.title, row.url, row.text, row.updatedAt, row.campus ?? "shared", JSON.stringify(row.images ?? []));
+        insert.run(row.id, row.courseId, row.courseName, row.sectionNumber, row.sectionTitle, row.module, row.title, row.url, row.text, row.updatedAt, row.campus ?? "shared", JSON.stringify(row.images ?? []), row.sizeBytes ?? null);
       }
     });
   }
@@ -694,6 +707,7 @@ export class CoveDatabase {
       updatedAt: String(row.updated_at),
       campus: (String(row.campus ?? "shared") as "malaysia" | "australia" | "indonesia" | "shared"),
       images: parseImages(row.images),
+      sizeBytes: row.size_bytes === null || row.size_bytes === undefined ? null : Number(row.size_bytes),
     }));
   }
 
@@ -714,14 +728,19 @@ export class CoveDatabase {
       updatedAt: String(row.updated_at),
       campus: (String(row.campus ?? "shared") as "malaysia" | "australia" | "indonesia" | "shared"),
       images: parseImages(row.images),
+      sizeBytes: row.size_bytes === null || row.size_bytes === undefined ? null : Number(row.size_bytes),
     }));
   }
 
-  clearAll() {
+  clearAll(options: { keepConnections?: boolean } = {}) {
     this.db.exec("DELETE FROM corrections; DELETE FROM reads; DELETE FROM sync_cursors; DELETE FROM settings; DELETE FROM item_content; DELETE FROM items; DELETE FROM moodle_content; DELETE FROM attendance_codes; DELETE FROM attendance_scans;");
-    for (const source of SOURCE_IDS) {
-      this.setSourceStatus(source, "disconnected", null, null);
+    if (!options.keepConnections) {
+      for (const source of SOURCE_IDS) {
+        this.setSourceStatus(source, "disconnected", null, null);
+        this.setSourceAccount(source, null);
+      }
     }
+    // keepConnections 时不改 sources 表：连接状态原样保留，下次同步会重新拉一遍。
   }
 
   counts() {

@@ -128,6 +128,26 @@ export class GoogleOAuth {
     return new GmailClient(await this.accessToken(), this.fetcher);
   }
 
+  /**
+   * The address behind the stored grant. `gmail.readonly` does not include the
+   * OpenID `email` scope, so the Gmail profile endpoint is the only source; any
+   * failure returns null and the Sources page shows no account.
+   */
+  async accountEmail(): Promise<string | null> {
+    try {
+      const token = await this.accessToken();
+      const response = await this.fetcher("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
+        headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) return null;
+      const body = (await response.json()) as { emailAddress?: unknown };
+      return typeof body.emailAddress === "string" && body.emailAddress.trim() ? body.emailAddress.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
   async disconnect() {
     await this.secrets.delete(TOKEN_KEY);
   }

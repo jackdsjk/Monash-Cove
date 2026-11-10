@@ -95,6 +95,8 @@ export interface SourceStatus {
   lastError: string | null;
   itemCount: number;
   contentCount?: number;
+  /** Signed-in account for this source; null when the platform never told us. */
+  account?: string | null;
 }
 
 export interface BriefResponse {
@@ -144,6 +146,8 @@ export interface MoodleContentRow {
   campus?: "malaysia" | "australia" | "indonesia" | "shared";
   /** Absolute URLs of images inside a label/forum, captured at sync time. */
   images?: string[];
+  /** Content-Length of a resource/url file; null when Moodle did not report one. */
+  sizeBytes?: number | null;
 }
 
 export interface ApiError {

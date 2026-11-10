@@ -19,9 +19,11 @@ import { syncEd, syncMoodle, syncMoodleForum } from "./sync/sources.js";
 import { syncAllMoodleContent } from "./sync/moodle-content.js";
 import { FullSyncJobs } from "./sync/jobs.js";
 import { MoodleClient } from "./sources/moodle.js";
+import { MoodleGradesClient, MoodleGradesError } from "./sources/moodle-grades.js";
 import { EdClient } from "./sources/ed.js";
 import { syncMoodleContent } from "./sync/moodle-content.js";
 import { downloadMoodleResource, MoodleDownloadError, moodleCookieHeader, safeDownloadName } from "./moodle-download.js";
+import { degradeMoodleSession, moodleCredentials, scheduleMoodleSessionChecks, verifyMoodleSession } from "./moodle-session.js";
 import { captureMoodlePage } from "./moodle-snapshot.js";
 import { AssetFetchError, fetchAsset } from "./safe-download.js";
 import { withTimeout } from "./http.js";
@@ -64,6 +66,7 @@ async function resolveOnTrackUnitId(projectId: number): Promise<number> {
 /** GET routes that trigger OCR, a browser capture, or an outbound fetch. */
 const SIDE_EFFECTING_GETS = new Set([
   "/api/attendance/codes",
+  "/api/moodle/grades",
   "/api/moodle/page",
   "/api/moodle/download",
   "/api/moodle/download-batch",
@@ -92,6 +95,8 @@ export interface AppOptions {
   seed?: boolean;
   logger?: boolean;
   autoSync?: boolean;
+  /** 启动时与每 6 小时校验一次 Moodle 会话；默认跟随 `autoSync`。 */
+  moodleSessionCheck?: boolean;
   staticDir?: string | null;
   secretStore?: SecretStore;
   google?: GoogleOAuthConfig | null;
@@ -162,6 +167,17 @@ export function buildApp(options: AppOptions): FastifyInstance {
       void orchestrator.syncAll();
     });
     app.addHook("onClose", async () => clearInterval(timer));
+  }
+  // 会话 Cookie 会悄悄过期；与其等下一次同步报错，不如启动时先打一次轻量请求，
+  // 之后每 6 小时复查。失败只把来源降级，不删凭据、不阻断任何请求。
+  if (options.moodleSessionCheck ?? Boolean(options.autoSync)) {
+    const reportCheckError = (error: unknown) => app.log.warn({ err: error }, "Moodle session check failed");
+    const check = () => verifyMoodleSession({ db, secrets, fetcher });
+    const stopTimer = scheduleMoodleSessionChecks(check, { onError: reportCheckError });
+    app.addHook("onReady", async () => {
+      void check().catch(reportCheckError);
+    });
+    app.addHook("onClose", async () => stopTimer());
   }
 
   app.decorate("coveDb", db);
@@ -715,6 +731,10 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
     try {
       await google.handleCallback(code, state);
+      // The Gmail profile is the only account identity the grant gives us; when
+      // Google does not answer, the account stays empty instead of guessing.
+      const email = await google.accountEmail();
+      if (email) db.setSourceAccount("gmail", email);
       const target = new URL(appUrl);
       target.searchParams.set("connected", "gmail");
       return reply.code(302).header("location", target.toString()).send();
@@ -728,19 +748,11 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.post("/api/oauth/google/disconnect", async () => {
     await google.disconnect();
     db.setSourceStatus("gmail", "disconnected", null, null);
+    db.setSourceAccount("gmail", null);
     return { ok: true };
   });
 
   const edCredentials = z.object({ token: z.string().min(1), region: z.enum(["us", "au", "eu"]).default("us") });
-  const moodleCredentials = z
-  .object({
-    baseUrl: z.string().url(),
-    /** Raw MoodleSession value; still accepted for older saved credentials. */
-    session: z.string().min(1).optional(),
-    /** Full Cookie header captured by the login assistant. */
-    cookie: z.string().min(1).optional(),
-  })
-  .refine((value) => Boolean(value.session || value.cookie), { message: "session or cookie is required" });
 
   app.post<{ Params: { source: string } }>("/api/sources/:source/credentials", async (request, reply) => {
     const source = sourceSchema.safeParse(request.params.source);
@@ -754,10 +766,12 @@ export function buildApp(options: AppOptions): FastifyInstance {
       const parsed = edCredentials.safeParse(request.body ?? {});
       if (!parsed.success) return reply.code(400).send({ error: { code: "invalid_request", message: parsed.error.message, retryable: false } } satisfies ApiError);
       await secrets.set("ed-credentials", JSON.stringify(parsed.data));
+      // The Ed token carries no account identity, so sources.account stays NULL.
     } else {
       const parsed = moodleCredentials.safeParse(request.body ?? {});
       if (!parsed.success) return reply.code(400).send({ error: { code: "invalid_request", message: parsed.error.message, retryable: false } } satisfies ApiError);
       await secrets.set("moodle-credentials", JSON.stringify(parsed.data));
+      if (parsed.data.username) db.setSourceAccount("moodle", parsed.data.username);
     }
     db.setSourceStatus(source.data, "degraded", null, null);
     return { ok: true };
@@ -769,7 +783,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (source.data === "ed") await secrets.delete("ed-credentials");
     if (source.data === "moodle") await secrets.delete("moodle-credentials");
     if (source.data === "gmail") await google.disconnect();
+    if (source.data === "ontrack") await secrets.delete("ontrack-credentials");
     db.setSourceStatus(source.data, "disconnected", null, null);
+    db.setSourceAccount(source.data, null);
     return { ok: true };
   });
 
@@ -1020,6 +1036,22 @@ export function buildApp(options: AppOptions): FastifyInstance {
     return { courseId, items: db.listMoodleContent(courseId) };
   });
 
+  app.get("/api/moodle/grades", async (_request, reply) => {
+    const raw = await secrets.get("moodle-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
+    const credentials = moodleCredentials.parse(JSON.parse(raw));
+    try {
+      const client = new MoodleGradesClient(credentials.baseUrl, moodleCookieHeader(credentials), fetcher);
+      return { courses: await client.pull() };
+    } catch (error) {
+      if (error instanceof MoodleGradesError && error.code === "session_expired") {
+        return reply.code(409).send({ error: { code: "not_connected", message: error.message, retryable: false } } satisfies ApiError);
+      }
+      const message = error instanceof Error ? error.message : "Moodle gradebook failed.";
+      return reply.code(502).send({ error: { code: "moodle_grades_failed", message, retryable: true } } satisfies ApiError);
+    }
+  });
+
   app.get("/api/runtime/status", async () => {
     return getRuntimeStatus({
       dataDir: process.env.COVE_DATA_DIR ?? path.join(os.homedir(), "Library", "Application Support", "Cove"),
@@ -1035,7 +1067,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
       try {
         const credentials = moodleCredentials.parse(JSON.parse(rawMoodle));
         moodle = await new MoodleClient(credentials.baseUrl, moodleCookieHeader(credentials), fetcher).validateSession();
-        if (!moodle) db.setSourceStatus("moodle", "degraded", null, "Moodle session expired; reconnect");
+        if (!moodle) degradeMoodleSession(db);
       } catch {
         moodle = false;
       }
@@ -1151,10 +1183,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
 
   app.delete("/api/data", async () => {
-    await google.disconnect();
-    await secrets.delete("ed-credentials");
-    await secrets.delete("moodle-credentials");
-    db.clearAll();
+    // 只清内容，不动凭据：设置页承诺「来源连接保留」，断开连接是另一个动作。
+    db.clearAll({ keepConnections: true });
     return { ok: true };
   });
 

@@ -65,12 +65,15 @@ export class MoodleClient {
   /**
    * Follows redirects and rejects anything that lands off-site or on a login
    * page, so an SSO bounce can never be mistaken for a valid session.
+   *
+   * `timeoutMs` lets the background verifier run a lighter ping than the
+   * 15s budget a user-facing login check gets.
    */
-  async probeSession(): Promise<{ ok: boolean; status: number; url: string }> {
+  async probeSession(timeoutMs = 15_000): Promise<{ ok: boolean; status: number; url: string }> {
     const response = await this.fetcher(`${this.baseUrl}/my/`, {
       headers: this.headers(),
       redirect: "follow",
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const url = response.url ?? "";
     const offSite = url !== "" && !url.startsWith(this.baseUrl);

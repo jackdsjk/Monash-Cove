@@ -1,0 +1,231 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { FastifyInstance } from "fastify";
+import { buildApp } from "../app.js";
+import { MemorySecretStore } from "../secrets.js";
+import { MoodleGradesClient, parseGradeReport } from "../sources/moodle-grades.js";
+
+/** A Moodle user-report table, written to the shape Moodle 4 renders. */
+const moodleGradeTable = `
+<html><body>
+<h1>FIT1047 Introduction to computer systems</h1>
+<table class="user-grade table table-sm" id="user-grade">
+  <caption>FIT1047</caption>
+  <thead>
+    <tr>
+      <th class="header c0" scope="col">Grade item</th>
+      <th class="header c1" scope="col">Weight</th>
+      <th class="header c2" scope="col">Grade</th>
+      <th class="header c3" scope="col">Range</th>
+      <th class="header c4" scope="col">Percentage</th>
+      <th class="header c5" scope="col">Feedback</th>
+      <th class="header c6" scope="col">Contribution to course total</th>
+      <th class="header c7" scope="col">Last modified</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr class="categoryitem">
+      <td class="cell c0">Assessments</td>
+      <td class="cell c1">100.00 %</td>
+      <td class="cell c2">72.13 %</td>
+      <td class="cell c3">0–100</td>
+      <td class="cell c4">72.13 %</td>
+      <td class="cell c5"></td>
+      <td class="cell c6">72.13 %</td>
+      <td class="cell c7">-</td>
+    </tr>
+    <tr class="item">
+      <td class="cell c0"><a href="/mod/assign/view.php?id=1">Assignment 1</a></td>
+      <td class="cell c1">20.00 %</td>
+      <td class="cell c2">17.00</td>
+      <td class="cell c3">0–20</td>
+      <td class="cell c4">85.00 %</td>
+      <td class="cell c5">Good work on the case study.</td>
+      <td class="cell c6">17.00 %</td>
+      <td class="cell c7">Monday, 3 March 2025, 10:21 AM</td>
+    </tr>
+    <tr class="item">
+      <td class="cell c0">Quiz 1</td>
+      <td class="cell c1">10.00 %</td>
+      <td class="cell c2">-</td>
+      <td class="cell c3">0–10</td>
+      <td class="cell c4">-</td>
+      <td class="cell c5"></td>
+      <td class="cell c6">-</td>
+      <td class="cell c7">-</td>
+    </tr>
+    <tr class="item">
+      <td class="cell c0">Case study</td>
+      <td class="cell c1">30.00 %</td>
+      <td class="cell c2">43.50</td>
+      <td class="cell c3">0–50</td>
+      <td class="cell c4">87.00 %</td>
+      <td class="cell c5"></td>
+      <td class="cell c6">26.10 %</td>
+      <td class="cell c7">-</td>
+    </tr>
+    <tr class="courseitem">
+      <td class="cell c0">Course total</td>
+      <td class="cell c1">-</td>
+      <td class="cell c2">62.13</td>
+      <td class="cell c3">0–100</td>
+      <td class="cell c4">62.13 %</td>
+      <td class="cell c5"></td>
+      <td class="cell c6">-</td>
+      <td class="cell c7">-</td>
+    </tr>
+  </tbody>
+</table>
+</body></html>`;
+
+/** Same report with a different column order and missing columns. */
+const chineseGradeTable = `
+<html><body>
+<table class="user-grade">
+  <tbody>
+    <tr>
+      <th>反馈</th><th>项目</th><th>成绩</th><th>权重</th>
+    </tr>
+    <tr>
+      <td>值得肯定</td><td>课堂参与</td><td>8.5</td><td>10 %</td>
+    </tr>
+    <tr>
+      <td></td><td>期末考试</td><td>-</td><td></td>
+    </tr>
+  </tbody>
+</table>
+</body></html>`;
+
+const noGradesPage = `<html><body><p class="alert">No grades available yet.</p></body></html>`;
+
+describe("Moodle grade report parsing", () => {
+  it("reads every column by header text and skips category rows", () => {
+    const report = parseGradeReport(moodleGradeTable, "101");
+    expect(report).not.toBeNull();
+    if (!report) return;
+    expect(report.items.map((item) => item.name)).toEqual(["Assignment 1", "Quiz 1", "Case study"]);
+
+    const [assignment, quiz, caseStudy] = report.items;
+    expect(assignment.grade).toBe(17);
+    expect(assignment.gradeMax).toBe(20);
+    expect(assignment.weight).toBe(20);
+    expect(assignment.feedback).toBe("Good work on the case study.");
+    expect(assignment.gradedAt).toBe("Monday, 3 March 2025, 10:21 AM");
+
+    // An unreleased mark must stay null rather than becoming 0.
+    expect(quiz.grade).toBeNull();
+    expect(quiz.gradeMax).toBe(10);
+    expect(quiz.feedback).toBe("");
+    expect(quiz.gradedAt).toBeNull();
+
+    expect(caseStudy.grade).toBe(43.5);
+    expect(caseStudy.gradeMax).toBe(50);
+    expect(report.total).toEqual({ earned: 62.13, max: 100 });
+
+    const ids = new Set(report.items.map((item) => item.id));
+    expect(ids.size).toBe(report.items.length);
+  });
+
+  it("locates columns by label, tolerating other orders and absent columns", () => {
+    const report = parseGradeReport(chineseGradeTable, "202");
+    expect(report).not.toBeNull();
+    if (!report) return;
+    expect(report.items).toHaveLength(2);
+    expect(report.items[0]).toMatchObject({ name: "课堂参与", grade: 8.5, weight: 10, feedback: "值得肯定" });
+    // No range column: the cap is unknown, not guessed.
+    expect(report.items[0].gradeMax).toBeNull();
+    expect(report.items[1]).toMatchObject({ name: "期末考试", grade: null, weight: null });
+    expect(report.items[1].gradedAt).toBeNull();
+    // Nothing is graded at all, so no total may be invented.
+    expect(report.total).toEqual({ earned: null, max: null });
+  });
+
+  it("returns null when the page has no grade table", () => {
+    expect(parseGradeReport(noGradesPage, "303")).toBeNull();
+  });
+});
+
+describe("MoodleGradesClient", () => {
+  it("fails instead of reporting an empty gradebook when the session died", async () => {
+    // Moodle answers a dead session with a login page, sometimes with HTTP 200.
+    const fetcher = vi.fn(async () => new Response("<html><form>Log in</form></html>", { status: 200 })) as unknown as typeof fetch;
+    const client = new MoodleGradesClient("https://learning.monash.edu", "MoodleSession=stale", fetcher);
+    const outcome = await client.pull().catch((error: unknown) => error);
+    expect(outcome).toBeInstanceOf(Error);
+  });
+});
+
+let app: FastifyInstance | null = null;
+
+afterEach(async () => {
+  await app?.close();
+  app = null;
+});
+
+function gradebookFetcher(html = moodleGradeTable) {
+  return vi.fn(async (input: string | URL) => {
+    const url = String(input);
+    if (url.includes("/lib/ajax/service.php")) {
+      return new Response(JSON.stringify([{
+        error: false,
+        data: { courses: [
+          { id: 101, shortname: "FIT1047_MUM_S1_2025", fullname: "FIT1047 Introduction to computer systems" },
+          { id: 102, shortname: "FIT1045_MUM_S1_2025", fullname: "FIT1045 Algorithms" },
+        ] },
+      }]), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/grade/report/user/index.php?id=101")) return new Response(html, { status: 200 });
+    if (url.includes("/grade/report/user/index.php?id=102")) return new Response(noGradesPage, { status: 200 });
+    // /my/ dashboard: needs a sesskey for the AJAX course list.
+    return new Response(`<html><script>{"sesskey":"abc123"}</script></html>`, { status: 200 });
+  }) as unknown as typeof fetch;
+}
+
+describe("GET /api/moodle/grades", () => {
+  it("409s when no Moodle session is stored", async () => {
+    app = buildApp({ dbPath: ":memory:", seed: true, secretStore: new MemorySecretStore() });
+    const response = await app.inject({ method: "GET", url: "/api/moodle/grades" });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe("not_connected");
+  });
+
+  it("returns parsed courses and skips courses without a grade table", async () => {
+    const secretStore = new MemorySecretStore();
+    await secretStore.set("moodle-credentials", JSON.stringify({ baseUrl: "https://learning.monash.edu", cookie: "MoodleSession=abc" }));
+    app = buildApp({ dbPath: ":memory:", seed: true, secretStore, fetcher: gradebookFetcher() });
+    const response = await app.inject({ method: "GET", url: "/api/moodle/grades" });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.courses).toHaveLength(1);
+    expect(body.courses[0].courseId).toBe("101");
+    expect(body.courses[0].courseName).toBe("FIT1047 Introduction to computer systems");
+    expect(body.courses[0].items).toHaveLength(3);
+    expect(body.courses[0].total).toEqual({ earned: 62.13, max: 100 });
+  });
+
+  it("409s when Moodle bounces the session to a login page", async () => {
+    const secretStore = new MemorySecretStore();
+    await secretStore.set("moodle-credentials", JSON.stringify({ baseUrl: "https://learning.monash.edu", session: "abc" }));
+    const fetcher = vi.fn(async () => new Response("", { status: 303, headers: { location: "/login/index.php" } })) as unknown as typeof fetch;
+    app = buildApp({ dbPath: ":memory:", seed: true, secretStore, fetcher });
+    const response = await app.inject({ method: "GET", url: "/api/moodle/grades" });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe("not_connected");
+  });
+
+  it("502s when every grade page fails", async () => {
+    const secretStore = new MemorySecretStore();
+    await secretStore.set("moodle-credentials", JSON.stringify({ baseUrl: "https://learning.monash.edu", cookie: "MoodleSession=abc" }));
+    const fetcher = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("/lib/ajax/service.php")) {
+        return new Response(JSON.stringify([{ error: false, data: { courses: [{ id: 101, shortname: "FIT1047", fullname: "FIT1047" }] } }]), { status: 200 });
+      }
+      if (url.includes("/grade/report/user/")) return new Response("broken", { status: 500 });
+      return new Response(`<html><script>{"sesskey":"abc123"}</script></html>`, { status: 200 });
+    }) as unknown as typeof fetch;
+    app = buildApp({ dbPath: ":memory:", seed: true, secretStore, fetcher });
+    const response = await app.inject({ method: "GET", url: "/api/moodle/grades" });
+    expect(response.statusCode).toBe(502);
+    expect(response.json().error.code).toBe("moodle_grades_failed");
+  });
+});

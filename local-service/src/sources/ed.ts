@@ -173,7 +173,12 @@ export class EdClient {
     const data = await this.get<{ lessons?: Array<{ id?: number; title?: string; slide_count?: number }> }>(`courses/${courseId}/lessons`);
     return (data.lessons ?? [])
       .filter((lesson): lesson is { id: number; title?: string; slide_count?: number } => Boolean(lesson.id))
-      .map((lesson) => ({ id: lesson.id, title: lesson.title ?? `Lesson ${lesson.id}`, slideCount: Number(lesson.slide_count ?? 0) }));
+      .map((lesson) => {
+        const title = lesson.title ?? `Lesson ${lesson.id}`;
+        // Ed 的接口不返回周次，只能从标题里取（「Week 5: …」/「W5 …」），取不到就是 0。
+        const match = /(?:week|w)\s*(\d{1,2})/i.exec(title);
+        return { id: lesson.id, title, slideCount: Number(lesson.slide_count ?? 0), week: match ? Number(match[1]) : 0 };
+      });
   }
 
   async getLesson(lessonId: number): Promise<EdLessonDetail> {

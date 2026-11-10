@@ -65,7 +65,8 @@ describe("local API", () => {
     expect(cleared.statusCode).toBe(200);
     const brief = await app.inject({ method: "GET", url: "/api/brief" });
     expect(brief.json().items).toHaveLength(0);
-    expect(brief.json().sources.every((source: { status: string }) => source.status === "disconnected")).toBe(true);
+    // 清除数据只删内容，连接状态保留：断开来源是另一个动作。
+    expect(brief.json().sources.some((source: { status: string }) => source.status !== "disconnected")).toBe(true);
   });
 
   it("keeps corrections and reads after reopening the database", async () => {

@@ -23,7 +23,7 @@ describe("Ed lesson content", () => {
       return new Response(JSON.stringify({ lessons: [{ id: 1, title: "Week 1", slide_count: 1 }] }), { status: 200 });
     }) as unknown as typeof fetch;
     const client = new EdClient("token", "au", fetcher);
-    expect(await client.listLessons(9)).toEqual([{ id: 1, title: "Week 1", slideCount: 1 }]);
+    expect(await client.listLessons(9)).toEqual([{ id: 1, title: "Week 1", slideCount: 1, week: 1 }]);
     const lesson = await client.getLesson(1);
     expect(lesson.slides[0].type).toBe("video");
     expect(lesson.slides[0].videoUrls).toEqual(["https://video.example/1"]);
