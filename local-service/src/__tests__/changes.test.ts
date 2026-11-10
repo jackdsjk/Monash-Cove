@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDatabase, type CoveDatabase } from "../db.js";
 import type { NewItem } from "../domain.js";
 
@@ -14,6 +14,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   db.close();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -46,6 +47,23 @@ function item(overrides: Partial<NewItem> = {}): NewItem {
 }
 
 describe("item change tracking", () => {
+  it("exposes the first ingestion time for old source content and preserves it on resync", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-10T12:00:00.000Z"));
+    db.upsertItem(item());
+    expect(db.getItem("gmail-1")).toMatchObject({
+      publishedAt: "2026-11-06T00:00:00.000Z",
+      firstSeenAt: "2026-11-10T12:00:00.000Z",
+    });
+
+    vi.setSystemTime(new Date("2026-11-11T12:00:00.000Z"));
+    db.upsertItem(item({ title: "Updated title", updatedAt: "2026-11-11T11:00:00.000Z" }));
+    expect(db.listItems()[0]).toMatchObject({
+      firstSeenAt: "2026-11-10T12:00:00.000Z",
+      updatedAt: "2026-11-11T11:00:00.000Z",
+    });
+  });
+
   it("records nothing for a first insert", () => {
     db.upsertItem(item());
     expect(db.listChanges()).toHaveLength(0);

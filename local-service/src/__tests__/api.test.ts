@@ -32,6 +32,7 @@ describe("local API", () => {
     expect(body.sources.map((source: { id: string }) => source.id)).toEqual(["ed", "gmail", "moodle", "ontrack"]);
     expect(body.items[0].text.length).toBeGreaterThan(20);
     expect(body.items[0].evidenceQuote.length).toBeGreaterThan(5);
+    expect(body.items[0].firstSeenAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
   it("returns item detail and 404 for unknown items", async () => {

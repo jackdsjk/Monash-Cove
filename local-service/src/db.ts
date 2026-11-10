@@ -932,6 +932,7 @@ function toStoredItem(row: Record<string, unknown>): StoredItem {
     authorRole: String(row.author_role ?? "unknown"),
     publishedAt: String(row.published_at),
     updatedAt: String(row.updated_at),
+    firstSeenAt: String(row.first_seen_at),
     url: String(row.url ?? ""),
     dueAt: row.due_at ? String(row.due_at) : null,
     deadlineKind: row.deadline_kind ? String(row.deadline_kind) : null,

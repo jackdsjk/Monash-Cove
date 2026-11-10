@@ -38,6 +38,8 @@ export interface StoredItem {
   authorRole: string;
   publishedAt: string;
   updatedAt: string;
+  /** Local ingestion time, preserved when the source item is updated. */
+  firstSeenAt: string;
   url: string;
   ageHours: number;
   dueAt: string | null;
