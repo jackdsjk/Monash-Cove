@@ -143,6 +143,10 @@ export class ResourceCache {
       void refresh().catch(() => undefined);
     }
     await ensureCurrent();
+    // A fast refresh may have finished while identity lookup was awaiting the
+    // credential store. Return that published snapshot instead of stale data
+    // incorrectly labelled as no longer refreshing.
+    snapshot = this.store.getResourceSnapshot<T>(scope.source, scope.identity, scope.resource) ?? snapshot;
     if (!snapshot) throw new CacheIdentityChangedError();
     return {
       data: snapshot.data,

@@ -77,6 +77,25 @@ describe("account-scoped resource snapshots", () => {
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
+  it("returns a refresh published while the final identity check was waiting", async () => {
+    const db = database();
+    let clock = Date.parse("2026-11-10T00:00:00Z");
+    const cache = new ResourceCache(db, () => clock);
+    await cache.read(scope, async () => ({ data: [1] }));
+    clock += 2000;
+    const gate = deferred<void>();
+    let identityReads = 0;
+    const pending = cache.read({ ...scope, currentIdentity: async () => {
+      if (++identityReads === 2) await gate.promise;
+      return "account-a";
+    } }, async () => ({ data: [2] }));
+    await vi.waitFor(() => expect(db.getResourceSnapshot("moodle", "account-a", "grades:v1")?.data).toEqual([2]));
+    gate.resolve();
+    const result = await pending;
+    expect(result.data).toEqual([2]);
+    expect(result.cache).toMatchObject({ refreshing: false, stale: false });
+  });
+
   it("rejects late writes after account changes, explicit invalidation, or close", async () => {
     for (const action of ["identity", "invalidate", "close"]) {
       const db = database();
