@@ -79,6 +79,15 @@ async function waitForServer() {
   throw new Error(`local service did not start: ${serviceOutput.join("").slice(-2000)}`);
 }
 
+async function capture(page, filename) {
+  if (!artifactsDir) return;
+  // Preserve the rendered end state rather than a fading route transition.
+  await page.evaluate(() => Promise.all(document.getAnimations()
+    .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+    .map((animation) => animation.finished.catch(() => undefined))));
+  await page.screenshot({ path: path.join(artifactsDir, filename), fullPage: true });
+}
+
 try {
   await waitForServer();
   browser = await chromium.launch({ channel: "chrome", headless: true });
@@ -192,7 +201,15 @@ try {
     assert.ok(await regression.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `the brief must fit viewport width ${width}`);
     const syncBounds = await regression.getByRole("button", { name: "同步", exact: true }).boundingBox();
     assert.ok(syncBounds && syncBounds.x >= 0 && syncBounds.x + syncBounds.width <= width + 1, `sync control must remain reachable at width ${width}`);
-    if (artifactsDir) await regression.screenshot({ path: path.join(artifactsDir, `brief-${width}.png`), fullPage: true });
+    for (const button of await regression.getByRole("button", { name: /^连接 (Ed|Gmail|OnTrack)$/ }).all()) {
+      const bounds = await button.boundingBox();
+      assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width + 1, `source connection controls must remain reachable at width ${width}`);
+    }
+    const errorBounds = await regression.getByText(/Simulated sync outage/).first().boundingBox();
+    assert.ok(errorBounds && errorBounds.width >= 150, `sync error text must retain readable width at ${width}`);
+    const suggestionsBounds = await regression.getByRole("heading", { name: "建议先看", exact: true }).boundingBox();
+    assert.ok(suggestionsBounds && suggestionsBounds.height < 40, "section titles must not collapse into vertical text");
+    await capture(regression, `brief-${width}.png`);
     const responsiveNav = regression.getByRole("navigation", { name: "主导航" });
     for (const title of ["截止时间", "成绩", "每周资料", "Ed 学习内容", "作业资料包", "OnTrack 任务", "考勤", "来源", "设置"]) {
       await responsiveNav.getByRole("link", { name: title, exact: true }).click();
@@ -202,11 +219,17 @@ try {
       assert.ok(headingBounds && headingBounds.height < 72 && headingBounds.x + headingBounds.width <= width + 1, `${title} heading must fit viewport width ${width}`);
       assert.ok(await regression.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${title} must fit viewport width ${width}`);
       if (artifactsDir && width === 390 && ["截止时间", "来源", "设置"].includes(title)) {
-        await regression.screenshot({ path: path.join(artifactsDir, `${title}-390.png`), fullPage: true });
+        await capture(regression, `${title}-390.png`);
       }
     }
     await responsiveNav.getByRole("link", { name: "自上次查看", exact: true }).click();
   }
+  await regression.getByRole("button", { name: "连接 Ed", exact: true }).click();
+  await regression.getByRole("heading", { name: "来源", exact: true }).waitFor();
+  await regression.getByRole("button", { name: "连接 Ed", exact: true }).click();
+  const bannerConnection = regression.getByRole("dialog", { name: "连接 Ed", exact: true });
+  await bannerConnection.getByLabel("Ed API token", { exact: true }).waitFor();
+  await bannerConnection.getByRole("button", { name: "取消", exact: true }).click();
   await regression.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "设置", exact: true }).click();
   await regression.getByRole("button", { name: "开始全量同步", exact: true }).click();
   await regression.getByText("尚未配置支持全量同步的来源。", { exact: true }).waitFor();
@@ -227,7 +250,7 @@ try {
     let index = 0;
     for (const context of browser.contexts()) {
       for (const page of context.pages()) {
-        await page.screenshot({ path: path.join(artifactsDir, `failure-${index++}.png`), fullPage: true }).catch(() => undefined);
+        await capture(page, `failure-${index++}.png`).catch(() => undefined);
       }
     }
   }
