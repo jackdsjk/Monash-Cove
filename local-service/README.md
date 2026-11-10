@@ -30,6 +30,8 @@ COVE_STATIC_DIR=../webapp/dist npm start
 | `COVE_DATA_DIR` | SQLite 目录 |
 | `COVE_DB_PATH` | SQLite 文件路径 |
 | `COVE_STATIC_DIR` | 生产 UI 目录 |
+| `COVE_SEED_FIXTURE` | 默认关闭；`1` 仅为未使用的数据库一次初始化匿名示例 |
+| `COVE_FIXTURE_PATH` | 可选示例 JSON 路径；不隐式开启示例模式 |
 | `COVE_AUTO_SYNC` | `0` 关闭每小时同步 |
 | `COVE_SECRET_STORE` | `memory` 仅测试；默认 macOS Keychain |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Gmail OAuth |
@@ -49,7 +51,7 @@ npm run retriage
 - `POST/GET/DELETE /mcp`（Streamable HTTP MCP；只读）
 - `npm run mcp`（stdio MCP bridge，需要本地服务已启动）
 - `GET /api/health`
-- `GET /api/brief?since=&source=&q=`（Moodle 条目包含 `dueAt` / `deadlineKind`）
+- `GET /api/brief?since=&source=&q=`（条目包含独立的 `firstSeenAt` 首次入库时间；Moodle 条目含 `dueAt` / `deadlineKind`）
 - `GET /api/items/:id`
 - `GET /api/items/:id/detail`（来源原文、作者、老师/学生回复）
 - `GET /api/moodle/courses` / `POST /api/moodle/content-sync` / `GET /api/moodle/content?courseId=`
@@ -87,6 +89,8 @@ Moodle 课程、成绩，Ed 课程/lesson，以及 OnTrack 概览/任务的 GET 
 
 ## 数据与安全
 
+- 默认首次启动没有示例内容、来源均未连接。仅显式示例模式初始化数据；已有内容、来源错误、账号或成功时间的数据库不会重新灌入示例。清理数据保留示例初始化标记，避免重启后再次灌入。
+- Gmail 增量会完整消费 history 分页并去重；在同步前记录检查点，全部消息处理成功才保存，避免跳过同步期间到达的邮件。过期游标 HTTP 404 执行完整恢复；其他失败保留旧游标并允许幂等重试。失败前写入的部分消息保留，保守检查点可能重放少量消息。协议依据：[同步规范](https://developers.google.com/workspace/gmail/api/guides/sync)、[history.list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list)。
 - SQLite 表：`sources/items/item_content/sync_cursors/corrections/reads/settings`；
 - 凭据在 macOS Keychain；真实正文和纠错只在本机；
 - Moodle 会话在服务启动时、以及之后每 6 小时用一次 `/my/` 轻量请求校验：会话失效只把来源标成 `degraded`（`lastError` 写明「会话已过期」，凭据保留，Web UI 显示「重新登录」）；凭据 JSON 损坏、缺字段或 Cookie 为空则删除凭据并把来源标成 `disconnected`；

@@ -20,7 +20,7 @@ npm install
 npm run dev
 ```
 
-打开 <http://127.0.0.1:5174/>。首次连接后在“数据源”点“首次全量同步”；完成后打开 App 会自动做最多每 5 分钟一次的增量同步。Vite 会把 `/api` 代理到 `127.0.0.1:4317`。
+打开 <http://127.0.0.1:5174/>。首次设置展示真实来源连接流程，也可明确跳过、稍后连接；全量同步在“设置”中发起。Vite 会把 `/api` 代理到 `127.0.0.1:4317`。
 
 生产模式：
 
@@ -38,9 +38,9 @@ cd ../local-service && npm run build
 - `/deadlines`：独立的“倒计时”侧栏页面，按 Moodle 作业的 `dueAt` 自动分成已截止、24 小时内、7 天内、更晚；倒计时精确到秒，每秒更新；没有结构化截止时间就不显示；
 - 设置页集中个人称呼/地区、全量同步、本地数据清理和产品边界；
 - 数据源页只保留来源连接、状态和增量同步，全量同步移至设置；
-- 首次设置会按课程名称推断可能校区并让用户确认；每周资料支持马来西亚 / 澳大利亚 / 印度尼西亚地区筛选，过滤显式标注其他校区的 section 和资料；
+- 每周资料支持马来西亚 / 澳大利亚 / 印度尼西亚地区筛选，过滤显式标注其他校区的 section 和资料；
 - 下载文件使用 Moodle 资料标题和真实扩展名，批量 ZIP 使用课程/板块命名；
-- `/setup`：首次设置向导，检测缺少凭据时自动跳转；Gmail OAuth、Ed token、Moodle 本地登录助手；
+- `/setup`：首次设置复用真实来源页，支持 Gmail OAuth、Ed token、Moodle/OnTrack 登录助手；完成或跳过后可进入简报。匿名示例明确标识为示例，不视为账号已连接；
 - 页面切换/刷新时使用 Cove 品牌动态 loader（旋转轨道 + 呼吸核心 + 三点节奏）；
 - 顶栏“搜索或跳转”：`Cmd/Ctrl+K` 命令面板，可跳转简报、倒计时、每周资料、数据源、设置；
 - `/materials`：独立的“每周资料”页面，按 Moodle 课程板块列出资料、作业/考核、公告/讨论和说明文字；资料行支持单选、全选筛选结果和“下载选中”（批量 ZIP，仅 Moodle resource 文件）；页面提供搜索、类型（资料/作业/公告/说明）和板块筛选；ASSESSMENTS 板块的资源归入“作业/考核”。
@@ -72,14 +72,15 @@ webapp/
 ```bash
 cd local-service && npm test && npm run build
 cd ../webapp && npm run check
+cd ../webapp && npm exec vitest run
 cd ../webapp && npm run e2e
 ```
 
-`check` 校验 local-service fixture 完整性和 TypeScript 构建；`e2e` 启动独立的生产服务（端口 4318）+ 临时 SQLite，跑简报、详情、反馈、标记已查看和导航。简报页“同步全部来源”会真实调用 `/api/sync` 三次。
+`check` 校验 local-service fixture 完整性、类型及生产构建，不包含 Vitest。`e2e` 使用随机端口、临时 SQLite、内存凭据及隔离 OnTrack 目录，阻断外网；示例和无连接首次运行分别验证，不访问用户正在运行的实例。简报增量同步仅请求已连接来源，HTTP 失败保留错误，成功时间由服务返回。
 
 ## 已知边界
 
-- Gmail 20、Ed 91、Moodle 6 已真实同步；Moodle 当前课程无论坛链接；没有凭据时只用 fixture/mock；
+- Gmail 20、Ed 91、Moodle 6 的历史真实同步记录见执行日志；本次修复使用隔离 fixture/mock 验证，未重新访问真实账号。没有凭据时默认空数据，示例需在后端显式启用；
 - Moodle 论坛解析基于 HTML fixture，真实页面结构仍需 S8 smoke；
 - 模型默认回退规则；真实模型 key 未配置时不会调用外部 API；
 - 构建包约 960KB，Vite 有 chunk 警告；
