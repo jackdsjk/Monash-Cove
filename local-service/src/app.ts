@@ -28,7 +28,7 @@ import { captureMoodlePage } from "./moodle-snapshot.js";
 import { AssetFetchError, fetchAsset } from "./safe-download.js";
 import { withTimeout } from "./http.js";
 import { attendanceScanKey } from "./attendance/scan-key.js";
-import type { ApiError, ChangesResponse, Source } from "./domain.js";
+import type { ApiError, ChangesResponse, ItemChange, Source, StoredItem } from "./domain.js";
 import { describeCredentials } from "./credentials.js";
 import { configureOnTrackCredentials, fetchOnTrackAccount, fetchOnTrackArtifact, fetchOnTrackComments, fetchOnTrackProjects, fetchOnTrackTasks } from "./sources/ontrack.js";
 import { getRuntimeStatus } from "./runtime.js";
@@ -1078,6 +1078,100 @@ export function buildApp(options: AppOptions): FastifyInstance {
       return reply.code(400).send({ error: { code: "invalid_course", message: "courseId is required.", retryable: false } } satisfies ApiError);
     }
     return { courseId, items: db.listMoodleContent(courseId) };
+  });
+
+  /**
+   * Read-only source for the assignment pack page: stored Moodle assignments plus the
+   * Moodle changes and Ed posts for the same course. Everything comes from the local
+   * database, so an expired Moodle or Ed session does not hide already-synced data.
+   */
+  app.get<{ Querystring: { courseId?: string } }>("/api/pack", async (request) => {
+    const courseId = request.query.courseId?.trim() || null;
+    /** "FIT1047_S2_2026", "FIT1047 S2 2026" and Ed's course names all mean FIT1047. */
+    const courseCode = (course: string) => /^[A-Za-z]{2,5}\d{3,4}/.exec(course.trim())?.[0].toUpperCase() ?? course.trim();
+    const assignments = db
+      .listAllMoodleContent()
+      .filter((row) => row.module === "assign")
+      .filter((row) => !courseId || row.courseId === courseId);
+
+    // Due dates and completion live on the normalized brief item, not on the content row.
+    const briefByUrl = new Map(
+      db.listItems({ source: "moodle" }).filter((item) => item.url).map((item) => [item.url, item] as const),
+    );
+    const changesByItem = new Map<string, ItemChange[]>();
+    for (const change of db.listChanges()) {
+      if (change.source !== "moodle") continue;
+      const list = changesByItem.get(change.itemId) ?? [];
+      list.push(change);
+      changesByItem.set(change.itemId, list);
+    }
+
+    // Ed has no assignment <-> thread link. Expose the course's newest posts per role and
+    // let the page state that association; never guess which thread belongs to an assignment.
+    const postsPerRole = 6;
+    const grouped = new Map<string, StoredItem[]>();
+    for (const item of db.listItems({ source: "ed" })) {
+      if (item.authorRole !== "staff" && item.authorRole !== "student") continue;
+      if (!item.course) continue;
+      const code = courseCode(item.course);
+      const list = grouped.get(code) ?? [];
+      list.push(item);
+      grouped.set(code, list);
+    }
+    const postsByCourse = new Map<string, StoredItem[]>();
+    for (const [code, list] of grouped) {
+      list.sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+      const picked: StoredItem[] = [];
+      let staff = 0;
+      let students = 0;
+      for (const item of list) {
+        if (item.authorRole === "staff") {
+          if (staff >= postsPerRole) continue;
+          staff += 1;
+        } else {
+          if (students >= postsPerRole) continue;
+          students += 1;
+        }
+        picked.push(item);
+      }
+      postsByCourse.set(code, picked);
+    }
+
+    return {
+      rubric: null,
+      postsPerRole,
+      assignments: assignments.map((row) => {
+        const brief = briefByUrl.get(row.url);
+        return {
+          id: row.id,
+          courseId: row.courseId,
+          course: courseCode(row.courseName),
+          courseName: row.courseName,
+          sectionTitle: row.sectionTitle,
+          title: row.title,
+          url: row.url,
+          text: row.text,
+          updatedAt: row.updatedAt,
+          dueAt: brief?.dueAt ?? null,
+          completedAt: brief?.completedAt ?? null,
+          changes: (brief ? (changesByItem.get(brief.id) ?? []) : []).map((change) => ({
+            field: change.field,
+            before: change.before === null ? null : String(change.before),
+            after: change.after === null ? null : String(change.after),
+            changedAt: change.changedAt,
+          })),
+          posts: (postsByCourse.get(courseCode(row.courseName)) ?? []).map((post) => ({
+            id: post.id,
+            number: Number(/\/discussion\/(\d+)/.exec(post.url)?.[1]) || null,
+            title: post.title,
+            text: post.text,
+            authorRole: post.authorRole,
+            publishedAt: post.publishedAt,
+            url: post.url,
+          })),
+        };
+      }),
+    };
   });
 
   app.get("/api/moodle/grades", async (_request, reply) => {

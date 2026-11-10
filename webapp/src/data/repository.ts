@@ -1,4 +1,4 @@
-import type { CredentialInfo, OnTrackAccount, OnTrackCommentView, OnTrackProjectView, OnTrackTaskView, OnTrackOverview, AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, MoodleGradeCourse, PortalExamsResponse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
+import type { CredentialInfo, OnTrackAccount, OnTrackCommentView, OnTrackProjectView, OnTrackTaskView, OnTrackOverview, AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, MoodleGradeCourse, PackResponse, PortalExamsResponse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
 
 export interface BriefData {
   items: BriefItem[];
@@ -279,6 +279,11 @@ export async function fetchMoodleCourses(): Promise<MoodleCourse[]> {
 export async function fetchMoodleContent(courseId: number): Promise<MoodleContentItem[]> {
   const data = await getJson<{ items: MoodleContentItem[] }>(`/moodle/content?courseId=${courseId}`);
   return data.items;
+}
+
+/** 作业资料包的数据：本机已同步的作业、变更和 Ed 帖子，不依赖当前 Moodle 会话。 */
+export async function fetchPack(courseId?: string): Promise<PackResponse> {
+  return getJson<PackResponse>(courseId ? `/pack?courseId=${encodeURIComponent(courseId)}` : "/pack");
 }
 
 /** 成绩册要逐门课程抓取，比普通接口慢，所以单独放宽超时。 */

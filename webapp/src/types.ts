@@ -426,3 +426,39 @@ export interface SectionMeta {
 export interface SectionGroup extends SectionMeta {
   items: DemoItem[];
 }
+
+/** 一条已同步到本机的 Moodle 作业，以及能安全关联到它的变更与 Ed 帖子。 */
+export interface PackAssignmentView {
+  id: string;
+  courseId: string;
+  /** 由课程名解析出的课程代码，如 FIT1047。 */
+  course: string;
+  /** Moodle 里的课程 shortname，如 FIT1047_S2_2026。 */
+  courseName: string;
+  sectionTitle: string;
+  title: string;
+  url: string;
+  /** Moodle 作业正文；没有正文时为空字符串，不补默认值。 */
+  text: string;
+  updatedAt: string;
+  dueAt: string | null;
+  completedAt: string | null;
+  changes: Array<{ field: string; before: string | null; after: string | null; changedAt: string }>;
+  posts: Array<{
+    id: string;
+    number: number | null;
+    title: string;
+    text: string;
+    authorRole: "staff" | "student";
+    publishedAt: string;
+    url: string;
+  }>;
+}
+
+/** 「作业资料包」页的只读数据源；评分标准后端没有，固定为 null。 */
+export interface PackResponse {
+  rubric: null;
+  /** 每份作业按角色最多带几条 Ed 帖子，用来在界面上如实说明范围。 */
+  postsPerRole: number;
+  assignments: PackAssignmentView[];
+}

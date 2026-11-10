@@ -15,6 +15,7 @@ import { SourcesPage } from "./pages/SourcesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { GradesPage } from "./pages/GradesPage";
 import { ComingSoon } from "./pages/ComingSoon";
+import { PackPage } from "./pages/PackPage";
 
 function Routes() {
   const route = useRoute();
@@ -32,7 +33,7 @@ function Routes() {
     "/grades": <GradesPage />,
     "/materials": <MaterialsPage />,
     "/ed": <EdPage />,
-    "/pack": <ComingSoon title="作业资料包" description="由 Moodle 的作业要求和 Ed 的帖子组成。" />,
+    "/pack": <PackPage />,
     "/ontrack": <OnTrackPage />,
     "/attendance": <AttendancePage />,
     "/sources": <SourcesPage />,
