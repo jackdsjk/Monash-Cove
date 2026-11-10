@@ -18,7 +18,8 @@ function ms(value: string | null | undefined, fallback: number): number {
 
 /** 本地服务的条目 → Make 版界面的 Item。字段含义不变，只做形状转换。 */
 export function toItem(item: BriefItem, now: number): Item {
-  const firstSeenAt = ms(item.publishedAt, now - (item.ageHours ?? 0) * H);
+  const publishedAt = ms(item.publishedAt, now - (item.ageHours ?? 0) * H);
+  const firstSeenAt = ms(item.firstSeenAt, publishedAt);
   return {
     id: item.id,
     source: item.source as SourceId,
@@ -26,7 +27,7 @@ export function toItem(item: BriefItem, now: number): Item {
     title: item.title,
     objectType: item.contentType ?? "",
     author: { name: "", role: role(item.authorRole ?? "unknown") },
-    publishedAt: ms(item.publishedAt ?? item.updatedAt, firstSeenAt),
+    publishedAt: ms(item.publishedAt ?? item.updatedAt, publishedAt),
     firstSeenAt,
     dueAt: item.dueAt ? ms(item.dueAt, 0) || undefined : undefined,
     completedAt: item.completedAt ? ms(item.completedAt, 0) || undefined : undefined,
@@ -69,7 +70,7 @@ export function toSource(source: SourceStatus, itemCount: number): SourceState {
   return {
     id: source.id as SourceId,
     // 「连过没有」看凭据，不看上次同步成不成功；error/degraded 仍然是已连接。
-    connected: source.status !== "disconnected",
+    connected: source.status !== "disconnected" && source.status !== "fixture",
     state: syncState(source.status),
     lastSyncAt: source.lastSyncAt ? ms(source.lastSyncAt, 0) : undefined,
     lastSuccessAt: source.lastSyncAt ? ms(source.lastSyncAt, 0) : undefined,

@@ -14,7 +14,6 @@ import { AttendancePage } from "./pages/AttendancePage";
 import { SourcesPage } from "./pages/SourcesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { GradesPage } from "./pages/GradesPage";
-import { ComingSoon } from "./pages/ComingSoon";
 import { PackPage } from "./pages/PackPage";
 
 function Routes() {
@@ -38,7 +37,7 @@ function Routes() {
     "/attendance": <AttendancePage />,
     "/sources": <SourcesPage />,
     "/settings": <SettingsPage />,
-    "/setup": <ComingSoon title="首次设置" description="连接 Gmail、Ed 与 Moodle，完成首次全量同步。" />,
+    "/setup": <SourcesPage setup />,
   }[route];
 
   return (

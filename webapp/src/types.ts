@@ -17,7 +17,7 @@ export type ActionRequired = "yes" | "no" | "uncertain";
 export type OpenOriginal = "required" | "optional" | "no";
 
 export interface SyncSourceProgress {
-  status: "pending" | "running" | "done" | "error";
+  status: "pending" | "running" | "done" | "error" | "skipped";
   processed: number;
   total: number | null;
   message?: string;
@@ -381,6 +381,8 @@ export interface ItemChange {
 }
 
 export interface BriefItem extends DemoItem {
+  /** First persisted locally; optional while talking to an older service. */
+  firstSeenAt?: string;
   sourceItemId?: string;
   publishedAt?: string;
   updatedAt?: string;

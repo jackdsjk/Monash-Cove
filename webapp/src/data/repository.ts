@@ -321,6 +321,19 @@ export async function fetchSyncStatus(): Promise<SyncStatus> {
   return getJson<SyncStatus>("/sync/status");
 }
 
+export async function syncSource(source: SourceStatus['id']): Promise<void> {
+  const response = await request('/sync', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ source }),
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+    throw new Error(body?.error?.message ?? `同步失败（HTTP ${response.status}）`);
+  }
+}
+
 export async function startFullSync(): Promise<SyncStatus["job"]> {
   const response = await request("/sync/full", { method: "POST" });
   const body = (await response.json().catch(() => null)) as { job?: SyncStatus["job"]; error?: { message?: string } } | null;

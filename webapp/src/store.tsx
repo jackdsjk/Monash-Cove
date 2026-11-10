@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { fetchBrief, fetchChanges, fetchSources, setItemCompleted, startFullSync } from "./data/repository";
+import { fetchBrief, fetchChanges, fetchSources, fetchSyncStatus, setItemCompleted, startFullSync, syncSource as requestSourceSync } from "./data/repository";
 import { invalidateQueryCache, invalidateSourceQueries } from "./data/query-cache";
 import { coursesOf, toChange, toItem, toSource } from "./data/adapter";
 import type { Course, Item, ItemChange, SourceId, SourceState, UserMark } from "./data/model";
@@ -110,6 +110,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const completionRevision = useRef(0);
   const itemCompletionRevision = useRef(new Map<string, number>());
   const previousSources = useRef<SourceState[] | null>(null);
+  const syncFailures = useRef(new Map<SourceId, string>());
+  const syncFlights = useRef(new Set<SourceId>());
+  const fullSyncFlight = useRef<Promise<void> | null>(null);
+  const launchHandled = useRef(false);
 
   useEffect(() => {
     try {
@@ -157,7 +161,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       }
       previousSources.current = nextSources;
-      setSources(nextSources);
+      setSources(nextSources.map((source) => {
+        const failure = syncFailures.current.get(source.id);
+        if (failure) return { ...source, state: 'error', error: failure };
+        if (syncFlights.current.has(source.id)) return { ...source, state: 'syncing' };
+        return source;
+      }));
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "无法读取本地数据");
@@ -193,36 +202,75 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   useEffect(() => {
-    if (ready && sources.some((s) => s.connected) && !p.setupDone) {
-      setP((prev) => ({ ...prev, setupDone: true }));
-    }
-  }, [ready, sources, p.setupDone]);
+    if (!ready || !p.setupDone || launchHandled.current) return;
+    launchHandled.current = true;
+    if (p.settings.showLaunchSummary !== false) setSummaryOpen(true);
+    setP((prev) => ({ ...prev, lastOpenedAt: Date.now() }));
+  }, [ready, p.setupDone, p.settings.showLaunchSummary]);
 
   const courses = useMemo(() => coursesOf(items), [items]);
 
   const patchSource = (id: SourceId, patch: Partial<SourceState>) =>
     setSources((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
 
+  const syncFull = () => {
+    if (fullSyncFlight.current) return;
+    const connected = sources.filter((source) => source.connected);
+    for (const source of connected) {
+      syncFailures.current.delete(source.id);
+      syncFlights.current.add(source.id);
+      patchSource(source.id, { state: 'syncing', error: undefined });
+    }
+    const task = (async () => {
+      try {
+        await startFullSync();
+        const deadline = Date.now() + 30 * 60_000;
+        let status = await fetchSyncStatus();
+        while (status.job?.status === 'running' && Date.now() < deadline) {
+          await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+          status = await fetchSyncStatus();
+        }
+        if (status.job?.status === 'running') throw new Error('全量同步仍在运行，请稍后重试');
+        if (status.job?.status === 'error') throw new Error('全量同步失败，请在来源页查看失败的来源');
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : '全量同步失败';
+        for (const source of connected) {
+          syncFailures.current.set(source.id, message);
+          patchSource(source.id, { state: 'error', error: message });
+        }
+      } finally {
+        for (const source of connected) syncFlights.current.delete(source.id);
+        fullSyncFlight.current = null;
+        await refresh();
+      }
+    })();
+    fullSyncFlight.current = task;
+  };
+
   const syncSource = useCallback(
     (id: SourceId, full = false) => {
-      patchSource(id, { state: "syncing" });
-      const run = full
-        ? startFullSync().then(() => undefined)
-        : fetch("/api/sync", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ source: id }),
-          }).then(() => undefined);
-      void run
+      if (full) { syncFull(); return; }
+      if (syncFlights.current.has(id) || fullSyncFlight.current) return;
+      syncFailures.current.delete(id);
+      syncFlights.current.add(id);
+      patchSource(id, { state: 'syncing', error: undefined });
+      void requestSourceSync(id)
         .catch((cause: unknown) => {
-          patchSource(id, { state: "error", error: cause instanceof Error ? cause.message : "同步失败" });
+          const message = cause instanceof Error ? cause.message : '同步失败';
+          syncFailures.current.set(id, message);
+          patchSource(id, { state: 'error', error: message });
         })
-        .finally(() => {
-          patchSource(id, { state: "idle", lastSyncAt: Date.now(), lastSuccessAt: Date.now() });
-          void refresh();
+        .finally(async () => {
+          syncFlights.current.delete(id);
+          // Success timestamps come from the service, never from an attempted request.
+          await refresh();
+          if (!syncFailures.current.has(id)) {
+            setSources((current) => current.map((source) => source.id === id && source.state === 'syncing'
+              ? { ...source, state: 'idle' } : source));
+          }
         });
     },
-    [refresh],
+    [refresh, sources],
   );
 
   const store: Store = {
@@ -258,12 +306,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     syncAll: (full = false) => {
       // 全量同步在服务端是单实例任务，逐个来源发起会 409，所以只发一次。
       if (full) {
-        sources.forEach((s) => patchSource(s.id, { state: "syncing" }));
-        void startFullSync()
-          .catch(() => undefined)
-          .finally(() => {
-            void refresh();
-          });
+        syncFull();
         return;
       }
       sources.filter((s) => s.connected).forEach((s) => syncSource(s.id, false));
@@ -279,8 +322,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     completeSetup: () => {
       const at = Date.now();
+      launchHandled.current = true;
       setOpenedSince(p.lastViewedAt);
-      setSummaryOpen(true);
+      setSummaryOpen(p.settings.showLaunchSummary !== false);
       setP((prev) => ({ ...prev, setupDone: true, lastOpenedAt: at }));
       void refresh();
     },

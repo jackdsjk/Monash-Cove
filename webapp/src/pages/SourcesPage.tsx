@@ -67,8 +67,8 @@ function Dialog({ title, description, onClose, children }: { title: string; desc
   )
 }
 
-export function SourcesPage() {
-  const { sources, now, syncSource, syncAll, refresh } = useStore()
+export function SourcesPage({ setup = false }: { setup?: boolean }) {
+  const { sources, now, syncSource, syncAll, refresh, completeSetup } = useStore()
   const busy = sources.some((s) => s.state === 'syncing')
   const [credentials, setCredentials] = useState<CredentialInfo[]>([])
   const [dialog, setDialog] = useState<SourceId | null>(null)
@@ -221,8 +221,8 @@ export function SourcesPage() {
   return (
     <div className="mx-auto max-w-[1240px] px-10 py-8">
       <PageTitle
-        title="来源"
-        description="每个来源授权一次，此后在后台增量同步。凭据保存在本机钥匙串。"
+        title={setup ? '首次设置' : '来源'}
+        description={setup ? '选择需要的来源连接，也可以稍后再连接。凭据保存在本机。' : '每个来源授权一次，此后在后台增量同步。凭据保存在本机。'}
         actions={
           <Button onClick={() => syncAll()} disabled={busy}>
             <RefreshCw className={`h-3.5 w-3.5 ${busy ? 'animate-spin' : ''}`} />
@@ -299,6 +299,14 @@ export function SourcesPage() {
           )
         })}
       </Panel>
+
+      {setup && (
+        <div className="mt-5 flex flex-wrap justify-end gap-3">
+          <Button variant="primary" onClick={completeSetup} disabled={working || busy}>
+            {sources.some((s) => s.connected) ? '完成设置' : '暂时跳过，进入简报'}
+          </Button>
+        </div>
+      )}
 
       {dialog && (
         <Dialog
