@@ -49,7 +49,7 @@ Monash Cove 把这件事拆成四步：
 |---|---|
 | **适用** | 同时使用 Moodle、学校邮箱、Ed 和 OnTrack，需要定期确认课程动态，但不希望逐条读完所有通知的 Monash 在读学生 |
 | **不适用** | 非 Monash 用户（来源适配器直接对接 Monash 的 Moodle、Ed 和 OnTrack） |
-| **不适用** | 希望应用代为提交作业、回复消息或修改成绩的用户（本项目不提供写操作） |
+| **不适用** | 希望应用代为提交作业、回复消息或修改成绩的用户 |
 | **不适用** | 需要多人协作或云端同步的场景（当前是单用户、单机） |
 
 ## 3. 功能
@@ -174,6 +174,8 @@ cd webapp && npm install && npm run dev
 
 开发模式使用 Vite 开发服务器，打开 <http://127.0.0.1:5174/>；`local-service` 在 4317 提供 `/api`，由 Vite 代理。
 
+课程、成绩、Ed 学习内容与 OnTrack 使用页面共享查询和按账号隔离的 SQLite 快照；刷新或网络失败时保留已缓存数据。“每周资料”可设置学期、隐藏和置顶课程，控制批量资料与成绩读取范围。实现与验证边界见 [缓存实施报告](docs/muster-reuse-and-cache-2026-11-10.md)。
+
 ### 首次配置
 
 1. 进入「数据源」，依次连接 Gmail、Ed、Moodle、OnTrack；
@@ -200,7 +202,7 @@ cd webapp && npm install && npm run dev
 | 内容数据 | 邮件正文、课程内容、判断与变化记录只存在本机 SQLite |
 | 公开仓库 | 不包含真实 token、Cookie、数据库或账户信息 |
 | 网络请求 | 仅指向学校系统与 Google 的只读接口 |
-| 写操作 | 未实现，不存在误提交、误回复的风险 |
+| 外部写入 | 支持独立考勤提交流程；不支持提交作业、回复消息或修改成绩 |
 
 数据库位置：`~/Library/Application Support/Cove/cove.sqlite`。
 
@@ -210,6 +212,7 @@ cd webapp && npm install && npm run dev
 |---|---|
 | `cd local-service && npm run check` | 单元测试 + 构建 |
 | `cd webapp && npm run check` | 数据校验 + 类型检查 + 构建 |
+| `cd webapp && npm exec vitest run` | 前端单元测试（`check` 不包含此项） |
 | `cd webapp && npm run e2e` | 端到端冒烟 |
 
 ## 10. 当前状态与已知限制

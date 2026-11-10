@@ -49,7 +49,7 @@ It is not a calendar replacement, and it does not write your assignments. It rep
 |---|---|
 | **Fits** | A current Monash student who uses Moodle, university mail, Ed and OnTrack, needs to keep up with coursework, and would rather not read every notice one by one |
 | **Does not fit** | Non-Monash users — the adapters target Monash's Moodle, Ed and OnTrack directly |
-| **Does not fit** | Anyone expecting the app to submit work, reply to messages, or change grades — there are no write operations |
+| **Does not fit** | Anyone expecting the app to submit coursework, reply to messages, or change grades |
 | **Does not fit** | Multi-user or cloud-sync scenarios — this is single-user, single-machine software |
 
 ## 3. Features
@@ -174,6 +174,8 @@ cd webapp && npm install && npm run dev
 
 Development mode uses the Vite dev server at <http://127.0.0.1:5174/>; `local-service` serves `/api` on port 4317 and Vite proxies to it.
 
+Courses, grades, Ed lessons and OnTrack data use shared page queries and account-scoped SQLite snapshots. Cached data stays visible during refresh or network failure. Materials includes semester, hidden-course and pinned-course preferences for bulk material and grade reads; details and verification limits are in the [cache implementation report](docs/muster-reuse-and-cache-2026-11-10.md).
+
 ### First run
 
 1. Open **Sources** and connect Gmail, Ed, Moodle and OnTrack in turn;
@@ -200,7 +202,7 @@ Development mode uses the Vite dev server at <http://127.0.0.1:5174/>; `local-se
 | Content | Mail bodies, course content, judgements and change history live only in a local SQLite database |
 | Public repository | Contains no real tokens, cookies, databases or account details |
 | Network | Requests go only to university systems and Google's read-only APIs |
-| Write operations | None exist, so a stray submission or reply is not possible |
+| External writes | Attendance submission is supported through a dedicated flow; coursework submission, message replies and grade changes are not supported |
 
 Database location: `~/Library/Application Support/Cove/cove.sqlite`.
 
@@ -210,6 +212,7 @@ Database location: `~/Library/Application Support/Cove/cove.sqlite`.
 |---|---|
 | `cd local-service && npm run check` | Unit tests and build |
 | `cd webapp && npm run check` | Data checks, type check and build |
+| `cd webapp && npm exec vitest run` | Frontend unit tests (separate from `check`) |
 | `cd webapp && npm run e2e` | End-to-end smoke run |
 
 ## 10. Current status and known limits

@@ -1,6 +1,6 @@
 # Cove 开发记录与开发日志
 
-> 最后更新：2026-10-29
+> 最后更新：2026-11-10
 >
 > 本文记录当前项目的可核验开发状态、已完成工作、验证结果和后续边界。详细产品定义、评测规范和实现方案仍以对应专题文档为准。
 
@@ -12,7 +12,7 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 
 ### 当前阶段
 
-项目处于“价值回放完成最小闭环，准备进入 MVP 取舍”的阶段。
+项目已具备本地 Web App 与 Node/Fastify/SQLite 服务，当前进行现有流程的可靠性与读取性能改进。S1–S8 执行指针已为 done；历史真实账号验证以包级 README 和 `plan/real-path/execution-log.md` 为准。本次缓存实施只使用隔离 fixture，没有重新验证真实账号。
 
 已经完成：
 
@@ -29,6 +29,7 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - MVP P0 范围初版：五个能力域、ICE 评分、验收标准和明确砍掉项；
 - 本地 Web App 设计规范：Ant Design v6 参考、布局、token、组件映射和状态设计；
 - 本地 Web App v0.1 骨架：Vite + React + Ant Design，简报、Drawer、纠错、数据源和设置页面。
+- 本地 API、SQLite 持久化与来源适配器；课程、成绩、Ed、OnTrack 成功快照及共享查询缓存；课程同步偏好与统一完成状态。当前维护契约见两个包的 README。
 
 当前未完成：
 
@@ -37,11 +38,11 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - 摘要忠实度的严格评测；
 - 未参与调参的 holdout 模型回放与完整模型/提示词矩阵；
 - CI 评测门禁；
-- S8 真实账号验证：Gmail OAuth、Ed token、Moodle session 和真实样本。
+- 本次排查剩余 10 项问题，见 [审计状态](audit-2026-11-10.md)；包括首次设置、邮件同步、响应式与时区等。
 
 ### 当前实现边界
 
-本阶段代码分为三块：评测代码位于 `scripts/evaluation/`，静态原型位于 `demo/`，本地 Web App 位于 `webapp/`；输入和规范位于 `docs/`。确定性回放器本身：
+评测代码位于 `scripts/evaluation/`，静态原型位于 `demo/`，本地 Web App 位于 `webapp/`，凭据、SQLite 和来源同步由 `local-service/` 持有；输入和规范位于 `docs/`。确定性回放器本身：
 
 1. 读取匿名样本与最终裁决标签；
 2. 用确定性规则预测 `authority`、`content_type`、`importance`、`action_required` 和 `open_original`；
@@ -49,7 +50,7 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 4. 输出字段准确率、重要信息召回率、重要信息精确率、关键误报率、低价值压缩率和按来源结果；
 5. 输出全部分歧样本，按严重度和失效模式归类，并生成 Bad Case 清单。
 
-评测回放器不访问 Gmail、Ed、Moodle，不读取真实账号，不调用模型或外部 API，也不向 Cove Worker、数据库或外部服务写入数据。`demo/` 是零依赖静态原型；`webapp/` 是 Vite + React + Ant Design 的本地 Web App，读取同一份匿名 fixture，并用 `localStorage` 保存纠错、已读和查看窗口。两者都不包含真实登录、同步或来源链接。
+评测回放器不访问 Gmail、Ed、Moodle，不读取真实账号，不调用模型或外部 API，也不向 Cove Worker、数据库或外部服务写入数据。`demo/` 仍是无真实登录与同步的静态原型。`webapp/` 通过 `/api` 读取本地服务，支持来源连接、同步及来源链接；浏览器不持有学校凭据或 SQLite。fixture 仅是匿名开发/验证状态，不代表真实账号结果。
 
 ### 当前 baseline
 
@@ -70,7 +71,7 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 
 同一版本下有 29 条样本存在至少一个字段分歧：高 4、中 7、低 18。其中 `authority` 直接沿用样本的 `author_role`，证据句由原文切句得到，`open_original` 由 `importance` 与 `action_required` 推导，因此 100% 与 60.0% 不是独立能力指标；只有 `content_type`、`importance` 和 `action_required` 是从文本判断的字段，后两者依赖 `content_type`。这些数字是在同一批样本上调整规则得到的样本内结果，不能当作泛化能力。
 
-### 分支与提交状态
+### 早期评测阶段分支与提交记录（历史）
 
 - 工作分支：`codex/triage-evaluation-harness`；
 - 基线：`master` 的 `159006f`；
@@ -80,6 +81,14 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 - `stack/unicorn/wrangler.jsonc` 的既有本地修改不属于本阶段范围，未触碰。
 
 ## 二、开发日志
+
+### 2026-11-10：读取缓存、同步范围与完成状态
+
+- 采用 Muster 的成功快照、共享刷新、部分覆盖和账号代次隔离机制，适配现有后端；未复制参考业务代码。成绩、课程目录、Ed、OnTrack 接入 SQLite 快照与前端共享查询缓存，过期后台更新、失败保留旧值。
+- Materials 增加学期、隐藏、置顶同步范围，约束批量资料与成绩读取；详情、简报、截止页统一后端完成状态，已提交未评分继续复查。修复 OnTrack 账号缓存与断开回退、迁移当前路由 smoke。
+- 八批业务/验证修改已分别本地提交，未 push；详见 [实施报告](muster-reuse-and-cache-2026-11-10.md)。审计 05、09、11、13 已处理，其余 10 项仍待处理。
+- 后端 check：162 项测试及构建通过；前端 check 与 75 项 Vitest 通过；E2E 与隔离浏览器回归通过。模拟“成绩 → 资料 → 成绩”请求数 4 → 6 → 6，刷新及写入失败保留旧状态。没有测量真实 Moodle 耗时，没有访问真实账号或执行外部写入。
+- 尚未实现跨 API 单轮 HTML cache、课程主页 fingerprint 或成绩冷启动流式响应；首次设置仍为占位页。
 
 ### 2026-10-28：形成 prototype Gold Set
 

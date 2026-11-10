@@ -13,9 +13,9 @@
 | [../webapp/README.md](../webapp/README.md) | 本地 Web App 的运行、范围和边界 | **S1–S8 完成；三源 live；Moodle 论坛当前无内容** |
 | [../local-service/README.md](../local-service/README.md) | 本地 Node/SQLite/API 服务、运行方式、安全边界 | **S1–S8 完成；三源 live；Moodle 论坛当前无内容** |
 | [ui-component-audit-2026-10-30.md](ui-component-audit-2026-10-30.md) | 前端组件现状、第三方 UI 仓库索引、替换表和本次小幅改造 | **Command palette 已落地** |
-| [audit-2026-11-10.md](audit-2026-11-10.md) | 当前 Web App / 本地服务的接口、逻辑、页面排查及两个参考项目对比 | **14 项已确认问题；尚未修复** |
-| [muster-reuse-and-cache-2026-11-10.md](muster-reuse-and-cache-2026-11-10.md) | 页面读取慢的路径、Muster 缓存与复用缺口、优先项及缓存验收建议 | **源码与隔离请求计数已验证；业务缓存尚未实施** |
-| [plan/real-path/plan.md](plan/real-path/plan.md) | Agent 执行计划：S1–S8、连续执行规则、阶段验收和阻塞处理 | **S1 ready；未开始实现** |
+| [audit-2026-11-10.md](audit-2026-11-10.md) | 当前 Web App / 本地服务的接口、逻辑、页面排查及两个参考项目对比 | **14 项已确认；4 项已处理、10 项待处理** |
+| [muster-reuse-and-cache-2026-11-10.md](muster-reuse-and-cache-2026-11-10.md) | 页面读取基线、Muster 机制适配、实施边界与验证结果 | **缓存基础版本、同步范围与状态一致性已实施；测试及隔离浏览器回归通过** |
+| [plan/real-path/plan.md](plan/real-path/plan.md) | Agent 执行计划：S1–S8、连续执行规则、阶段验收和阻塞处理 | **执行指针为 done；历史真实账号记录见 next.md / execution-log.md** |
 | [plan/release-signing.md](plan/release-signing.md) | 发布产物的签名、完整性校验、更新通道与 CI 断言方案（参照 Muster，含 macOS/Windows 差异） | **草案；S0 未实施** |
 | [information-triage-labeling-guide.md](information-triage-labeling-guide.md) | 真实样本的匿名化、人工标注口径与第一版评测指标 | **当前评测规范** |
 | [value-replay-2026-10-28.md](value-replay-2026-10-28.md) | 第一轮真实数据统计、价值判断及继续/停止标准 | **当前验证记录** |
