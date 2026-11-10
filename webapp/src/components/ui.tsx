@@ -72,7 +72,7 @@ export function Tag({ children, tone = 'slate' }: { children: ReactNode; tone?: 
 }
 
 export function Panel({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-2xl border border-line bg-white ${className}`}>{children}</div>
+  return <div className={`min-w-0 max-w-full rounded-2xl border border-line bg-white ${className}`}>{children}</div>
 }
 
 export function SectionHeader({
@@ -87,7 +87,7 @@ export function SectionHeader({
   right?: ReactNode
 }) {
   return (
-    <div className="mb-3 flex items-center justify-between gap-4">
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2.5">
         <h2 className="text-[17px] font-bold tracking-tight text-slate-900">{title}</h2>
         {count !== undefined && (
@@ -114,12 +114,12 @@ export function PageTitle({
   actions?: ReactNode
 }) {
   return (
-    <header className="mb-7 flex items-end justify-between gap-6">
+    <header className="mb-7 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end sm:gap-6">
       <div className="min-w-0">
         <h1 className="text-[28px] leading-tight font-bold tracking-tight text-slate-900">{title}</h1>
-        {description && <p className="mt-1.5 text-[15px] text-slate-600">{description}</p>}
+        {description && <p className="mt-1.5 break-words text-[15px] text-slate-600">{description}</p>}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      {actions && <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div>}
     </header>
   )
 }
@@ -200,7 +200,7 @@ export function Row({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className={`block w-full px-5 py-3 text-left text-sm transition-colors hover:bg-brand-50/50 ${
+      className={`block min-w-[800px] w-full px-5 py-3 text-left text-sm transition-colors hover:bg-brand-50/50 ${
         dim ? 'text-slate-500' : 'text-slate-800'
       }`}
     >

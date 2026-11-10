@@ -159,7 +159,7 @@ export function GradesPage() {
 
   if (courses === null && !error) {
     return (
-      <div className="mx-auto max-w-[1240px] px-10 py-8">
+      <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
         {header}
         <Panel className="p-8">
           <p className="text-sm font-semibold text-slate-900">正在读取 Moodle 成绩册…</p>
@@ -171,7 +171,7 @@ export function GradesPage() {
 
   if (courses === null) {
     return (
-      <div className="mx-auto max-w-[1240px] px-10 py-8">
+      <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
         {header}
         <Panel className="p-8">
           <p className="text-sm font-semibold text-slate-900">没能读到 Moodle 成绩册</p>
@@ -187,7 +187,7 @@ export function GradesPage() {
 
   if (courses.length === 0 || !course || !summary) {
     return (
-      <div className="mx-auto max-w-[1240px] px-10 py-8">
+      <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
         {header}
         <Panel className="p-8 text-center">
           <p className="text-sm font-semibold text-slate-900">Moodle 成绩册里还没有可显示的成绩</p>
@@ -208,11 +208,11 @@ export function GradesPage() {
   const earnedKnown = breakdown.totalWeight > 0
 
   return (
-    <div className="mx-auto max-w-[1240px] px-10 py-8">
+    <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
       {header}
 
       {/* 概览 */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="WAM" value="—">
           Moodle 成绩册不提供历史学期与学分，无法计算。
         </StatCard>
@@ -260,7 +260,7 @@ export function GradesPage() {
       {/* 各课程 */}
       <section className="mt-9">
         <SectionHeader title="各课程" right={<Legend hasWeights={hasWeights} />} />
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           {courses.map((entry) => {
             const s = summaries.get(entry.courseId) ?? courseSummary(entry)
             const on = entry.courseId === course.courseId
@@ -319,9 +319,9 @@ export function GradesPage() {
       {/* 选中课程的明细 */}
       <section className="mt-9">
         <SectionHeader title={code ? `${code} 评估项目` : `${name} 评估项目`} count={course.items.length} hint={code ? name : undefined} />
-        <Panel className="grid grid-cols-[minmax(0,1fr)_400px] overflow-hidden">
-          <div className="border-r border-line">
-            <div className="grid grid-cols-[minmax(0,1fr)_56px_120px_96px_20px] gap-3 border-b border-line bg-slate-50/70 px-5 py-2.5 text-xs font-medium text-slate-500">
+        <Panel className="grid grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_400px]">
+          <div className="min-w-0 overflow-x-auto border-r border-line">
+            <div className="grid min-w-[600px] grid-cols-[minmax(0,1fr)_56px_120px_96px_20px] gap-3 border-b border-line bg-slate-50/70 px-5 py-2.5 text-xs font-medium text-slate-500">
               <span>项目</span>
               <span className="text-right">权重</span>
               <span>评分状态</span>
@@ -340,7 +340,7 @@ export function GradesPage() {
                       <button
                         onClick={() => setItemId(row.id)}
                         aria-current={on ? 'true' : undefined}
-                        className={`grid w-full grid-cols-[minmax(0,1fr)_56px_120px_96px_20px] items-center gap-3 px-5 py-3 text-left text-sm transition-colors ${
+                        className={`grid min-w-[600px] w-full grid-cols-[minmax(0,1fr)_56px_120px_96px_20px] items-center gap-3 px-5 py-3 text-left text-sm transition-colors ${
                           on ? 'bg-brand-50/70' : 'hover:bg-slate-50'
                         }`}
                       >

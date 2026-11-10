@@ -155,7 +155,7 @@ export function EdPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1240px] px-10 py-8">
+    <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
       <PageTitle
         title="Ed 学习内容"
         description="按课程和 lesson 浏览 Ed 中的视频、文字与附件，可以一键下载到本机。"
@@ -218,7 +218,7 @@ export function EdPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-[320px_minmax(0,1fr)] gap-5">
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
             <Panel className="overflow-hidden">
               {loading && lessons.length === 0 ? (
                 <EmptyLine>正在读取 lesson 内容…</EmptyLine>

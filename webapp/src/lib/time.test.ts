@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { fmtDate, fmtDue, fmtWhen, hm } from './time'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { TimezoneContext, useTime } from './time'
 
 describe('configured display time zone', () => {
   const at = Date.parse('2026-11-10T12:00:00Z')
@@ -24,5 +27,13 @@ describe('configured display time zone', () => {
 
   it('falls back safely when an old saved setting contains an invalid zone', () => {
     expect(hm(at, 'invalid-zone')).toBe('20:00')
+  })
+
+  it('binds consumers to the current provider rather than a global initial value', () => {
+    function Clock() { return createElement('time', null, useTime().hm(at)) }
+    const render = (value: string) => renderToStaticMarkup(createElement(TimezoneContext.Provider, { value }, createElement(Clock)))
+    expect(render('Asia/Kuala_Lumpur')).toContain('20:00')
+    expect(render('UTC')).toContain('12:00')
+    expect(render('Australia/Melbourne')).toContain('23:00')
   })
 })

@@ -101,7 +101,7 @@ export function PackPage() {
 
   if (!current) {
     return (
-      <div className="mx-auto max-w-[1240px] px-10 py-8">
+      <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
         <PageTitle
           title="作业资料包"
           description="把作业要求、评分标准、变更记录和相关 Ed 帖子打包成 Markdown 或 JSON，交给你自己的 AI 工具参考。"
@@ -136,7 +136,7 @@ export function PackPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1240px] px-10 py-8">
+    <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
       <PageTitle
         title="作业资料包"
         description="把作业要求、评分标准、变更记录和相关 Ed 帖子打包成 Markdown 或 JSON，交给你自己的 AI 工具参考。"
@@ -144,7 +144,7 @@ export function PackPage() {
 
       {banner}
 
-      <div className="grid grid-cols-[360px_minmax(0,1fr)] items-start gap-5">
+      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
         <div className="space-y-5">
           <Panel className="overflow-hidden">
             <p className="border-b border-line bg-slate-50/70 px-5 py-3 text-sm font-bold text-slate-900">选择作业</p>

@@ -136,7 +136,7 @@ export function BriefPage() {
   )
 
   const tableHead = (cols: string, labels: string[]) => (
-    <div className={`grid ${cols} gap-3 border-b border-line bg-slate-50/70 px-5 py-2.5 text-xs font-medium text-slate-500`}>
+    <div className={`grid min-w-[800px] ${cols} gap-3 border-b border-line bg-slate-50/70 px-5 py-2.5 text-xs font-medium text-slate-500`}>
       {labels.map((l, idx) => (
         <span key={l} className={idx === labels.length - 1 && cols !== CHANGE_COLS ? 'text-right' : ''}>
           {l}
@@ -146,7 +146,7 @@ export function BriefPage() {
   )
 
   return (
-    <div className="mx-auto max-w-[1240px] px-10 py-8">
+    <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
       {sources.some((source) => source.isFixture) && (
         <p role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
           当前包含示例数据，不代表真实账号同步结果。请到来源页连接账号。
@@ -241,7 +241,7 @@ export function BriefPage() {
       ))}
 
       {unconnected.length === sources.length ? (
-        <Panel className="mb-8 flex items-center gap-5 px-6 py-5">
+        <Panel className="mb-8 flex flex-wrap items-center gap-5 px-6 py-5">
           <IconTile icon={PlugZap} />
           <div className="min-w-0 flex-1">
             <p className="text-[15px] font-bold text-slate-900">还没有连接任何来源</p>
@@ -274,7 +274,7 @@ export function BriefPage() {
         {d.suggestions.length > 0 && (
           <section aria-labelledby="sg">
             <SectionHeader title="建议先看" hint="可能值得先看，理由都可以在原文中核对" />
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {d.suggestions.map(({ item, reason }) => {
                 const r = REASON_ICON[reason]
                 return (
@@ -317,7 +317,7 @@ export function BriefPage() {
               )
             }
           />
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
             {SOURCE_ORDER.map((s) => {
               const st = sources.find((x) => x.id === s)!
               const on = f.source === s
@@ -359,7 +359,7 @@ export function BriefPage() {
         {/* 4. 变更记录 */}
         <section>
           <SectionHeader title="变更记录" count={d.windowChanges.length} hint="字段前后对比" />
-          <Panel className="overflow-hidden">
+          <Panel className="overflow-x-auto">
             {d.windowChanges.length === 0 ? (
               <EmptyLine>{view === 'since' ? '自上次查看没有字段级变更' : '没有字段级变更'}</EmptyLine>
             ) : (
@@ -397,7 +397,7 @@ export function BriefPage() {
         {/* 5. 本次新增 / 全部条目 */}
         <section>
           <SectionHeader title={view === 'since' ? '本次新增' : '全部条目'} count={d.newItems.length} hint="按时间倒序" />
-          <Panel className="overflow-hidden">
+          <Panel className="overflow-x-auto">
             {d.newItems.length === 0 ? (
               <EmptyLine>这段时间没有新增内容</EmptyLine>
             ) : (
@@ -420,7 +420,7 @@ export function BriefPage() {
         {d.noCourse.length > 0 && (
           <section>
             <SectionHeader title="没能归到课程" count={d.noCourse.length} hint="没有匹配到你的课程，需要你自己判断是否相关" />
-            <Panel className="overflow-hidden">
+            <Panel className="overflow-x-auto">
               {tableHead(NOCOURSE_COLS, ['同步时间', '来源', '标题', '发布者'])}
               <div className="divide-y divide-line">{d.noCourse.map((i) => itemRow(i, false))}</div>
             </Panel>
@@ -442,7 +442,7 @@ export function BriefPage() {
               <span className="ml-auto text-[13px] font-medium text-slate-600">{pastShown > 0 ? '收起' : '展开'}</span>
             </button>
             {pastShown > 0 && (
-              <Panel className="overflow-hidden">
+              <Panel className="overflow-x-auto">
                 {tableHead(ITEM_COLS, ['同步时间', '来源', '课程', '标题', '发布者'])}
                 <div className="divide-y divide-line">{d.past.slice(0, pastShown).map((i) => itemRow(i))}</div>
                 <div className="flex items-center justify-center gap-2 border-t border-line px-5 py-2.5">

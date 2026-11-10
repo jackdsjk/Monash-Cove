@@ -42,7 +42,7 @@ const STATUS: Record<string, OnTrackStatus> = {
   complete: 'Complete',
 }
 
-const COLS = 'grid-cols-[64px_minmax(0,1fr)_48px_150px_170px_170px_56px]'
+const COLS = 'min-w-[1000px] grid-cols-[64px_minmax(0,1fr)_48px_150px_170px_170px_56px]'
 
 const WEEK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
@@ -86,7 +86,7 @@ export function OnTrackPage() {
   const units = Array.from(new Set(tasks.map((t) => t.unitCode)))
 
   return (
-    <div className="mx-auto max-w-[1240px] px-10 py-8">
+    <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
       <PageTitle title="OnTrack 任务" description="从 OnTrack 只读同步的任务状态与日期。在 OnTrack 中修改后，下次同步会更新到这里。"
         actions={<Button disabled={overviewQuery.loading || taskQuery.loading} onClick={refresh}>刷新任务</Button>} />
       <CacheStatus cache={overviewQuery.cache ?? taskQuery.cache} loading={overviewQuery.loading || taskQuery.loading} error={error ?? null} />
@@ -101,7 +101,7 @@ export function OnTrackPage() {
       ) : (
         <div className="space-y-5">
           {units.map((u) => (
-            <Panel key={u} className="overflow-hidden">
+            <Panel key={u} className="overflow-x-auto">
               <div className="border-b border-line bg-slate-50/70 px-5 py-3 text-[15px] font-bold text-slate-900">{u}</div>
               <div className={`grid ${COLS} gap-3 border-b border-line px-5 py-2.5 text-xs font-medium text-slate-500`}>
                 <span>编号</span>

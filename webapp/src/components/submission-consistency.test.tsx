@@ -4,8 +4,12 @@ import { ItemDrawer } from './ItemDrawer'
 import { DeadlinesPage } from '../pages/DeadlinesPage'
 import { useStore } from '../store'
 import type { Item } from '../data/model'
+import type { ReactNode } from 'react'
 
 vi.mock('../store', () => ({ useStore: vi.fn() }))
+// The mature drawer manages focus in the browser; these SSR tests check the
+// shared completion content without depending on its client-only portal lifecycle.
+vi.mock('antd', () => ({ Drawer: ({ open, children }: { open: boolean; children?: ReactNode }) => open ? <aside>{children}</aside> : null }))
 
 const now = Date.parse('2026-11-10T10:00:00Z')
 const item: Item = {

@@ -196,7 +196,7 @@ export function MaterialsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1240px] px-10 py-8">
+    <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
       <PageTitle
         title="每周资料"
         description="按 Moodle 板块列出资料、作业和公告。资料文件可以批量下载到本机。"
@@ -257,7 +257,7 @@ export function MaterialsPage() {
           const ids = w.entries.filter((e) => e.downloadable).map((e) => e.id)
           const all = ids.length > 0 && ids.every((id) => selected.has(id))
           return (
-            <Panel key={w.number} className="overflow-hidden">
+            <Panel key={w.number} className="overflow-x-auto">
               <div className="flex items-center justify-between border-b border-line bg-slate-50/70 px-5 py-3">
                 <h2 className="text-[15px] font-bold text-slate-900">
                   {w.label} {w.title && <span className="font-normal text-slate-500">· {w.title}</span>}
@@ -275,7 +275,7 @@ export function MaterialsPage() {
               </div>
               <ul className="divide-y divide-line">
                 {w.entries.map((e) => (
-                  <li key={e.id} className="grid grid-cols-[24px_56px_minmax(0,1fr)_80px] items-center gap-3 px-5 py-3 text-sm">
+                  <li key={e.id} className="grid min-w-[480px] grid-cols-[24px_56px_minmax(0,1fr)_80px] items-center gap-3 px-5 py-3 text-sm">
                     <input
                       type="checkbox"
                       aria-label={`选择 ${e.name}`}

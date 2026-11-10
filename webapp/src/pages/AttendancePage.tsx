@@ -15,7 +15,7 @@ import { useTime } from '../lib/time'
 import { Button, EmptyLine, PageTitle, Panel, Tag } from '../components/ui'
 import { AttendanceSubmitDialog } from '../components/AttendanceSubmitDialog'
 
-const COLS = 'grid-cols-[80px_100px_190px_minmax(0,1fr)_230px_190px]'
+const COLS = 'min-w-[1000px] grid-cols-[80px_100px_190px_minmax(0,1fr)_230px_190px]'
 
 /** fill-all 每个 code 都要新开一次浏览器；一次请求里塞太多会被 20s 客户端超时截断 */
 const BULK_CHUNK = 3
@@ -261,7 +261,7 @@ export function AttendancePage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1240px] px-10 py-8">
+    <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
       <PageTitle
         title="考勤"
         description={`本周 ${weekCount} 个班次（共 ${codes.length} 个代码）。上课开始后开放填写，截止到 ${fmtDue(weekEnd)}。`}
@@ -325,7 +325,7 @@ export function AttendancePage() {
         </p>
       </div>
 
-      <div className="mb-5 grid grid-cols-4 gap-4">
+      <div className="mb-5 grid grid-cols-2 gap-4 xl:grid-cols-4">
         {stats.map(([label, value, tone]) => (
           <div key={label} className="rounded-2xl border border-line bg-white px-5 py-4">
             <p className="text-[13px] font-medium text-slate-600">{label}</p>
@@ -357,7 +357,7 @@ export function AttendancePage() {
         </div>
       )}
 
-      <Panel className="overflow-hidden">
+      <Panel className="overflow-x-auto">
         <div className={`grid ${COLS} gap-3 border-b border-line bg-slate-50/70 px-5 py-2.5 text-xs font-medium text-slate-500`}>
           <span>课程</span>
           <span>班次</span>

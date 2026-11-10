@@ -220,7 +220,7 @@ export function SourcesPage({ setup = false }: { setup?: boolean }) {
   const assistantSource = dialog === 'moodle' || dialog === 'ontrack' ? dialog : null
 
   return (
-    <div className="mx-auto max-w-[1240px] px-10 py-8">
+    <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
       <PageTitle
         title={setup ? '首次设置' : '来源'}
         description={setup ? '选择需要的来源连接，也可以稍后再连接。凭据保存在本机。' : '每个来源授权一次，此后在后台增量同步。凭据保存在本机。'}
@@ -236,7 +236,7 @@ export function SourcesPage({ setup = false }: { setup?: boolean }) {
           const entry = credentials.find((c) => c.source === s.id)
           const needsRelogin = s.id === 'moodle' && s.connected && SESSION_EXPIRED.test(s.error ?? '')
           return (
-            <div key={s.id} className="grid grid-cols-[minmax(0,1fr)_220px_90px_200px] items-center gap-6 px-5 py-4">
+            <div key={s.id} className="grid grid-cols-1 items-center gap-3 lg:grid-cols-[minmax(0,1fr)_200px_60px_180px] lg:gap-5 px-5 py-4">
               <div className="min-w-0">
                 <p className="flex items-center gap-2 text-[14px] font-semibold text-slate-900">
                   <span aria-hidden className={`h-2.5 w-2.5 rounded-[2px] ${SOURCE_MARK[s.id]}`} />
@@ -271,11 +271,11 @@ export function SourcesPage({ setup = false }: { setup?: boolean }) {
                 )}
               </div>
 
-              <div className="text-right text-[13px] text-slate-700">
+              <div className="text-[13px] text-slate-700 lg:text-right">
                 {s.itemCount} <span className="text-xs text-slate-500">条</span>
               </div>
 
-              <div className="flex justify-end gap-2">
+              <div className="flex flex-wrap gap-2 lg:justify-end">
                 {s.connected ? (
                   <>
                     <Button
@@ -291,7 +291,7 @@ export function SourcesPage({ setup = false }: { setup?: boolean }) {
                     </Button>
                   </>
                 ) : (
-                  <Button size="sm" variant="primary" disabled={s.state === 'syncing' || working} onClick={() => connect(s.id)}>
+                  <Button size="sm" variant="primary" aria-label={`连接 ${SOURCE_LABEL[s.id]}`} disabled={s.state === 'syncing' || working} onClick={() => connect(s.id)}>
                     {s.state === 'syncing' ? '连接中…' : '连接'}
                   </Button>
                 )}

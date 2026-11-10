@@ -16,7 +16,7 @@ const MCP_SNIPPET = `{
 
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
-    <section className="grid grid-cols-[240px_minmax(0,1fr)] gap-8 border-b border-line py-6 last:border-b-0">
+    <section className="grid min-w-0 grid-cols-1 gap-4 border-b border-line py-6 last:border-b-0 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-8">
       <div>
         <h2 className="text-[14px] font-semibold text-slate-900">{title}</h2>
         {description && <p className="mt-1 text-xs leading-relaxed text-slate-500">{description}</p>}
@@ -28,7 +28,7 @@ function Section({ title, description, children }: { title: string; description?
 
 function Line({ label, detail, action }: { label: string; detail?: string; action: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-6 px-4 py-3">
+    <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 px-4 py-3">
       <div>
         <p className="text-[13px] font-medium text-slate-800">{label}</p>
         {detail && <p className="mt-0.5 text-xs text-slate-500">{detail}</p>}
@@ -142,7 +142,7 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1040px] px-10 py-8">
+    <div className="mx-auto max-w-[1040px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
       <PageTitle title="设置" />
       <Panel className="px-6">
         <Section title="称呼与地区" description="地区决定截止时间的显示时区。">
@@ -180,7 +180,7 @@ export function SettingsPage() {
           </label>
         </Section>
 
-        <Section title="同步" description="平时只做增量同步。全量同步会重新读取所有来源，耗时较长。">
+        <Section title="同步" description="平时只做增量同步。全量同步会重新读取已配置的 Gmail、Ed、Moodle，耗时较长。">
           <div className="divide-y divide-line rounded-md border border-line">
             <Line
               label="全量同步"
@@ -214,7 +214,7 @@ export function SettingsPage() {
 
         <Section title="MCP 只读接入" description="把本地数据以只读方式提供给你自己的 Agent。不会暴露凭据，也不能写入。">
           <div className="relative">
-            <pre className="rounded-md border border-line bg-slate-50 px-4 py-3 font-mono text-xs leading-relaxed text-slate-700">{MCP_SNIPPET}</pre>
+            <pre className="overflow-x-auto rounded-md border border-line bg-slate-50 px-4 py-3 font-mono text-xs leading-relaxed text-slate-700">{MCP_SNIPPET}</pre>
             <Button
               size="sm"
               className="absolute top-2 right-2"

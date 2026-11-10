@@ -75,7 +75,7 @@ export function LaunchSummary() {
         aria-modal="true"
         aria-labelledby="launch-title"
         onClick={(e) => e.stopPropagation()}
-        className="dialog-enter flex max-h-[88vh] w-[780px] flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-2xl"
+        className="dialog-enter flex max-h-[88vh] w-full max-w-[780px] flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-2xl"
       >
         <header className="relative shrink-0 border-b border-brand-100 bg-brand-50/70 px-6 pt-5 pb-4">
           <button onClick={close} aria-label="关闭" className="absolute top-4 right-4 rounded p-1 text-slate-500 hover:bg-white hover:text-slate-900">
@@ -90,7 +90,7 @@ export function LaunchSummary() {
             {!empty && ` · ${d.winChanges.length} 处字段变更，${d.fresh.length} 条新增，${d.noCourse.length} 条没能归到课程`}
           </p>
 
-          <div className="mt-4 grid grid-cols-4 divide-x divide-brand-100 rounded-xl border border-brand-100 bg-white">
+          <div className="mt-4 grid grid-cols-2 divide-x divide-brand-100 rounded-xl border border-brand-100 bg-white sm:grid-cols-4">
             {SOURCE_ORDER.map((s) => (
               <div key={s} className="px-4 py-2.5">
                 <p className="flex items-center gap-1.5 text-xs text-slate-600">
@@ -187,9 +187,9 @@ export function LaunchSummary() {
           )}
         </div>
 
-        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-line bg-slate-50/70 px-6 py-3">
+        <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-line bg-slate-50/70 px-6 py-3">
           <span className="text-xs text-slate-500">关闭后，这些内容仍在「自上次查看」中</span>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button onClick={close}>稍后再看</Button>
             {!empty && (
               <Button

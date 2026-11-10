@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Drawer } from 'antd'
 import { ArrowRight, Check, ExternalLink, Layers, X } from 'lucide-react'
 import { useStore } from '../store'
 import { FIELD_LABEL, JUDGMENT_LABEL, SOURCE_LABEL, type ItemChange } from '../data/model'
@@ -21,13 +22,18 @@ export function ItemDrawer() {
     setFullText(false)
   }, [openItemId])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && openItem(null)
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [openItem])
-
-  if (!item) return null
+  const drawerProps = {
+    title: '条目详情',
+    onClose: () => openItem(null),
+    getContainer: false as const,
+    size: 'min(500px, 100vw)',
+    closable: { placement: 'end' as const, 'aria-label': '关闭' },
+    closeIcon: <X aria-hidden className="h-4 w-4" />,
+    focusable: { trap: true, focusTriggerAfterClose: true },
+    styles: { body: { padding: 0, display: 'flex', flexDirection: 'column' as const, overflow: 'hidden' } },
+  }
+  // Keep the primitive mounted while closing so it can restore focus to the trigger.
+  if (!item) return <Drawer {...drawerProps} open={false} />
 
   const mark = marks[item.id] ?? {}
   const itemChanges = changes.filter((c) => c.itemId === item.id).sort((a, b) => b.detectedAt - a.detectedAt)
@@ -36,21 +42,16 @@ export function ItemDrawer() {
   const completion = completionUpdates[item.id]
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end" role="dialog" aria-modal="true" aria-label="条目详情">
-      <div className="overlay-enter absolute inset-0 bg-slate-900/20" onClick={() => openItem(null)} />
-      <aside className="drawer-enter relative flex h-full w-[500px] flex-col border-l border-line bg-white shadow-xl">
-        <div className="flex h-12 shrink-0 items-center justify-between border-b border-line px-5">
+    <Drawer {...drawerProps} open>
+        <div className="flex min-h-12 shrink-0 items-center justify-between border-b border-line px-5 py-3">
           <div className="flex items-center gap-2 text-[13px] text-slate-600">
             <Source id={item.source} />
             <span className="text-slate-300">/</span>
             <span className="truncate">{item.location}</span>
           </div>
-          <button onClick={() => openItem(null)} aria-label="关闭" className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900">
-            <X className="h-4 w-4" />
-          </button>
         </div>
 
-        <div className="scroll-y flex-1 space-y-6 px-5 py-5">
+        <div className="scroll-y min-h-0 flex-1 space-y-6 overscroll-contain px-5 py-5">
           <div>
             <p className="text-xs text-slate-500">
               {course ? [course.code, course.name].filter(Boolean).join(' · ') : item.course || '没能归到课程'} · {item.objectType}
@@ -176,8 +177,7 @@ export function ItemDrawer() {
             <p className="mt-2 text-xs text-slate-500">这条不会出现在「自上次查看」中，切换到「全部」可以找回。</p>
           )}
         </div>
-      </aside>
-    </div>
+    </Drawer>
   )
 }
 

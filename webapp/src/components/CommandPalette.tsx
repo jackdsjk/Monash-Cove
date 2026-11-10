@@ -63,7 +63,7 @@ export function CommandPalette() {
         role="dialog"
         aria-label="跳转"
         onClick={(e) => e.stopPropagation()}
-        className="dialog-enter w-[560px] overflow-hidden rounded-2xl border border-line bg-white shadow-2xl"
+        className="dialog-enter w-full max-w-[560px] overflow-hidden rounded-2xl border border-line bg-white shadow-2xl"
       >
         <div className="flex items-center gap-2.5 border-b border-line px-4">
           <Search className="h-4 w-4 text-slate-400" />

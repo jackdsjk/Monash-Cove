@@ -8,8 +8,8 @@ import { fmtCountdown, useTime } from '../lib/time'
 import { Button, Course, DuePill, EmptyLine, PageTitle, Panel, SectionHeader, Source, Tag } from '../components/ui'
 
 const H = 3600_000
-const COLS = 'grid-cols-[180px_110px_76px_84px_minmax(0,1fr)_110px]'
-const EXAM_COLS = 'grid-cols-[88px_minmax(0,1fr)_224px_minmax(0,190px)_76px_96px]'
+const COLS = 'min-w-[850px] grid-cols-[180px_110px_76px_84px_minmax(0,1fr)_110px]'
+const EXAM_COLS = 'min-w-[850px] grid-cols-[88px_minmax(0,1fr)_224px_minmax(0,190px)_76px_96px]'
 const WEEKDAY: Record<string, string> = {
   Sun: '周日',
   Mon: '周一',
@@ -120,7 +120,7 @@ export function DeadlinesPage() {
       .join(' · ') || '来自 Monash 学生门户（不是 Moodle）')
 
   return (
-    <div className="mx-auto max-w-[1240px] px-10 py-8">
+    <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
       <PageTitle title="截止时间" description={`共 ${withDue.length} 项有结构化截止时间。没有结构化截止时间的条目不显示。`} />
       <div className="space-y-8">
         <section>
@@ -135,7 +135,7 @@ export function DeadlinesPage() {
               </Button>
             }
           />
-          <Panel className="overflow-hidden">
+          <Panel className="overflow-x-auto">
             {!examsReady ? (
               <p className="px-5 py-4 text-sm text-slate-500">正在读取考试安排…</p>
             ) : exams.length > 0 ? (
@@ -215,7 +215,7 @@ export function DeadlinesPage() {
         {groups.map((g) => (
           <section key={g.title}>
             <SectionHeader title={g.title} count={g.list.length} />
-            <Panel className="overflow-hidden">
+            <Panel className="overflow-x-auto">
               {g.list.length === 0 ? (
                 <p className="px-5 py-4 text-sm text-slate-500">无</p>
               ) : (

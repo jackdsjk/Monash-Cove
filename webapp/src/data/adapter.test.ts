@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BriefItem } from '../types'
-import { toItem } from './adapter'
+import { toItem, toSource } from './adapter'
 import { lastActivity } from '../lib/brief'
 
 const now = Date.parse('2026-11-10T12:00:00Z')
@@ -23,4 +23,10 @@ describe('first discovery time', () => {
     expect(toItem({ ...item, firstSeenAt: undefined }, now).firstSeenAt).toBe(Date.parse(item.publishedAt!))
     expect(toItem({ ...item, firstSeenAt: 'invalid' }, now).firstSeenAt).toBe(Date.parse(item.publishedAt!))
   })
+})
+
+it('labels fixture sources as examples without treating them as connected accounts', () => {
+  const source = toSource({ id: 'moodle', label: 'Moodle', status: 'fixture', lastSyncAt: null, lastError: null, itemCount: 2 }, 2)
+  expect(source.isFixture).toBe(true)
+  expect(source.connected).toBe(false)
 })
