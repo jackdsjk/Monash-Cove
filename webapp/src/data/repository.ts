@@ -1,4 +1,4 @@
-import type { CredentialInfo, OnTrackAccount, OnTrackCommentView, OnTrackProjectView, OnTrackTaskView, OnTrackOverview, AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, MoodleGradeCourse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
+import type { CredentialInfo, OnTrackAccount, OnTrackCommentView, OnTrackProjectView, OnTrackTaskView, OnTrackOverview, AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, MoodleGradeCourse, PortalExamsResponse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
 
 export interface BriefData {
   items: BriefItem[];
@@ -298,4 +298,54 @@ export async function syncMoodleContent(courseId: number): Promise<{ sections: n
     throw new Error(body?.error?.message ?? `Moodle sync returned ${response.status}`);
   }
   return response.json() as Promise<{ sections: number; items: number }>;
+}
+
+/** 同步要启动真实 Chrome，后端最长等 60 秒；客户端留出启动余量。 */
+const PORTAL_SYNC_TIMEOUT_MS = 90_000;
+
+export class PortalExamsError extends Error {
+  readonly code: string;
+  readonly status: number;
+
+  constructor(message: string, code: string, status: number) {
+    super(message);
+    this.name = "PortalExamsError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+/** 已落库的考试时间表；未连接时返回空列表而不是报错。 */
+export async function fetchPortalExams(): Promise<PortalExamsResponse> {
+  const response = await request("/portal/exams", { signal: AbortSignal.timeout(30_000) });
+  const body = (await response.json().catch(() => null)) as
+    | (PortalExamsResponse & { error?: { code?: string; message?: string } })
+    | null;
+  if (!response.ok || !body?.exams) {
+    throw new PortalExamsError(
+      body?.error?.message ?? `读取考试时间表失败（HTTP ${response.status}）`,
+      body?.error?.code ?? "portal_request_failed",
+      response.status,
+    );
+  }
+  return body;
+}
+
+/** 抓一次学生门户并落库；未登录时后端返回 409 portal_not_connected。 */
+export async function syncPortalExams(): Promise<{ count: number; syncedAt: string }> {
+  const response = await request("/portal/exams/sync", {
+    method: "POST",
+    signal: AbortSignal.timeout(PORTAL_SYNC_TIMEOUT_MS),
+  });
+  const body = (await response.json().catch(() => null)) as
+    | { count?: number; syncedAt?: string; error?: { code?: string; message?: string } }
+    | null;
+  if (!response.ok || typeof body?.count !== "number" || !body.syncedAt) {
+    throw new PortalExamsError(
+      body?.error?.message ?? `同步考试时间表失败（HTTP ${response.status}）`,
+      body?.error?.code ?? "portal_sync_failed",
+      response.status,
+    );
+  }
+  return { count: body.count, syncedAt: body.syncedAt };
 }

@@ -133,6 +133,29 @@ export interface AttendanceStatus {
   assistant: AttendanceAssistantState;
 }
 
+/** 一场考试，来自 Monash 学生门户（不是 Moodle）。 */
+export interface PortalExam {
+  id: string;
+  courseCode: string;
+  /** 门户里的考试类型（如 Final Examination），单位名称留在 raw_json。 */
+  title: string;
+  startMs: number;
+  endMs: number;
+  /** IANA 时区，如 Asia/Kuala_Lumpur；日期时间必须按它显示。 */
+  timezone: string;
+  campus: string;
+  location: string;
+  seat: string | null;
+  durationMin: number | null;
+}
+
+export interface PortalExamsResponse {
+  exams: PortalExam[];
+  syncedAt: string | null;
+  /** 已保存的学生门户登录 profile 是否存在；不代表这次会话仍有效。 */
+  connected: boolean;
+}
+
 export interface RuntimeCheck {
   id: string;
   label: string;

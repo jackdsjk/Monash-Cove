@@ -150,6 +150,29 @@ export interface MoodleContentRow {
   sizeBytes?: number | null;
 }
 
+/** One exam row captured from the Monash student portal. */
+export interface PortalExam {
+  id: string;
+  courseCode: string;
+  /** The portal's activity type ("Final Examination"), not the unit name. */
+  title: string;
+  startMs: number;
+  endMs: number;
+  /** IANA zone the portal reports for this exam, e.g. "Asia/Kuala_Lumpur". */
+  timezone: string;
+  campus: string;
+  location: string;
+  seat: string | null;
+  durationMin: number | null;
+  /** The original portal event, kept for re-parsing after a mapper change. */
+  rawJson: string;
+}
+
+/** What the browser sees: the raw portal event stays in SQLite. */
+export interface PortalExamView extends Omit<PortalExam, "rawJson"> {
+  syncedAt: string;
+}
+
 export interface ApiError {
   error: { code: string; message: string; retryable: boolean };
 }

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import type { BriefResponse, ChangeField, FixtureItem, ItemChange, MoodleContentRow, NewItem, Source, SourceStatus, StoredItem } from "./domain.js";
+import type { BriefResponse, ChangeField, FixtureItem, ItemChange, MoodleContentRow, NewItem, PortalExam, PortalExamView, Source, SourceStatus, StoredItem } from "./domain.js";
 
 const SOURCE_LABELS: Record<Source, string> = { gmail: "Gmail", ed: "Ed", moodle: "Moodle", ontrack: "OnTrack" };
 const SOURCE_IDS: Source[] = ["gmail", "ed", "moodle", "ontrack"];
@@ -130,6 +130,21 @@ CREATE TABLE IF NOT EXISTS attendance_scans (
   detail TEXT,
   scanned_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS portal_exams (
+  id TEXT PRIMARY KEY,
+  course_code TEXT NOT NULL,
+  title TEXT NOT NULL,
+  start_ms INTEGER NOT NULL,
+  end_ms INTEGER NOT NULL,
+  timezone TEXT NOT NULL,
+  campus TEXT NOT NULL DEFAULT '',
+  location TEXT NOT NULL DEFAULT '',
+  seat TEXT,
+  duration_min INTEGER,
+  raw_json TEXT NOT NULL,
+  synced_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS portal_exams_start ON portal_exams(start_ms);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -670,6 +685,66 @@ export class CoveDatabase {
       .run(key, status, detail, new Date().toISOString());
   }
 
+  /**
+   * The portal answers with the whole exam timetable at once, so a sync replaces
+   * the table instead of merging. The transaction keeps the previous timetable
+   * visible if any insert fails halfway through.
+   */
+  replacePortalExams(exams: PortalExam[], syncedAt = new Date().toISOString()) {
+    this.transaction(() => {
+      this.db.exec("DELETE FROM portal_exams");
+      const insert = this.db.prepare(`
+        INSERT INTO portal_exams (id, course_code, title, start_ms, end_ms, timezone, campus, location, seat, duration_min, raw_json, synced_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const exam of exams) {
+        insert.run(
+          exam.id,
+          exam.courseCode,
+          exam.title,
+          exam.startMs,
+          exam.endMs,
+          exam.timezone,
+          exam.campus,
+          exam.location,
+          exam.seat,
+          exam.durationMin,
+          exam.rawJson,
+          syncedAt,
+        );
+      }
+    });
+  }
+
+  listPortalExams(): PortalExamView[] {
+    const rows = this.db
+      .prepare(`
+        SELECT id, course_code, title, start_ms, end_ms, timezone, campus, location, seat, duration_min, synced_at
+        FROM portal_exams ORDER BY start_ms, id
+      `)
+      .all() as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      courseCode: String(row.course_code),
+      title: String(row.title),
+      startMs: Number(row.start_ms),
+      endMs: Number(row.end_ms),
+      timezone: String(row.timezone),
+      campus: String(row.campus),
+      location: String(row.location),
+      seat: row.seat === null || row.seat === undefined ? null : String(row.seat),
+      durationMin: row.duration_min === null || row.duration_min === undefined ? null : Number(row.duration_min),
+      syncedAt: String(row.synced_at),
+    }));
+  }
+
+  portalExamsSyncedAt(): string | null {
+    const row = this.db.prepare("SELECT MAX(synced_at) AS synced_at FROM portal_exams").get() as
+      | { synced_at?: string | null }
+      | undefined;
+    return row?.synced_at ?? null;
+  }
+
   listAttendanceItems(): Array<{ id: string; source: "gmail" | "ed"; course: string; title: string; text: string; url: string; publishedAt: string }> {
     const rows = this.db.prepare(`
       SELECT i.id, i.source, i.course, i.title, i.published_at, i.url, c.text
@@ -733,7 +808,7 @@ export class CoveDatabase {
   }
 
   clearAll(options: { keepConnections?: boolean } = {}) {
-    this.db.exec("DELETE FROM corrections; DELETE FROM reads; DELETE FROM sync_cursors; DELETE FROM settings; DELETE FROM item_content; DELETE FROM items; DELETE FROM moodle_content; DELETE FROM attendance_codes; DELETE FROM attendance_scans;");
+    this.db.exec("DELETE FROM corrections; DELETE FROM reads; DELETE FROM sync_cursors; DELETE FROM settings; DELETE FROM item_content; DELETE FROM items; DELETE FROM moodle_content; DELETE FROM attendance_codes; DELETE FROM attendance_scans; DELETE FROM portal_exams;");
     if (!options.keepConnections) {
       for (const source of SOURCE_IDS) {
         this.setSourceStatus(source, "disconnected", null, null);

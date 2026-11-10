@@ -40,6 +40,7 @@ import { parseAttendanceRows } from "./attendance/parser.js";
 import { scanMoodleAttendanceImages } from "./attendance/moodle-ocr.js";
 import { parseAttendanceSessionPreference, detectedToPreferences, matchesPreferredSession, type AttendancePreferences } from "./attendance/preferences.js";
 import { buildUpdateStatus, fetchLatestRelease, type UpdateStatus } from "./update.js";
+import { capturePortalExams, PortalError, portalLoginSaved } from "./student-portal.js";
 
 const CURRENT_VERSION = (() => {
   try {
@@ -241,6 +242,49 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
 
   app.get("/api/sources", async () => ({ sources: db.listSources() }));
+
+  app.get("/api/portal/exams", async () => ({
+    exams: db.listPortalExams(),
+    // A sync that found zero exams still means "synced"; the setting survives
+    // the empty table, so the UI never confuses it with "never synced".
+    syncedAt: db.getSetting("portal_exams_synced_at") ?? db.portalExamsSyncedAt(),
+    connected: portalLoginSaved(),
+  }));
+
+  app.post("/api/portal/exams/sync", async (_request, reply) => {
+    try {
+      const exams = await capturePortalExams();
+      const syncedAt = new Date().toISOString();
+      db.replacePortalExams(exams, syncedAt);
+      db.setSetting("portal_exams_synced_at", syncedAt);
+      return { count: exams.length, syncedAt };
+    } catch (error) {
+      if (error instanceof PortalError) {
+        const status =
+          error.code === "portal_not_connected"
+            ? 409
+            : error.code === "portal_timeout"
+              ? 504
+              : error.code === "portal_browser_unavailable"
+                ? 503
+                : 502;
+        return reply.code(status).send({
+          error: {
+            code: error.code,
+            message: error.message,
+            retryable: error.code === "portal_timeout" || error.code === "portal_response_error",
+          },
+        } satisfies ApiError);
+      }
+      return reply.code(502).send({
+        error: {
+          code: "portal_sync_failed",
+          message: error instanceof Error ? error.message : "同步考试时间表失败。",
+          retryable: true,
+        },
+      } satisfies ApiError);
+    }
+  });
 
   app.get("/api/attendance/status", async () => {
     const raw = await secrets.get("attendance-credentials");
