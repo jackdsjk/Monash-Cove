@@ -94,11 +94,23 @@ export class GmailClient implements GmailSyncClient {
   }
 
   async listHistoryMessageIds(startHistoryId: string): Promise<string[]> {
-    const data = await this.request<{
-      history?: Array<{ messagesAdded?: Array<{ message?: { id?: string } }> }>;
-    }>(`/users/me/history?startHistoryId=${encodeURIComponent(startHistoryId)}&historyTypes=messageAdded`);
-    const ids = (data.history ?? []).flatMap((entry) => (entry.messagesAdded ?? []).map((added) => added.message?.id));
-    return [...new Set(ids.filter((id): id is string => Boolean(id)))];
+    const ids = new Set<string>();
+    let pageToken: string | undefined;
+    do {
+      const params = new URLSearchParams({ startHistoryId, historyTypes: "messageAdded" });
+      if (pageToken) params.set("pageToken", pageToken);
+      const data = await this.request<{
+        history?: Array<{ messagesAdded?: Array<{ message?: { id?: string } }> }>;
+        nextPageToken?: string;
+      }>(`/users/me/history?${params.toString()}`);
+      for (const entry of data.history ?? []) {
+        for (const added of entry.messagesAdded ?? []) {
+          if (added.message?.id) ids.add(added.message.id);
+        }
+      }
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+    return [...ids];
   }
 
   async getMessage(id: string): Promise<GmailMessage> {

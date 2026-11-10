@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { CoveDatabase } from "../db.js";
 import type { GmailSyncClient } from "../sources/gmail.js";
+import { GmailError } from "../sources/gmail.js";
 import { classify } from "../triage/model.js";
 
 export interface GmailSyncResult {
@@ -16,6 +17,9 @@ export async function syncGmail(
   options: { maxMessages?: number; full?: boolean; onProgress?: (processed: number, total: number | null) => void } = {},
 ): Promise<GmailSyncResult> {
   const previous = db.getCursor("gmail", "history_id");
+  // Capture the boundary before listing or processing messages. Mail arriving
+  // during this run remains after the cursor and is picked up next time.
+  const historyId = await client.getHistoryId();
   let ids: string[] = [];
   let mode: "backfill" | "history" | "full" = "backfill";
 
@@ -26,8 +30,12 @@ export async function syncGmail(
     try {
       ids = await client.listHistoryMessageIds(previous);
       mode = "history";
-    } catch {
-      ids = await client.listMessageIds(options.maxMessages ?? 20);
+    } catch (error) {
+      // Only an expired history cursor warrants a backfill. A partial history
+      // response or transient failure must not skip mail by advancing the cursor.
+      if (!(error instanceof GmailError) || error.status !== 404 || !client.listAllMessageIds) throw error;
+      ids = await client.listAllMessageIds((processed) => options.onProgress?.(processed, null));
+      mode = "full";
     }
   } else {
     ids = await client.listMessageIds(options.maxMessages ?? 20);
@@ -71,7 +79,6 @@ export async function syncGmail(
     options.onProgress?.(processed, ids.length);
   }
 
-  const historyId = await client.getHistoryId();
   db.removeFixtures("gmail");
   db.setCursor("gmail", "history_id", historyId);
   const at = new Date().toISOString();
