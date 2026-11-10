@@ -110,7 +110,7 @@ export function BriefPage() {
       <>
         {i.merged && <Tag tone="brand">合并 {i.merged.length + 1} 个来源</Tag>}
         {m?.read && <Tag>已读</Tag>}
-        {m?.submitted && <Tag tone="green">已提交</Tag>}
+        {i.completedAt && <Tag tone="green">已提交</Tag>}
         {m?.judgment && <Tag tone="amber">{JUDGMENT_LABEL[m.judgment]}</Tag>}
       </>
     )

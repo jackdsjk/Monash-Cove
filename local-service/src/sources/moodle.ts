@@ -167,20 +167,21 @@ export class MoodleClient {
     const root = parse(await response.text());
     // Moodle renders the table as <tr><th>Submission status</th><td>…</td></tr>;
     // the label is a th, so the value is every remaining cell in that row.
-    const value = root
-      .querySelectorAll("tr")
-      .map((row) => row.querySelectorAll("th, td"))
-      .filter((cells) => cells.length > 1 && cells[0].text.replace(/\s+/g, " ").trim().toLowerCase() === "submission status")
-      .map((cells) => cells.slice(1).map((cell) => cell.text).join(" "))
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .toLowerCase();
-    if (!value) return "unknown";
-    if (/no submissions?/.test(value) || /nothing submitted/.test(value)) return "none";
-    if (/graded/.test(value)) return "graded";
-    if (/submitted/.test(value)) return "submitted";
-    return "none";
+    const rows = new Map(root.querySelectorAll("tr").map((row) => {
+      const cells = row.querySelectorAll("th, td");
+      const normalize = (text: string): string => text.replace(/\s+/g, " ").trim().toLowerCase();
+      return [normalize(cells[0]?.text ?? ""), normalize(cells.slice(1).map((cell) => cell.text).join(" "))];
+    }));
+    const value = rows.get("submission status") ?? rows.get("提交状态") ?? "";
+    const grading = rows.get("grading status") ?? rows.get("评分状态") ?? "";
+    // Grading is usually a separate row. "Not graded" and "ungraded" are not
+    // positive evidence, and an unfamiliar status must not clear known work.
+    const isGraded = (text: string): boolean =>
+      (/\bgraded\b/.test(text) && !/\bnot\s+graded\b/.test(text)) || /已评分|已批改/.test(text);
+    if (isGraded(grading) || isGraded(value)) return "graded";
+    if (/no submissions?|nothing submitted|not submitted|未提交|尚未提交/.test(value)) return "none";
+    if (/\bsubmitted\b|已提交/.test(value)) return "submitted";
+    return "unknown";
   }
 
   private mapAssessment(event: MoodleEvent): MoodleRawItem | null {

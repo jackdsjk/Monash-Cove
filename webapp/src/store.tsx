@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { fetchBrief, fetchChanges, fetchSources, startFullSync } from "./data/repository";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { fetchBrief, fetchChanges, fetchSources, setItemCompleted, startFullSync } from "./data/repository";
+import { invalidateQueryCache, invalidateSourceQueries } from "./data/query-cache";
 import { coursesOf, toChange, toItem, toSource } from "./data/adapter";
 import type { Course, Item, ItemChange, SourceId, SourceState, UserMark } from "./data/model";
 import { SOURCE_ORDER } from "./data/model";
@@ -36,7 +37,15 @@ function initial(): Persisted {
 function load(): Persisted {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...initial(), ...JSON.parse(raw) };
+    if (raw) {
+      const saved = { ...initial(), ...JSON.parse(raw) } as Persisted;
+      // The old browser-only submitted flag was never a saved submission fact.
+      saved.marks = Object.fromEntries(Object.entries(saved.marks).map(([id, mark]) => {
+        const { submitted: _legacy, ...rest } = mark as UserMark & { submitted?: boolean };
+        return [id, rest];
+      }));
+      return saved;
+    }
   } catch {
     /* ignore */
   }
@@ -64,6 +73,8 @@ interface Store {
   setPaletteOpen: (v: boolean) => void;
   openItem: (id: string | null) => void;
   setMark: (id: string, patch: Partial<UserMark>) => void;
+  completionUpdates: Record<string, { pending: boolean; error: string | null }>;
+  setCompleted: (id: string, completed: boolean | null) => Promise<void>;
   markWindowViewed: () => void;
   syncSource: (id: SourceId, full?: boolean) => void;
   syncAll: (full?: boolean) => void;
@@ -94,6 +105,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [openedSince, setOpenedSince] = useState(() => load().lastOpenedAt ?? Date.now());
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [completionUpdates, setCompletionUpdates] = useState<Store["completionUpdates"]>({});
+  const completionFlights = useRef(new Map<string, Promise<void>>());
+  const completionRevision = useRef(0);
+  const itemCompletionRevision = useRef(new Map<string, number>());
+  const previousSources = useRef<SourceState[] | null>(null);
 
   useEffect(() => {
     try {
@@ -109,6 +125,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
+    const revisionAtStart = completionRevision.current;
     try {
       const [brief, sourceList, changeList] = await Promise.all([
         fetchBrief(),
@@ -117,10 +134,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ]);
       const at = Date.now();
       const mapped = brief.items.map((item) => toItem(item, at));
-      setItems(mapped);
+      // A brief read started before a successful completion update must not undo it.
+      setItems((current) => mapped.map((item) =>
+        (itemCompletionRevision.current.get(item.id) ?? 0) > revisionAtStart
+          ? current.find((existing) => existing.id === item.id) ?? item
+          : item,
+      ));
       setChanges(changeList.map(toChange));
-      setSources(
-        sourceList.length > 0
+      const nextSources: SourceState[] = sourceList.length > 0
           ? sourceList.map((s) => toSource(s, mapped.filter((i) => i.source === s.id).length))
           : SOURCE_ORDER.map((id) => ({
               id,
@@ -128,14 +149,43 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               state: mapped.some((i) => i.source === id) ? "idle" : "disconnected",
               itemCount: mapped.filter((i) => i.source === id).length,
               account: "",
-            })),
-      );
+            }));
+      if (previousSources.current) {
+        for (const next of nextSources) {
+          const previous = previousSources.current.find((source) => source.id === next.id);
+          if (previous && (previous.account !== next.account || previous.connected !== next.connected)) invalidateSourceQueries(next.id);
+        }
+      }
+      previousSources.current = nextSources;
+      setSources(nextSources);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "无法读取本地数据");
     } finally {
       setReady(true);
     }
+  }, []);
+
+  const setCompleted = useCallback((id: string, completed: boolean | null): Promise<void> => {
+    const pending = completionFlights.current.get(id);
+    if (pending) return pending;
+    setCompletionUpdates((current) => ({ ...current, [id]: { pending: true, error: null } }));
+    const task = (async () => {
+      try {
+        const saved = toItem(await setItemCompleted(id, completed), Date.now());
+        itemCompletionRevision.current.set(id, ++completionRevision.current);
+        setItems((current) => current.map((item) => item.id === id ? saved : item));
+      } catch (cause) {
+        setCompletionUpdates((current) => ({ ...current, [id]: {
+          pending: false, error: cause instanceof Error ? cause.message : "保存提交标记失败，请重试",
+        } }));
+      } finally {
+        completionFlights.current.delete(id);
+        setCompletionUpdates((current) => ({ ...current, [id]: { ...current[id], pending: false } }));
+      }
+    })();
+    completionFlights.current.set(id, task);
+    return task;
   }, []);
 
   useEffect(() => {
@@ -195,6 +245,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     paletteOpen,
     setPaletteOpen,
     openItem: setOpenItemId,
+    completionUpdates,
+    setCompleted,
     setMark: (id, patch) =>
       setP((prev) => {
         const next = { ...prev.marks[id], ...patch };
@@ -217,10 +269,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       sources.filter((s) => s.connected).forEach((s) => syncSource(s.id, false));
     },
     connectSource: (id) => {
+      invalidateSourceQueries(id);
       patchSource(id, { state: "syncing" });
       void refresh();
     },
-    disconnectSource: (id) => patchSource(id, { connected: false, state: "disconnected", error: undefined }),
+    disconnectSource: (id) => {
+      invalidateSourceQueries(id);
+      patchSource(id, { connected: false, state: "disconnected", error: undefined });
+    },
     completeSetup: () => {
       const at = Date.now();
       setOpenedSince(p.lastViewedAt);
@@ -230,6 +286,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     restartSetup: () => setP((prev) => ({ ...prev, setupDone: false })),
     clearAllData: () => {
+      invalidateQueryCache();
       void fetch("/api/data", { method: "DELETE" }).then(() => refresh());
       setP((prev) => ({ ...prev, marks: {}, attendance: {}, lastViewedAt: Date.now() }));
     },

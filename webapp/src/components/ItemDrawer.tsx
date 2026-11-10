@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowRight, Check, ExternalLink, Layers, X } from 'lucide-react'
 import { useStore } from '../store'
-import { COURSES, FIELD_LABEL, JUDGMENT_LABEL, SOURCE_LABEL, type ItemChange } from '../data/model'
+import { FIELD_LABEL, JUDGMENT_LABEL, SOURCE_LABEL, type ItemChange } from '../data/model'
 import { fmtCountdown, fmtDue, fmtWhen } from '../lib/time'
 import { Button, Role, Source } from './ui'
 
@@ -10,7 +10,7 @@ export function formatChangeValue(c: ItemChange, v: string | number) {
 }
 
 export function ItemDrawer() {
-  const { openItemId, openItem, items, changes, marks, setMark, now } = useStore()
+  const { openItemId, openItem, items, changes, courses, marks, setMark, completionUpdates, setCompleted, now } = useStore()
   const item = items.find((i) => i.id === openItemId)
   const [fullText, setFullText] = useState(false)
 
@@ -28,8 +28,9 @@ export function ItemDrawer() {
 
   const mark = marks[item.id] ?? {}
   const itemChanges = changes.filter((c) => c.itemId === item.id).sort((a, b) => b.detectedAt - a.detectedAt)
-  const course = COURSES.find((c) => c.code === item.course)
+  const course = courses.find((c) => c.code === item.course)
   const canSubmit = !!item.dueAt
+  const completion = completionUpdates[item.id]
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end" role="dialog" aria-modal="true" aria-label="条目详情">
@@ -49,7 +50,7 @@ export function ItemDrawer() {
         <div className="scroll-y flex-1 space-y-6 px-5 py-5">
           <div>
             <p className="text-xs text-slate-500">
-              {course ? `${course.code} · ${course.name}` : '没能归到课程'} · {item.objectType}
+              {course ? [course.code, course.name].filter(Boolean).join(' · ') : item.course || '没能归到课程'} · {item.objectType}
             </p>
             <h2 className="mt-1.5 text-[17px] leading-snug font-semibold text-slate-900">{item.title}</h2>
           </div>
@@ -152,7 +153,7 @@ export function ItemDrawer() {
               已读
             </Toggle>
             {canSubmit && (
-              <Toggle on={!!mark.submitted} onClick={() => setMark(item.id, { submitted: mark.submitted ? undefined : true })}>
+              <Toggle on={!!item.completedAt} disabled={completion?.pending} onClick={() => void setCompleted(item.id, !item.completedAt)}>
                 已提交
               </Toggle>
             )}
@@ -166,6 +167,8 @@ export function ItemDrawer() {
               </Toggle>
             ))}
           </div>
+          {completion?.pending && <p role="status" className="mt-2 text-xs text-slate-500">正在保存提交标记…</p>}
+          {completion?.error && <p role="alert" className="mt-2 text-xs text-red-700">保存失败：{completion.error}。再次点击可重试。</p>}
           {mark.judgment && (
             <p className="mt-2 text-xs text-slate-500">这条不会出现在「自上次查看」中，切换到「全部」可以找回。</p>
           )}
@@ -175,13 +178,14 @@ export function ItemDrawer() {
   )
 }
 
-function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; children: string }) {
+function Toggle({ on, onClick, disabled, children }: { on: boolean; onClick: () => void; disabled?: boolean; children: string }) {
   return (
     <Button
       size="sm"
       aria-pressed={on}
       variant={on ? 'primary' : 'secondary'}
       onClick={onClick}
+      disabled={disabled}
     >
       {on && <Check className="h-3.5 w-3.5" />}
       {children}

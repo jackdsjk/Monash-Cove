@@ -84,16 +84,16 @@ export async function syncMoodle(db: CoveDatabase, baseUrl: string, cookie: stri
 
 /**
  * Calendar events only cover upcoming deadlines, so an assignment handed in
- * yesterday would keep its countdown forever. Re-check the still-open items we
- * already stored and clear the ones Moodle reports as handed in.
+ * yesterday would keep its countdown forever. Submitted work is still checked
+ * until it is graded; failed/unknown evidence must preserve the saved state.
  */
 export async function reconcileSubmissions(db: CoveDatabase, client: MoodleClient) {
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
   let updated = 0;
-  for (const item of db.listOpenMoodleAssignments(since)) {
+  for (const item of db.listMoodleAssignmentsToRecheck(since)) {
     const status = await client.submissionStatus(item.url).catch(() => "unknown" as const);
-    if (status !== "submitted" && status !== "graded") continue;
-    db.setItemCompleted(item.id, new Date().toISOString());
+    if (status === "unknown") continue;
+    db.setItemSubmissionState(item.id, status === "none" ? "notSubmitted" : status);
     updated += 1;
   }
   return { updated };

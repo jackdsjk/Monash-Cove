@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, RefreshCw } from 'lucide-react'
 import { useStore } from '../store'
-import { fetchBrief, fetchPortalExams, PortalExamsError, setItemCompleted, syncPortalExams } from '../data/repository'
+import { fetchPortalExams, PortalExamsError, syncPortalExams } from '../data/repository'
 import type { Item } from '../data/model'
 import type { PortalExam } from '../types'
 import { fmtCountdown, fmtDue, fmtWhen } from '../lib/time'
@@ -51,8 +51,7 @@ function durationLabel(minutes: number | null) {
 }
 
 export function DeadlinesPage() {
-  const { items, now, marks, openItem, setMark } = useStore()
-  const [completed, setCompleted] = useState<Record<string, boolean>>({})
+  const { items, now, openItem, completionUpdates, setCompleted } = useStore()
 
   const [exams, setExams] = useState<PortalExam[]>([])
   const [examsSyncedAt, setExamsSyncedAt] = useState<string | null>(null)
@@ -61,24 +60,6 @@ export function DeadlinesPage() {
   const [examsSyncing, setExamsSyncing] = useState(false)
   const [examsError, setExamsError] = useState<string | null>(null)
   const [examsNotice, setExamsNotice] = useState<string | null>(null)
-
-  // 已提交以本地服务的 completed_at 为准；服务不可用时退回本地标记，不展示推断结果。
-  useEffect(() => {
-    let active = true
-    void fetchBrief()
-      .then(({ items: brief }) => {
-        if (!active) return
-        const next: Record<string, boolean> = {}
-        for (const item of brief) next[item.id] = Boolean(item.completedAt)
-        setCompleted(next)
-      })
-      .catch(() => {
-        /* 读不到就沿用本地标记 */
-      })
-    return () => {
-      active = false
-    }
-  }, [])
 
   const refreshExams = useCallback(async () => {
     setExamsError(null)
@@ -127,18 +108,6 @@ export function DeadlinesPage() {
     { title: '7 天内', list: withDue.filter((i) => i.dueAt! - now > 24 * H && i.dueAt! - now <= 7 * 24 * H) },
     { title: '更晚', list: withDue.filter((i) => i.dueAt! - now > 7 * 24 * H) },
   ]
-
-  const isSubmitted = (id: string) => Boolean(marks[id]?.submitted) || Boolean(completed[id])
-
-  const toggleSubmitted = (id: string, next: boolean) => {
-    const previous = isSubmitted(id)
-    setMark(id, { submitted: next ? true : undefined })
-    setCompleted((prev) => ({ ...prev, [id]: next }))
-    void setItemCompleted(id, next ? true : null).catch(() => {
-      setMark(id, { submitted: previous ? true : undefined })
-      setCompleted((prev) => ({ ...prev, [id]: previous }))
-    })
-  }
 
   const examHint =
     examsNotice ??
@@ -251,7 +220,8 @@ export function DeadlinesPage() {
               ) : (
                 <div className="divide-y divide-line">
                   {g.list.map((i) => {
-                    const submitted = isSubmitted(i.id)
+                    const submitted = Boolean(i.completedAt)
+                    const completion = completionUpdates[i.id]
                     return (
                       <div key={i.id} className={`grid items-center gap-3 px-5 py-3 text-sm hover:bg-brand-50/50 ${COLS} ${submitted ? 'text-slate-500' : 'text-slate-800'}`}>
                         <span>{fmtDue(i.dueAt!)}</span>
@@ -264,16 +234,17 @@ export function DeadlinesPage() {
                         <button onClick={() => openItem(i.id)} className="truncate text-left hover:text-brand-700 hover:underline">
                           {i.title}
                         </button>
-                        <span className="flex justify-end">
+                        <span className="flex flex-col items-end gap-1">
                           {submitted ? (
-                            <button onClick={() => toggleSubmitted(i.id, false)} title="撤销已提交标记">
+                            <button disabled={completion?.pending} aria-busy={completion?.pending} onClick={() => void setCompleted(i.id, false)} title="撤销已提交标记">
                               <Tag tone="green">已提交</Tag>
                             </button>
                           ) : (
-                            <Button size="sm" variant="ghost" onClick={() => toggleSubmitted(i.id, true)}>
-                              标记已提交
+                            <Button size="sm" variant="ghost" disabled={completion?.pending} aria-busy={completion?.pending} onClick={() => void setCompleted(i.id, true)}>
+                              {completion?.pending ? '保存中…' : '标记已提交'}
                             </Button>
                           )}
+                          {completion?.error && <span role="alert" className="text-xs text-red-700">保存失败：{completion.error}。点击重试。</span>}
                         </span>
                       </div>
                     )

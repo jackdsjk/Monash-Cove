@@ -29,7 +29,7 @@ export interface Item {
   publishedAt: number
   firstSeenAt: number
   dueAt?: number
-  /** 来源已确认的提交时间；有值表示已完成 */
+  /** 本地服务保存的来源证据或人工完成标记；有值表示已完成 */
   completedAt?: number
   /** 关键原句（证据） */
   excerpt: string
@@ -74,7 +74,6 @@ export interface ItemChange {
 
 export interface UserMark {
   read?: boolean
-  submitted?: boolean
   judgment?: 'not_important' | 'not_for_me'
 }
 

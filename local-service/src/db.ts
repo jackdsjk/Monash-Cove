@@ -191,6 +191,7 @@ export class CoveDatabase {
     if (!columns.has("deadline_kind")) this.db.exec("ALTER TABLE items ADD COLUMN deadline_kind TEXT");
     if (!columns.has("completed_at")) this.db.exec("ALTER TABLE items ADD COLUMN completed_at TEXT");
     if (!columns.has("completed_source")) this.db.exec("ALTER TABLE items ADD COLUMN completed_source TEXT");
+    if (!columns.has("submission_state")) this.db.exec("ALTER TABLE items ADD COLUMN submission_state TEXT");
     const sourceColumns = new Set(
       (this.db.prepare("PRAGMA table_info(sources)").all() as Array<{ name?: string }>).map((column) => column.name),
     );
@@ -322,8 +323,8 @@ export class CoveDatabase {
           due_at = excluded.due_at,
           deadline_kind = excluded.deadline_kind,
           -- 用户手动标记优先，同步不得覆盖
-          completed_at = CASE WHEN items.completed_source = 'user' THEN items.completed_at ELSE excluded.completed_at END,
-          completed_source = CASE WHEN items.completed_source = 'user' THEN items.completed_source ELSE excluded.completed_source END,
+          completed_at = CASE WHEN items.completed_source = 'user' THEN items.completed_at ELSE COALESCE(excluded.completed_at, items.completed_at) END,
+          completed_source = CASE WHEN items.completed_source = 'user' THEN items.completed_source ELSE COALESCE(excluded.completed_source, items.completed_source) END,
           content_hash = excluded.content_hash,
           content_type = excluded.content_type,
           importance = excluded.importance,
@@ -569,6 +570,26 @@ export class CoveDatabase {
         ORDER BY due_at
       `)
       .all(sinceIso) as Array<{ id: string; url: string }>;
+  }
+
+  /** Submitted work is still checked until a definite graded result is observed. */
+  listMoodleAssignmentsToRecheck(sinceIso: string): Array<{ id: string; url: string }> {
+    return this.db.prepare(`SELECT id, url FROM items
+      WHERE source = 'moodle' AND deleted_at IS NULL
+        AND (completed_source IS NULL OR completed_source != 'user')
+        AND (submission_state IS NULL OR submission_state != 'graded')
+        AND due_at IS NOT NULL AND due_at >= ? AND url LIKE '%/mod/assign/view.php%'
+      ORDER BY due_at`).all(sinceIso) as Array<{ id: string; url: string }>;
+  }
+
+  setItemSubmissionState(id: string, state: "unknown" | "notSubmitted" | "submitted" | "graded"): void {
+    if (state === "unknown") return;
+    this.db.prepare(`UPDATE items SET submission_state = ?,
+      completed_at = CASE WHEN completed_source = 'user' THEN completed_at
+        WHEN ? IN ('submitted', 'graded') THEN COALESCE(completed_at, ?) ELSE NULL END,
+      completed_source = CASE WHEN completed_source = 'user' THEN completed_source
+        WHEN ? IN ('submitted', 'graded') THEN 'moodle' ELSE NULL END
+      WHERE id = ?`).run(state, state, new Date().toISOString(), state, id);
   }
 
   /** Moodle-detected completion; never overrides an explicit user decision. */

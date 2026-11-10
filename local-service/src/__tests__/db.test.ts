@@ -151,4 +151,36 @@ describe("manual submission marks", () => {
     expect(db.getItem(base.id)?.completedAt).toBeNull();
     expect(db.getItem(base.id)?.completedSource).toBeNull();
   });
+
+  it("keeps source completion when a calendar sync has no new submission evidence", () => {
+    db.upsertItem({ ...base, completedAt: null });
+    db.setItemSubmissionState(base.id, "submitted");
+    const completedAt = db.getItem(base.id)?.completedAt;
+    expect(completedAt).toBeTruthy();
+    db.upsertItem({ ...base, completedAt: null });
+    expect(db.getItem(base.id)?.completedAt).toBe(completedAt);
+    db.setItemSubmissionState(base.id, "unknown");
+    expect(db.getItem(base.id)?.completedAt).toBe(completedAt);
+    db.setItemSubmissionState(base.id, "notSubmitted");
+    expect(db.getItem(base.id)?.completedAt).toBeNull();
+  });
+
+  it("keeps an explicit incomplete override through positive source evidence", () => {
+    db.upsertItem({ ...base, completedAt: null });
+    db.setItemUserCompleted(base.id, false);
+    db.upsertItem({ ...base, completedAt: "2026-11-10T00:00:00.000Z" });
+    db.setItemSubmissionState(base.id, "graded");
+    expect(db.getItem(base.id)?.completedAt).toBeNull();
+    expect(db.getItem(base.id)?.completedSource).toBe("user");
+  });
+
+  it("rechecks submitted assignments until graded and skips manual overrides", () => {
+    db.upsertItem({ ...base, completedAt: null });
+    db.setItemSubmissionState(base.id, "submitted");
+    expect(db.listMoodleAssignmentsToRecheck("2026-10-01T00:00:00.000Z").map(item => item.id)).toContain(base.id);
+    db.setItemSubmissionState(base.id, "graded");
+    expect(db.listMoodleAssignmentsToRecheck("2026-10-01T00:00:00.000Z")).toEqual([]);
+    db.setItemUserCompleted(base.id, false);
+    expect(db.listMoodleAssignmentsToRecheck("2026-10-01T00:00:00.000Z")).toEqual([]);
+  });
 });
