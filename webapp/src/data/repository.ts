@@ -1,4 +1,4 @@
-import type { CredentialInfo, OnTrackAccount, OnTrackCommentView, OnTrackProjectView, OnTrackTaskView, OnTrackOverview, AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, MoodleGradeCourse, PackResponse, PortalExamsResponse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
+import type { CredentialInfo, OnTrackAccount, OnTrackCommentView, OnTrackProjectView, OnTrackTaskView, OnTrackOverview, AttendanceAssistantState, AttendanceCode, AttendancePreferences, AttendanceStatus, AttendanceSubmitSummary, BriefItem, EdCourse, EdLessonDetail, EdLessonSummary, ItemChange, ItemSourceDetail, MoodleAssistantState, MoodleContentItem, MoodleCourse, MoodleGradeCourse, PackResponse, PortalExamsResponse, RuntimeStatus, SetupStatus, SourceStatus, SyncStatus, UpdateStatus } from "../types";
 
 export interface BriefData {
   items: BriefItem[];
@@ -198,6 +198,57 @@ export async function fillAllAttendanceCodes(codes: AttendanceCode[]): Promise<A
   });
   const body = (await response.json().catch(() => null)) as (AttendanceBulkResult & { error?: { message?: string } }) | null;
   if (!response.ok || !body) throw new Error(body?.error?.message ?? `Attendance bulk fill returned ${response.status}`);
+  return body;
+}
+
+/**
+ * 真提交是唯一不可撤销的写操作。后端最多用 90 秒，所以客户端超时必须更长，
+ * 否则会把「后端还在提交」误报成失败；超时后结果视为未知，不自动重试。
+ */
+const SUBMIT_TIMEOUT_MS = 100_000;
+
+/** `attempted=false` 表示请求在到达门户之前就被拒绝（未连接 / 登录过期 / 已有提交），可以放心重来。 */
+export class AttendanceSubmitError extends Error {
+  readonly attempted: boolean;
+  readonly code?: string;
+
+  constructor(message: string, attempted: boolean, code?: string) {
+    super(message);
+    this.name = "AttendanceSubmitError";
+    this.attempted = attempted;
+    this.code = code;
+  }
+}
+
+export async function submitAttendanceCodes(codes: AttendanceCode[]): Promise<AttendanceSubmitSummary> {
+  let response: Response;
+  try {
+    response = await request("/attendance/submit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        items: codes.map((code) => ({ course: code.course, week: code.week, session: code.session, code: code.code })),
+      }),
+      signal: AbortSignal.timeout(SUBMIT_TIMEOUT_MS),
+    });
+  } catch {
+    throw new AttendanceSubmitError(
+      "提交请求没有返回结果（可能超时或本地服务中断）。这次是否已提交未知，请立刻到 Monash 考勤门户核对，不要直接重复提交。",
+      true,
+    );
+  }
+  const body = (await response.json().catch(() => null)) as
+    | (AttendanceSubmitSummary & { error?: { code?: string; message?: string } })
+    | null;
+  if (!response.ok || !body || !Array.isArray(body.results)) {
+    const code = body?.error?.code;
+    const definitelyNotSent = code === "attendance_not_connected" || code === "attendance_expired" || code === "attendance_submit_busy";
+    throw new AttendanceSubmitError(
+      body?.error?.message ?? `Attendance submit returned ${response.status}`,
+      !definitelyNotSent,
+      code,
+    );
+  }
   return body;
 }
 

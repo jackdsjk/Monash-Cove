@@ -1,5 +1,6 @@
 import { chromium } from "playwright";
 import type { DetectedAttendanceSession } from "./preferences.js";
+import { courseCode, sessionKey } from "./portal.js";
 
 export interface AttendanceCredentials {
   baseUrl: string;
@@ -20,15 +21,6 @@ export interface AttendanceCandidate {
   week: number;
   session: string;
   code: string;
-}
-
-function courseCode(course: string) {
-  return (/^[A-Z]{2,5}\d{3,4}/i.exec(course)?.[0] ?? course.split(/[_ -]/)[0]).toUpperCase();
-}
-
-function sessionKey(value: string) {
-  const match = /\b(workshop|applied|tutorial|pass)\s*0?(\d{1,2})\b/i.exec(value);
-  return match ? `${match[1].toLowerCase()} ${Number(match[2])}` : value.trim().toLowerCase();
 }
 
 export async function validateAttendance(credentials: AttendanceCredentials) {
@@ -106,7 +98,7 @@ export async function fillAttendance(candidate: AttendanceCandidate, credentials
     for (let index = 0; index < await entryLinks.count(); index += 1) {
       const link = entryLinks.nth(index);
       const label = (await link.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
-      if (!label.toUpperCase().includes(course) || !label.toLowerCase().includes(wantedLabel)) continue;
+      if (!label.toUpperCase().includes(course) || sessionKey(label) !== wantedLabel) continue;
       const href = await link.getAttribute("href");
       if (!href) continue;
       await page.goto(new URL(href, page.url()).toString(), { waitUntil: "domcontentloaded", timeout: 30_000 });

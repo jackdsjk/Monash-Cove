@@ -36,6 +36,13 @@ import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
 import { OnTrackLoginAssistant } from "./setup/ontrack-assistant.js";
 import { AttendanceLoginAssistant } from "./attendance/assistant.js";
 import { discoverAttendanceSessions, fillAttendance, validateAttendance, type AttendanceCredentials } from "./attendance/client.js";
+import {
+  AttendanceLoginRequiredError,
+  AttendanceSubmitBusyError,
+  ATTENDANCE_SUBMIT_TIMEOUT_MS,
+  submitAttendance,
+  type AttendanceSubmitInput,
+} from "./attendance/submit.js";
 import { parseAttendanceRows } from "./attendance/parser.js";
 import { scanMoodleAttendanceImages } from "./attendance/moodle-ocr.js";
 import { parseAttendanceSessionPreference, detectedToPreferences, matchesPreferredSession, type AttendancePreferences } from "./attendance/preferences.js";
@@ -555,6 +562,75 @@ export function buildApp(options: AppOptions): FastifyInstance {
       return result;
     } catch (error) {
       return reply.code(502).send({ error: { code: "attendance_fill_failed", message: error instanceof Error ? error.message : "Attendance fill failed.", retryable: true } } satisfies ApiError);
+    }
+  });
+
+  app.post<{ Body: { items?: Array<{ course?: string; week?: number; session?: string; code?: string }> } }>("/api/attendance/submit", async (request, reply) => {
+    const rawItems = Array.isArray(request.body?.items) ? request.body.items : [];
+    if (rawItems.length === 0 || rawItems.length > 50) {
+      return reply.code(400).send({ error: { code: "invalid_attendance", message: "Select between 1 and 50 attendance codes.", retryable: false } } satisfies ApiError);
+    }
+    // `code` is the only required field. A missing course/session is reported
+    // per item as "not submitted" — never guessed, never silently dropped.
+    const items: AttendanceSubmitInput[] = [];
+    for (const [index, rawItem] of rawItems.entries()) {
+      const item = rawItem ?? {};
+      const code = typeof item.code === "string" ? item.code.trim().toUpperCase() : "";
+      if (!code || code.length > 32) {
+        return reply.code(400).send({ error: { code: "invalid_attendance", message: `items[${index}].code is required (1-32 characters).`, retryable: false } } satisfies ApiError);
+      }
+      const week = item.week === undefined ? undefined : Number(item.week);
+      if (week !== undefined && !Number.isInteger(week)) {
+        return reply.code(400).send({ error: { code: "invalid_attendance", message: `items[${index}].week must be an integer.`, retryable: false } } satisfies ApiError);
+      }
+      items.push({
+        course: typeof item.course === "string" && item.course.trim() ? item.course.trim() : undefined,
+        week,
+        session: typeof item.session === "string" && item.session.trim() ? item.session.trim() : undefined,
+        code,
+      });
+    }
+
+    const raw = await secrets.get("attendance-credentials");
+    if (!raw) return reply.code(409).send({ error: { code: "attendance_not_connected", message: "Attendance login is not configured.", retryable: false } } satisfies ApiError);
+    const credentials = (() => {
+      try {
+        const parsed = JSON.parse(raw) as AttendanceCredentials;
+        if (!parsed?.baseUrl || !Array.isArray(parsed.cookies)) return null;
+        return parsed;
+      } catch {
+        return null;
+      }
+    })();
+    if (!credentials) {
+      return reply.code(409).send({ error: { code: "attendance_expired", message: "Attendance session is unreadable; reconnect Attendance.", retryable: false } } satisfies ApiError);
+    }
+
+    try {
+      const summary = await submitAttendance(credentials, items, { timeoutMs: ATTENDANCE_SUBMIT_TIMEOUT_MS });
+      for (const entry of summary.results) {
+        if (entry.status !== "submitted") continue;
+        const { course, session, week } = entry;
+        if (!course || !session || typeof week !== "number" || !Number.isInteger(week)) continue;
+        db.markAttendanceFilled(course, week, session, entry.code);
+      }
+      return summary;
+    } catch (error) {
+      if (error instanceof AttendanceLoginRequiredError) {
+        return reply.code(409).send({ error: { code: "attendance_expired", message: error.message, retryable: false } } satisfies ApiError);
+      }
+      if (error instanceof AttendanceSubmitBusyError) {
+        return reply.code(409).send({ error: { code: "attendance_submit_busy", message: error.message, retryable: true } } satisfies ApiError);
+      }
+      // A failed submit may still have reached the portal. Retrying automatically
+      // is unsafe, so this error is explicitly not retryable.
+      return reply.code(502).send({
+        error: {
+          code: "attendance_submit_failed",
+          message: `提交没有完成：${error instanceof Error ? error.message : "unknown error"}。是否已提交未知，请先到 Attendance 门户核对，不要直接重试。`,
+          retryable: false,
+        },
+      } satisfies ApiError);
     }
   });
 

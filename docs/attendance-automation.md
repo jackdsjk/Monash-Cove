@@ -299,3 +299,76 @@ Tesseract CLI。
 - **未识别图片列表**：`GET /api/attendance/unmatched` 返回 `empty`/`error` 的 attendance 图片行；签到页新增「没识别出来的签到图」区块，直接显示缩略图，点开就是原图，可以自己核对抄写。
 - **图片代理**：`GET /api/moodle/asset?url=`，只允许 Moodle 同源且路径含 `pluginfile.php`，避免变成任意 URL 代理。
 - 扫描范围收紧为「标题或正文含 attendance」的行；之前 rescan 会把 631 条资料全部标记一遍。
+
+## 2026-11-10：真正提交（显式、可核对、不重试）
+
+### 接口
+
+`POST /api/attendance/submit`
+
+```json
+{ "items": [{ "course": "FIT1047_S2_2026", "week": 12, "session": "Workshop 1", "code": "3647G" }] }
+```
+
+- `code` 必填（1–32 字符，提交前转大写）；`course` / `week` / `session` 可省略，但缺课程或班次的条目会逐条返回 `not_found`，不会被猜着提交。
+- 1–50 条；整批共用**一次**浏览器会话和 **90 秒**总预算，逐条串行（门户是单会话）。
+- 进程内互斥：已有提交在跑时，第二个请求返回 `409 attendance_submit_busy`，不排队、不并发。
+- 未登录 / session 过期（门户跳 Okta）返回 `409 attendance_expired`；如果是在批次中途过期，已经处理过的条目仍会逐条返回，剩余条目为 `not_attempted`，不会被丢掉。
+- **任何一项失败都不重试**。`retryable` 一律为 `false`：提交是否生效未知时，自动重试可能造成重复提交。
+
+逐条结果：
+
+```json
+{ "submitted": 1, "failed": 2, "results": [
+  { "course": "...", "week": 12, "session": "Workshop 1", "code": "3647G",
+    "status": "submitted", "message": "门户确认提交成功。",
+    "feedback": "Attendance recorded successfully." }
+] }
+```
+
+`status` 语义：
+
+| status | 含义 |
+|---|---|
+| `submitted` | 门户明确回显成功；只有这一种算成功 |
+| `invalid_code` | 门户判定代码无效 |
+| `not_open` | 没有 active 表单 / 窗口未开放或已关闭，未提交 |
+| `not_found` | 门户找不到对应课程/班次，或条目缺少课程/班次 |
+| `timeout` | 90 秒内没拿到门户反馈，已中止；结果未知 |
+| `error` | 流程异常；结果未知 |
+| `unknown` | 门户反馈无法识别；**不当作成功** |
+| `not_attempted` | 前一项中止后未尝试；没有提交 |
+
+`feedback` 是门户原话（截断到 600 字符），前端原样展示，便于用户核对。
+
+### 判定规则（`local-service/src/attendance/submit.ts`）
+
+- 成功必须命中正面关键词（`success` / `recorded` / `accepted` / `submitted` / `marked present` 等）；「页面没有报错」不算成功。
+- 反馈优先取消息容器（`#lblMessage` / `[role="alert"]` / `*[id*=message]` 等），取不到则用「提交前后 body 文本差」；两者都没有 → `unknown`。
+- 找不到提交按钮 → `unknown`（已填入但未提交），绝不伪造 POST。
+- 90 秒是整批预算：超时后剩余条目返回 `not_attempted`，不是静默跳过。
+
+### 前端（`AttendancePage` + `AttendanceSubmitDialog`）
+
+已有确认弹窗改成三步，每次提交都必须人点：
+
+1. **核对**：列出课程 / 周次 / 班次 / 代码；默认焦点和主按钮是「只填不提交」，「提交（不可撤销）」是次要按钮；红黄提示写明「会真的提交、提交后不可撤销、代码错误可能记为旷课」。
+2. **最后确认**：再点一次「提交」后进入；必须勾选「我已逐条核对…知道不可撤销」才能点红色的「确认提交（不可撤销）」；默认焦点在「返回核对」。
+3. **结果**：逐条显示状态、后端 message 和门户原话（`<pre>` 原样展示）。失败时给出「现在要做的」三步：去门户核对 → 窗口还开着再手动提交 → 状态不符联系老师 / unit coordinator。
+
+请求本身超时或本地服务中断时，弹窗显示「提交结果未知」，明确说明**不代表没提交、也不代表提交成功**，并给出同样三步；不做自动重试。如果是未连接、登录过期或已有提交在进行（后端在打开浏览器前就拒绝），弹窗显示「没有提交」，明确说明**这次没有发送任何代码**，并提示先重新连接/等待再重来。关闭弹窗后页面重新读取真实状态，不用本地状态假装成功。
+
+没有「以后自动提交」开关、没有记忆、没有后台任务；导航和侧边栏未改动。
+
+### 测试（`local-service/src/__tests__/attendance-submit.test.ts`）
+
+9 条，全部用 mock 页面对象（`PortalPage` 最小接口），不启动 Chrome、不碰真实门户：
+
+- 成功提交（`submitted` + 门户原话 + 只点一次）；
+- 代码无效（`invalid_code`，不重试）；
+- 门户超时（40ms 预算，第 1 条 `timeout`、第 2 条 `not_attempted`）；
+- 多条串行且一条失败后继续，顺序不变；
+- 没有 active 表单 → `not_open` 且 0 次点击；
+- 页面无结果文字 → `unknown`，不算成功；
+- 跳 Okta → `AttendanceLoginRequiredError`；
+- 路由：空批次 400；未连接 409。

@@ -133,6 +133,37 @@ export interface AttendanceStatus {
   assistant: AttendanceAssistantState;
 }
 
+/**
+ * `submitted` 只代表门户明确回显成功；`unknown` / `timeout` / `error` 都表示
+ * 结果未知，界面不能把它们写成成功，也不能自动重试。
+ */
+export type AttendanceSubmitStatus =
+  | 'submitted'
+  | 'invalid_code'
+  | 'not_open'
+  | 'not_found'
+  | 'timeout'
+  | 'error'
+  | 'unknown'
+  | 'not_attempted';
+
+export interface AttendanceSubmitResult {
+  course?: string;
+  week?: number;
+  session?: string;
+  code: string;
+  status: AttendanceSubmitStatus;
+  message: string;
+  /** 门户原话，原样展示给用户核对 */
+  feedback?: string;
+}
+
+export interface AttendanceSubmitSummary {
+  submitted: number;
+  failed: number;
+  results: AttendanceSubmitResult[];
+}
+
 /** 一场考试，来自 Monash 学生门户（不是 Moodle）。 */
 export interface PortalExam {
   id: string;

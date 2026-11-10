@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { ReactNode } from 'react'
 import { AlertCircle, CheckCircle2, RefreshCw, ShieldAlert, Wand2 } from 'lucide-react'
 import {
   cancelAttendanceAssistant,
@@ -9,10 +8,12 @@ import {
   fillAllAttendanceCodes,
   fillAttendanceCode,
   startAttendanceAssistant,
+  submitAttendanceCodes,
 } from '../data/repository'
-import type { AttendanceAssistantState, AttendanceCode } from '../types'
+import type { AttendanceAssistantState, AttendanceCode, AttendanceSubmitSummary } from '../types'
 import { fmtDue, fmtWhen } from '../lib/time'
 import { Button, EmptyLine, PageTitle, Panel, Tag } from '../components/ui'
+import { AttendanceSubmitDialog } from '../components/AttendanceSubmitDialog'
 
 const COLS = 'grid-cols-[80px_100px_190px_minmax(0,1fr)_230px_190px]'
 
@@ -40,50 +41,6 @@ function sourceLabel(source: string) {
   if (source === 'moodle') return 'Moodle'
   if (source === 'ed') return 'Ed'
   return source
-}
-
-function Confirm({
-  open,
-  title,
-  children,
-  confirmLabel,
-  busy,
-  onConfirm,
-  onCancel,
-}: {
-  open: boolean
-  title: string
-  children: ReactNode
-  confirmLabel: string
-  busy: boolean
-  onConfirm: () => void
-  onCancel: () => void
-}) {
-  if (!open) return null
-  return (
-    <div className="overlay-enter fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30" onClick={onCancel}>
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-label={title}
-        onClick={(e) => e.stopPropagation()}
-        className="dialog-enter w-[480px] rounded-2xl border border-line bg-white shadow-2xl"
-      >
-        <div className="px-5 pt-5">
-          <h2 className="text-[15px] font-semibold text-slate-900">{title}</h2>
-          <div className="mt-2 text-[13px] leading-relaxed text-slate-600">{children}</div>
-        </div>
-        <div className="mt-5 flex justify-end gap-2 border-t border-line bg-slate-50/70 px-5 py-3">
-          <Button onClick={onCancel} disabled={busy}>
-            取消
-          </Button>
-          <Button variant="primary" onClick={onConfirm} disabled={busy} autoFocus>
-            {confirmLabel}
-          </Button>
-        </div>
-      </div>
-    </div>
-  )
 }
 
 export function AttendancePage() {
@@ -201,6 +158,43 @@ export function AttendancePage() {
     ['未开放', closed.length, 'text-slate-900'],
     ['没有识别到代码', missingCode.length, 'text-amber-700'],
   ]
+
+  /**
+   * 真提交。不重试、不猜测结果：后端逐条返回，界面逐条展示；
+   * 请求本身失败时把「未知」如实抛给弹窗，绝不写成成功。
+   */
+  const submit = async (items: AttendanceCode[]): Promise<AttendanceSubmitSummary> => {
+    setBusy(true)
+    setError(null)
+    try {
+      const summary = await submitAttendanceCodes(items.map((item) => ({ ...item, code: codeOf(item) })))
+      const accepted = new Set(
+        items
+          .filter((item) =>
+            summary.results.some((entry) => entry.status === 'submitted' && entry.code === codeOf(item)),
+          )
+          .map((item) => item.id),
+      )
+      setDrafts((prev) => {
+        const next = { ...prev }
+        for (const id of accepted) delete next[id]
+        return next
+      })
+      setNotice(
+        summary.failed > 0
+          ? `提交完成：${summary.submitted} 项成功，${summary.failed} 项失败。失败原因见弹窗。`
+          : `已提交 ${summary.submitted} 项，门户已确认。`,
+      )
+      return summary
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : '提交失败，结果未知'
+      setError(message)
+      throw cause
+    } finally {
+      setBusy(false)
+      void load().catch(() => undefined)
+    }
+  }
 
   const applyFill = async (items: AttendanceCode[]) => {
     if (items.length === 0) return
@@ -324,7 +318,9 @@ export function AttendancePage() {
       <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-brand-200 bg-brand-50/60 px-4 py-3 text-[13px] text-brand-900">
         <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-brand-700" />
         <p>
-          这是 Cove 唯一会写入学校系统的操作。「填写」只把代码放进考勤表单，<strong className="font-semibold">不会提交</strong>；填写前会列出全部班次让你确认。
+          这是 Cove 唯一会写入学校系统的操作。「只填不提交」只把代码放进考勤表单，不点击提交；
+          <strong className="font-semibold">「提交」会真的提交到考勤门户，提交后不可撤销，代码错误或班次不对可能被记为旷课</strong>。
+          每一次操作都要你先核对班次、再手动确认，Cove 不会自动提交，也不会记住「以后自动提交」。
         </p>
       </div>
 
@@ -457,30 +453,23 @@ export function AttendancePage() {
         </ul>
       </Panel>
 
-      <Confirm
-        open={!!confirming}
-        title={confirming && confirming.length > 1 ? `确认填写 ${confirming.length} 项考勤` : '确认填写考勤'}
-        confirmLabel={busy ? '正在填写…' : '确认填写'}
-        busy={busy}
-        onCancel={() => {
-          if (!busy) setConfirming(null)
-        }}
-        onConfirm={() => {
-          if (confirming) void applyFill(confirming)
-        }}
-      >
-        将以你的身份向 Monash 考勤门户填写以下班次。Cove 只把代码放进表单，不会提交，提交仍由你在门户里完成：
-        <ul className="mt-3 divide-y divide-line rounded-lg border border-line">
-          {confirming?.map((c) => (
-            <li key={c.id} className="flex items-center justify-between px-3 py-2 text-[13px]">
-              <span className="text-slate-800">
-                <strong className="font-semibold">{c.course}</strong> {c.session} · Week {c.week}
-              </span>
-              <code className="font-mono text-slate-900">{codeOf(c)}</code>
-            </li>
-          ))}
-        </ul>
-      </Confirm>
+      {confirming && (
+        <AttendanceSubmitDialog
+          items={confirming.map((code) => ({
+            key: code.id,
+            course: code.course,
+            week: code.week,
+            session: code.session,
+            code: codeOf(code),
+          }))}
+          fillBusy={busy}
+          onClose={() => {
+            if (!busy) setConfirming(null)
+          }}
+          onFill={() => void applyFill(confirming)}
+          onSubmit={() => submit(confirming)}
+        />
+      )}
     </div>
   )
 }

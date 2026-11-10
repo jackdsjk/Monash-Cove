@@ -58,6 +58,7 @@ npm run retriage
 - `POST /api/moodle/download-batch`（1–100 个 resource，返回 ZIP）
 - `POST /api/sync/full` / `GET /api/sync/status`（首次全量后台任务与进度）
 - `GET /api/attendance/status` / `GET /api/attendance/codes` / `POST /api/attendance/fill`
+- `POST /api/attendance/submit`（真正提交；1–50 条串行、整批 90 秒、逐条结果、失败不重试）
 - `POST /api/attendance/connect/start` / `GET /api/attendance/connect/status`
 - `GET /api/runtime/status`（Node/Chrome/OAuth/凭据存储检查）
 - `GET /api/setup/status` / `POST /api/setup/moodle/start` / `GET /api/setup/moodle/status`（首次设置与 Moodle 登录助手）
