@@ -141,9 +141,9 @@ export function DeadlinesPage() {
             ) : exams.length > 0 ? (
               <>
                 {examsError && (
-                  <div className="flex items-start gap-2 border-b border-line bg-red-50/60 px-5 py-2.5 text-[13px] text-red-700">
+                  <div className="flex min-w-0 items-start gap-2 border-b border-line bg-red-50/60 px-5 py-2.5 text-[13px] text-red-700">
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>{examsError}</span>
+                    <span className="min-w-0 break-words">{examsError}</span>
                   </div>
                 )}
                 <div

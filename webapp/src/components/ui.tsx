@@ -88,12 +88,12 @@ export function SectionHeader({
 }) {
   return (
     <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-      <div className="flex min-w-0 items-center gap-2.5">
-        <h2 className="text-[17px] font-bold tracking-tight text-slate-900">{title}</h2>
+      <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-2.5 gap-y-1">
+        <h2 className="max-w-full shrink-0 break-words text-[17px] font-bold tracking-tight text-slate-900">{title}</h2>
         {count !== undefined && (
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">{count}</span>
+          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">{count}</span>
         )}
-        {hint && <span className="truncate text-[13px] text-slate-500">{hint}</span>}
+        {hint && <span className="min-w-0 max-w-full break-words text-[13px] text-slate-500">{hint}</span>}
       </div>
       {right}
     </div>
@@ -166,12 +166,12 @@ export function Select<T extends string>({
   label: string
 }) {
   return (
-    <label className="inline-flex items-center gap-2 text-[13px] text-slate-600">
-      {label}
+    <label className="inline-flex min-w-0 max-w-full items-center gap-2 text-[13px] text-slate-600">
+      <span className="shrink-0 whitespace-nowrap">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
-        className="h-9 rounded-lg border border-line bg-white px-2.5 text-[13px] text-slate-800 outline-none focus:border-brand-500"
+        className="h-9 min-w-0 max-w-full flex-1 rounded-lg border border-line bg-white px-2.5 text-[13px] text-slate-800 outline-none focus:border-brand-500"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>

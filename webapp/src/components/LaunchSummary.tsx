@@ -105,12 +105,12 @@ export function LaunchSummary() {
 
         <div className="scroll-y flex-1 space-y-5 px-6 py-5">
           {failed.map((s) => (
-            <div key={s.id} className="flex items-center justify-between gap-4 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-[13px] text-red-900">
-              <span className="flex items-center gap-2">
+            <div key={s.id} className="flex min-w-0 flex-col items-start justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-[13px] text-red-900 sm:flex-row sm:items-center">
+              <span className="flex min-w-0 items-start gap-2 break-words">
                 <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
                 {SOURCE_LABEL[s.id]} 同步失败，{s.lastSuccessAt ? `${fmtWhen(s.lastSuccessAt, now)} 之后的` : ''}内容没有计入。
               </span>
-              <Button size="sm" onClick={() => syncSource(s.id)} disabled={s.state === 'syncing'} className="border-red-300 text-red-800">
+              <Button size="sm" onClick={() => syncSource(s.id)} disabled={s.state === 'syncing'} className="shrink-0 border-red-300 text-red-800">
                 重新同步
               </Button>
             </div>

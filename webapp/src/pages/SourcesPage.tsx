@@ -248,7 +248,7 @@ export function SourcesPage({ setup = false }: { setup?: boolean }) {
                 </p>
               </div>
 
-              <div className="text-[13px]">
+              <div className="min-w-0 break-words text-[13px]">
                 {!s.connected ? (
                   <span className="text-slate-500">未连接</span>
                 ) : s.state === 'syncing' ? (
@@ -329,7 +329,7 @@ export function SourcesPage({ setup = false }: { setup?: boolean }) {
                   className="mt-1.5 h-9 w-full rounded-lg border border-line px-2.5 text-[13px] text-slate-800 outline-none focus:border-brand-500"
                 />
               </label>
-              <div className="mt-4 flex items-center justify-between gap-4">
+              <div className="mt-4 flex min-w-0 flex-wrap items-center justify-between gap-3">
                 <Select
                   label="区域"
                   value={edRegion}

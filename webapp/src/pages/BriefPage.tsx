@@ -209,7 +209,7 @@ export function BriefPage() {
               { value: '7d', label: '7 天内' },
             ]}
           />
-          <label className="relative flex-1">
+          <label className="relative min-w-0 w-full sm:min-w-[180px] sm:flex-1">
             <span className="sr-only">关键词</span>
             <Search className="absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <input
@@ -226,39 +226,39 @@ export function BriefPage() {
       )}
 
       {failed.map((s) => (
-        <div key={s.id} role="status" className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 px-5 py-3 text-[13px] text-red-900">
-          <span className="flex items-center gap-2">
+        <div key={s.id} role="status" className="mb-6 flex min-w-0 flex-col items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-5 py-3 text-[13px] text-red-900 sm:flex-row sm:items-center">
+          <span className="flex min-w-0 items-start gap-2">
             <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
-            <span>
+            <span className="min-w-0 break-words">
               <strong className="font-semibold">{SOURCE_LABEL[s.id]} 同步失败：</strong>
               {s.error}。{s.lastSuccessAt ? `${fmtWhen(s.lastSuccessAt, now)} 之后的内容可能不完整。` : ''}
             </span>
           </span>
-          <Button size="sm" onClick={() => syncSource(s.id)} className="border-red-300 text-red-800">
+          <Button size="sm" onClick={() => syncSource(s.id)} className="shrink-0 border-red-300 text-red-800">
             重新同步 {SOURCE_LABEL[s.id]}
           </Button>
         </div>
       ))}
 
       {unconnected.length === sources.length ? (
-        <Panel className="mb-8 flex flex-wrap items-center gap-5 px-6 py-5">
+        <Panel className="mb-8 flex flex-col items-start gap-4 px-6 py-5 sm:flex-row sm:flex-wrap sm:items-center">
           <IconTile icon={PlugZap} />
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 w-full sm:w-auto sm:flex-1">
             <p className="text-[15px] font-bold text-slate-900">还没有连接任何来源</p>
             <p className="mt-0.5 text-[13px] text-slate-600">连接 Gmail、Ed、Moodle 或 OnTrack 后，Cove 会在后台同步，并在这里列出变化。</p>
           </div>
-          <Button onClick={() => navigate('/sources')}>在来源页连接</Button>
-          <Button variant="primary" onClick={openSetup}>
-            继续设置
-          </Button>
+          <span className="flex max-w-full flex-wrap gap-2">
+            <Button onClick={() => navigate('/sources')}>在来源页连接</Button>
+            <Button variant="primary" onClick={openSetup}>继续设置</Button>
+          </span>
         </Panel>
       ) : (
         unconnected.length > 0 && (
-          <div className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-line bg-slate-50/70 px-5 py-2.5 text-[13px] text-slate-600">
-            <span>
+          <div className="mb-6 flex min-w-0 flex-col items-start justify-between gap-3 rounded-xl border border-line bg-slate-50/70 px-5 py-2.5 text-[13px] text-slate-600 sm:flex-row sm:flex-wrap sm:items-center">
+            <span className="min-w-0 break-words sm:flex-1">
               还有 {unconnected.length} 个来源未连接：{unconnected.map((s) => SOURCE_LABEL[s.id]).join('、')}。它们的内容不会出现在这里。
             </span>
-            <span className="flex shrink-0 items-center gap-2">
+            <span className="flex max-w-full flex-wrap items-center gap-2">
               {unconnected.map((s) => (
                 <Button key={s.id} size="sm" disabled={s.state === 'syncing'} onClick={() => connectSource(s.id)}>
                   {s.state === 'syncing' ? '连接中…' : `连接 ${SOURCE_LABEL[s.id]}`}

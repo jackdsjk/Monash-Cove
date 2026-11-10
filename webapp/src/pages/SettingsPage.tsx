@@ -147,12 +147,12 @@ export function SettingsPage() {
       <Panel className="px-6">
         <Section title="称呼与地区" description="地区决定截止时间的显示时区。">
           <div className="flex flex-wrap items-center gap-5">
-            <label className="flex items-center gap-2 text-[13px] text-slate-600">
-              称呼
+            <label className="flex min-w-0 max-w-full items-center gap-2 text-[13px] text-slate-600">
+              <span className="shrink-0 whitespace-nowrap">称呼</span>
               <input
                 value={settings.name}
                 onChange={(e) => updateSettings({ name: e.target.value })}
-                className="h-8 w-44 rounded-md border border-slate-300 px-2.5 text-[13px] text-slate-800 outline-none focus:border-brand-500"
+                className="h-8 min-w-0 w-44 rounded-md border border-slate-300 px-2.5 text-[13px] text-slate-800 outline-none focus:border-brand-500"
               />
             </label>
             <Select
