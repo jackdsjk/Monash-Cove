@@ -59,7 +59,7 @@ npm run retriage
 - `GET /api/pack?courseId=`（作业资料包：本机已同步的作业、变更与同课程 Ed 帖子，只读）
 - `GET /api/moodle/download?url=`（仅 `mod/resource`，服务端用本机 session 代理文件）
 - `POST /api/moodle/download-batch`（1–100 个 resource，返回 ZIP）
-- `POST /api/sync/full` / `GET /api/sync/status`（首次全量后台任务与进度）
+- `POST /api/sync/full` / `GET /api/sync/status`（Gmail/Ed/Moodle 全量后台任务与进度；未配置来源跳过，OnTrack 不支持全量历史）
 - `GET /api/attendance/status` / `GET /api/attendance/codes` / `POST /api/attendance/fill`
 - `POST /api/attendance/submit`（真正提交；1–50 条串行、整批 90 秒、逐条结果、失败不重试）
 - `POST /api/attendance/connect/start` / `GET /api/attendance/connect/status`
@@ -91,6 +91,7 @@ Moodle 课程、成绩，Ed 课程/lesson，以及 OnTrack 概览/任务的 GET 
 
 - 默认首次启动没有示例内容、来源均未连接。仅显式示例模式初始化数据；已有内容、来源错误、账号或成功时间的数据库不会重新灌入示例。清理数据保留示例初始化标记，避免重启后再次灌入。
 - Gmail 增量会完整消费 history 分页并去重；在同步前记录检查点，全部消息处理成功才保存，避免跳过同步期间到达的邮件。过期游标 HTTP 404 执行完整恢复；其他失败保留旧游标并允许幂等重试。失败前写入的部分消息保留，保守检查点可能重放少量消息。协议依据：[同步规范](https://developers.google.com/workspace/gmail/api/guides/sync)、[history.list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list)。
+- 全量任务逐来源报告 `pending/running/done/error/skipped`；仅执行配置了凭据的来源，失败不阻止其他来源，且保留该来源的最后成功时间。总体任务支持 `running/done/error/skipped` 与 `message`；全部跳过不写全量完成时间。OnTrack 明确跳过全量历史，仍可在来源页同步当前任务。首次连接不强制三源齐备。
 - SQLite 表：`sources/items/item_content/sync_cursors/corrections/reads/settings`；
 - 凭据在 macOS Keychain；真实正文和纠错只在本机；
 - Moodle 会话在服务启动时、以及之后每 6 小时用一次 `/my/` 轻量请求校验：会话失效只把来源标成 `degraded`（`lastError` 写明「会话已过期」，凭据保留，Web UI 显示「重新登录」）；凭据 JSON 损坏、缺字段或 Cookie 为空则删除凭据并把来源标成 `disconnected`；

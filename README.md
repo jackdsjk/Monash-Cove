@@ -178,9 +178,11 @@ Courses, grades, Ed lessons and OnTrack data use shared page queries and account
 
 ### First run
 
-1. Open **Sources** and connect Gmail, Ed, Moodle and OnTrack in turn;
-2. Run one full sync;
-3. Return to **Brief**. Later launches run an incremental sync automatically.
+1. Connect the sources you use in setup or **Sources**, or explicitly skip setup and connect later;
+2. Run a full sync from **Settings** for configured Gmail, Ed and Moodle sources; use source sync for current OnTrack tasks;
+3. Return to **Brief** and use **Sync** when needed. Opening the app reads local data; the local service has its own background sync schedule.
+
+New databases start empty. Anonymous demo data requires explicitly setting `COVE_SEED_FIXTURE=1` on an unused database; it is never reinserted because a source disconnected or failed.
 
 ## 7. Repository layout
 
