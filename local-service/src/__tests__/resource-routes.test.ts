@@ -16,6 +16,28 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("Real network blocked"); }));
 });
 
+describe("single source sync HTTP results", () => {
+  it("keeps the previous successful sync time after an upstream failure", async () => {
+    const secrets = new MemorySecretStore();
+    await secrets.set("ed-credentials", JSON.stringify({ token: "fixture-only", region: "us" }));
+    const fetcher = vi.fn(async () => new Response("Fixture unavailable", { status: 503 }));
+    app = buildApp({ dbPath: ":memory:", secretStore: secrets, fetcher });
+    const db = (app as FastifyInstance & { coveDb: CoveDatabase }).coveDb;
+    const previous = "2026-11-01T00:00:00.000Z";
+    db.setSourceStatus("ed", "connected", previous, null);
+
+    const response = await app.inject({ method: "POST", url: "/api/sync", payload: { source: "ed" } });
+    expect(response.statusCode).toBe(502);
+    expect(response.json().error.message).toContain("503");
+    const brief = (await app.inject("/api/brief")).json();
+    expect(brief.sources.find((source: { id: string }) => source.id === "ed")).toMatchObject({
+      status: "error", lastSyncAt: previous, lastError: expect.stringContaining("503"),
+    });
+    expect(fetcher).toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});
+
 describe("full sync HTTP results", () => {
   const moodleRaw = JSON.stringify({ baseUrl: "https://moodle.example.invalid", session: "fixture-only" });
 

@@ -1492,6 +1492,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!sourceSchema.safeParse(source).success) {
       return reply.code(400).send({ error: { code: "invalid_source", message: "Unknown source", retryable: false } } satisfies ApiError);
     }
+    const previousSyncAt = db.listSources().find((entry) => entry.id === source)?.lastSyncAt ?? null;
     try {
       const result = await orchestrator.sync(source as Source);
       return { ok: true, source, ...result };
@@ -1499,7 +1500,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
       const isOauth = error instanceof OAuthError;
       const status = isOauth ? (error.code === "not_connected" ? 409 : 502) : 502;
       const message = error instanceof Error ? error.message : "Source sync failed.";
-      db.setSourceStatus(source as Source, status === 409 ? "disconnected" : "error", null, message);
+      db.setSourceStatus(source as Source, status === 409 ? "disconnected" : "error", previousSyncAt, message);
       return reply.code(status).send({
         error: { code: isOauth ? error.code : "sync_failed", message, retryable: status >= 500 },
       } satisfies ApiError);
