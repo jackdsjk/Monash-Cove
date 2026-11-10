@@ -17,7 +17,7 @@ import { SyncOrchestrator } from "./sync/orchestrator.js";
 import { syncGmail } from "./sync/gmail.js";
 import { syncEd, syncMoodle, syncMoodleForum } from "./sync/sources.js";
 import { syncAllMoodleContent } from "./sync/moodle-content.js";
-import { FullSyncJobs } from "./sync/jobs.js";
+import { FullSyncJobs, type SyncSource } from "./sync/jobs.js";
 import { MoodleClient } from "./sources/moodle.js";
 import { MoodleGradesClient, MoodleGradesError } from "./sources/moodle-grades.js";
 import { EdClient } from "./sources/ed.js";
@@ -1400,7 +1400,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
       edConnected: Boolean(rawEd),
       moodleConnected: moodle,
       fullSyncCompleted,
-      setupRequired: !gmail || !rawEd || !moodle || !fullSyncCompleted,
+      setupRequired: !(gmail || rawEd || moodle) || !fullSyncCompleted,
     };
   });
 
@@ -1429,20 +1429,31 @@ export function buildApp(options: AppOptions): FastifyInstance {
 
     void (async () => {
       const errors: string[] = [];
-      fullSyncJobs.update("gmail", { status: "running" });
-      try {
+      const run = async (source: SyncSource, configured: () => Promise<boolean>, work: () => Promise<void>) => {
+        const previousSyncAt = db.listSources().find((entry) => entry.id === source)?.lastSyncAt ?? null;
+        try {
+          if (!await configured()) {
+            fullSyncJobs.update(source, { status: "skipped", message: "未配置此来源，已跳过。" });
+            return;
+          }
+          fullSyncJobs.update(source, { status: "running" });
+          await work();
+          fullSyncJobs.update(source, { status: "done" });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "同步失败";
+          errors.push(`${source}: ${message}`);
+          fullSyncJobs.update(source, { status: "error", message });
+          db.setSourceStatus(source, "error", previousSyncAt, message);
+        }
+      };
+      await run("gmail", () => google.connected(), async () => {
         await syncGmail(db, await google.client(), {
           full: true,
           onProgress: (processed, total) => fullSyncJobs.update("gmail", { processed, total }),
         });
-        fullSyncJobs.update("gmail", { status: "done" });
-      } catch (error) {
-        errors.push(`Gmail: ${error instanceof Error ? error.message : "failed"}`);
-        fullSyncJobs.update("gmail", { status: "error", message: errors.at(-1) });
-      }
+      });
 
-      fullSyncJobs.update("ed", { status: "running" });
-      try {
+      await run("ed", async () => Boolean(await secrets.get("ed-credentials")), async () => {
         const raw = await secrets.get("ed-credentials");
         if (!raw) throw new Error("Ed token is not configured.");
         const credentials = edCredentials.parse(JSON.parse(raw));
@@ -1450,14 +1461,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
           full: true,
           onProgress: (processed, total) => fullSyncJobs.update("ed", { processed, total }),
         });
-        fullSyncJobs.update("ed", { status: "done" });
-      } catch (error) {
-        errors.push(`Ed: ${error instanceof Error ? error.message : "failed"}`);
-        fullSyncJobs.update("ed", { status: "error", message: errors.at(-1) });
-      }
+      });
 
-      fullSyncJobs.update("moodle", { status: "running" });
-      try {
+      await run("moodle", async () => Boolean(await secrets.get("moodle-credentials")), async () => {
         const raw = await secrets.get("moodle-credentials");
         if (!raw) throw new Error("Moodle session is not configured.");
         const credentials = moodleCredentials.parse(JSON.parse(raw));
@@ -1468,14 +1474,11 @@ export function buildApp(options: AppOptions): FastifyInstance {
         }, getMoodleCoursePreferences(db, createHash("sha256").update(`moodle\0${raw}`).digest("hex")));
         fullSyncJobs.update("moodle", { status: "done", processed: content.courses, total: content.courses, message: `${assessments.synced + forum.synced} 条简报，${content.items} 条资料` });
         db.setSetting("moodle_full_synced_at", new Date().toISOString());
-      } catch (error) {
-        errors.push(`Moodle: ${error instanceof Error ? error.message : "failed"}`);
-        fullSyncJobs.update("moodle", { status: "error", message: errors.at(-1) });
-      }
+      });
 
       if (errors.length === 0) {
-        db.setSetting("full_sync_completed_at", new Date().toISOString());
         fullSyncJobs.complete();
+        if (fullSyncJobs.get()?.status === "done") db.setSetting("full_sync_completed_at", new Date().toISOString());
       } else {
         fullSyncJobs.fail(errors.join(" | "));
       }

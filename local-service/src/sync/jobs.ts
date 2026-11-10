@@ -1,7 +1,7 @@
-export type SyncSource = "gmail" | "ed" | "moodle";
+export type SyncSource = "gmail" | "ed" | "moodle" | "ontrack";
 
 export interface SourceProgress {
-  status: "pending" | "running" | "done" | "error";
+  status: "pending" | "running" | "done" | "error" | "skipped";
   processed: number;
   total: number | null;
   message?: string;
@@ -9,9 +9,10 @@ export interface SourceProgress {
 
 export interface FullSyncJob {
   id: string;
-  status: "running" | "done" | "error";
+  status: "running" | "done" | "error" | "skipped";
   startedAt: string;
   finishedAt?: string;
+  message?: string;
   sources: Record<SyncSource, SourceProgress>;
 }
 
@@ -28,6 +29,7 @@ export class FullSyncJobs {
         gmail: { status: "pending", processed: 0, total: null },
         ed: { status: "pending", processed: 0, total: null },
         moodle: { status: "pending", processed: 0, total: null },
+        ontrack: { status: "skipped", processed: 0, total: null, message: "OnTrack 不支持全量历史同步，请使用来源同步更新任务。" },
       },
     };
     return this.current;
@@ -44,7 +46,9 @@ export class FullSyncJobs {
 
   complete() {
     if (!this.current) return;
-    this.current.status = "done";
+    const anyDone = Object.values(this.current.sources).some((source) => source.status === "done");
+    this.current.status = anyDone ? "done" : "skipped";
+    if (!anyDone) this.current.message = "尚未配置支持全量同步的来源。";
     this.current.finishedAt = new Date().toISOString();
   }
 
@@ -52,6 +56,6 @@ export class FullSyncJobs {
     if (!this.current) return;
     this.current.status = "error";
     this.current.finishedAt = new Date().toISOString();
-    if (message) this.current.sources.gmail.message ??= message;
+    if (message) this.current.message = message;
   }
 }

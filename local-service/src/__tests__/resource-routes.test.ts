@@ -6,6 +6,7 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import type { CoveDatabase } from "../db.js";
 import { MemorySecretStore } from "../secrets.js";
+import type { FullSyncJob } from "../sync/jobs.js";
 
 let app: FastifyInstance | null = null;
 let directory: string;
@@ -13,6 +14,89 @@ beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), "cove-resource-route-"));
   vi.stubEnv("ONTRACK_CONFIG_DIR", directory);
   vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("Real network blocked"); }));
+});
+
+describe("full sync HTTP results", () => {
+  const moodleRaw = JSON.stringify({ baseUrl: "https://moodle.example.invalid", session: "fixture-only" });
+
+  function moodleFetcher() {
+    return vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/my/") return new Response('<html><script>{"sesskey":"fixture"}</script></html>');
+      if (url.pathname === "/lib/ajax/service.php") {
+        const courses = { error: false, data: { courses: [] } };
+        return Response.json(url.searchParams.get("info")?.includes("core_calendar_")
+          ? [courses, { error: false, data: { events: [] } }] : [courses]);
+      }
+      throw new Error(`Unexpected fixture URL: ${url.pathname}`);
+    });
+  }
+
+  async function finishSync(): Promise<{ fullSyncCompleted: boolean; job: FullSyncJob }> {
+    const started = await app!.inject({ method: "POST", url: "/api/sync/full" });
+    expect(started.statusCode).toBe(202);
+    let result: { fullSyncCompleted: boolean; job: FullSyncJob };
+    await vi.waitFor(async () => {
+      result = (await app!.inject("/api/sync/status")).json();
+      expect(result.job.status).not.toBe("running");
+    });
+    return result!;
+  }
+
+  it("syncs only configured sources and completes with Moodle alone", async () => {
+    const secrets = new MemorySecretStore();
+    await secrets.set("moodle-credentials", moodleRaw);
+    const fetcher = moodleFetcher();
+    app = buildApp({ dbPath: ":memory:", secretStore: secrets, fetcher });
+    const result = await finishSync();
+    expect(result.fullSyncCompleted).toBe(true);
+    expect(result.job.status).toBe("done");
+    expect(Object.fromEntries(Object.entries(result.job.sources).map(([source, progress]) => [source, progress.status])))
+      .toEqual({ gmail: "skipped", ed: "skipped", moodle: "done", ontrack: "skipped" });
+    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect((await app.inject("/api/setup/status")).json().setupRequired).toBe(false);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("reports all sources skipped without marking an empty run as a completed sync", async () => {
+    app = buildApp({ dbPath: ":memory:", secretStore: new MemorySecretStore() });
+    const db = (app as FastifyInstance & { coveDb: CoveDatabase }).coveDb;
+    db.setSourceStatus("ed", "error", null, "Previous source error");
+    const result = await finishSync();
+    expect(result.fullSyncCompleted).toBe(false);
+    expect(result.job.status).toBe("skipped");
+    expect(Object.values(result.job.sources).every((source) => source.status === "skipped")).toBe(true);
+    expect(db.getSetting("full_sync_completed_at")).toBeNull();
+    expect(db.listSources().find((source) => source.id === "ed")?.lastError).toBe("Previous source error");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("retains failed source progress and last success while continuing other configured sources", async () => {
+    const secrets = new MemorySecretStore();
+    await secrets.set("gmail-oauth-tokens", JSON.stringify({ access_token: "expired-fixture", expires_at: 0 }));
+    await secrets.set("ed-credentials", JSON.stringify({ token: "invalid-fixture", region: "us" }));
+    await secrets.set("moodle-credentials", moodleRaw);
+    const upstream = moodleFetcher();
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      if (!String(input).startsWith("https://moodle.example.invalid/")) throw new Error("Fixture authentication rejected");
+      return upstream(input);
+    });
+    app = buildApp({ dbPath: ":memory:", secretStore: secrets, fetcher });
+    const db = (app as FastifyInstance & { coveDb: CoveDatabase }).coveDb;
+    const previous = "2026-11-01T00:00:00.000Z";
+    db.setSourceStatus("ed", "connected", previous, null);
+    const result = await finishSync();
+    expect(result.fullSyncCompleted).toBe(false);
+    expect(result.job.status).toBe("error");
+    expect(result.job.sources.gmail).toMatchObject({ status: "error", message: expect.stringContaining("expired") });
+    expect(result.job.sources.ed).toMatchObject({ status: "error", message: "Fixture authentication rejected" });
+    expect(result.job.sources.moodle.status).toBe("done");
+    expect(result.job.message).toContain("ed: Fixture authentication rejected");
+    expect(db.listSources().find((source) => source.id === "ed")).toMatchObject({ status: "error", lastSyncAt: previous });
+    expect(db.getSetting("moodle_full_synced_at")).toBeTruthy();
+    expect(db.getSetting("full_sync_completed_at")).toBeNull();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
 });
 afterEach(async () => {
   await app?.close(); app = null;
