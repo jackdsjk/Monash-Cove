@@ -1,244 +1,170 @@
-# Monash Cove
+<p align="center">
+  <img src="docs/assets/cove-banner.png" alt="Cove — a calm place for your campus information" width="100%" />
+</p>
 
-**English** · [简体中文](README.zh-CN.md)
+<h1 align="center">Monash Cove</h1>
 
-> Read-only triage for Monash students: four systems in, one reviewable brief out.
+<p align="center"><strong>Your courses, changes and next steps. In one place.</strong></p>
+<p align="center">A local-first workspace for Monash students using Moodle, Ed, OnTrack and Gmail.</p>
 
-![Node](https://img.shields.io/badge/Node-26%2B-3c873a?style=flat-square)
-![Platform](https://img.shields.io/badge/platform-macOS-lightgrey?style=flat-square)
-![Access](https://img.shields.io/badge/access-read--only-2f7fd1?style=flat-square)
-![Data](https://img.shields.io/badge/data-local--only-177b8a?style=flat-square)
+<p align="center">
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a><br />
+  <a href="#quick-start">Quick start</a> · <a href="#see-it-in-action">Preview</a> · <a href="docs/README.md">Documentation</a>
+</p>
 
-Everything runs on your machine. The app never uploads content and never acts on your behalf inside university systems.
+<p align="center">
+  <img src="https://img.shields.io/badge/Node-26%2B-205747?style=flat-square" alt="Node 26 or newer" />
+  <img src="https://img.shields.io/badge/storage-local--first-205747?style=flat-square" alt="Local-first storage" />
+  <img src="https://img.shields.io/badge/verified%20platform-macOS-557888?style=flat-square" alt="Verified platform: macOS" />
+</p>
 
-## Contents
+A changed deadline, a new worksheet, a tutor's comment: useful information arrives in different places. Cove brings it into a reviewable brief, keeps the source evidence, and records what changed since your last visit.
 
-| Section | Topic |
-|---|---|
-| [1](#1-what-problem-this-solves) | What problem this solves |
-| [2](#2-who-it-is-for) | Who it is for |
-| [3](#3-features) | Features |
-| [4](#4-data-sources) | Data sources |
-| [5](#5-architecture) | Architecture |
-| [6](#6-getting-started) | Getting started |
-| [7](#7-repository-layout) | Repository layout |
-| [8](#8-privacy-and-security-boundaries) | Privacy and security boundaries |
-| [9](#9-development-and-verification) | Development and verification |
-| [10](#10-current-status-and-known-limits) | Current status and known limits |
-| [11](#11-documentation) | Documentation |
-| [12](#12-license) | License |
+## See it in action
 
-## 1. What problem this solves
+![Cove brief with course updates, source filters and a shared grade summary](docs/assets/screenshots/brief.png)
 
-A student works across four systems every day: university mail, Moodle course pages, Ed discussion boards, and OnTrack. They carry notices, assignment requirement changes, tutor feedback, and a large amount of unrelated discussion. Those platforms publish; none of them judge. The judging is left to the student.
+*Screenshots show the running application with anonymous demonstration data. The banner is AI-generated brand artwork; the product screens are captured from the real UI.*
 
-Monash Cove splits that work into four steps:
+<details>
+<summary><strong>Grades — published results and category breakdowns</strong></summary>
 
-| Step | What it does |
-|---|---|
-| **Read-only polling** | Pull new content from four sources locally, with read-only credentials |
-| **Triage** | Decide importance and required action from course ownership, author role, and whether the content changes an existing arrangement |
-| **Evidence** | Every judgement carries a quoted excerpt and a link back to the source |
-| **Change history** | Record what changed inside an item (due date, title, body), not merely whether something is new |
+![Cove Grades page with course results and category breakdowns](docs/assets/screenshots/grades.png)
 
-It is not a calendar replacement, and it does not write your assignments. It replaces reading every notification before deciding what matters.
+Reads Moodle Grades and assessment weights, distinguishes numeric and Pass/Fail results, and keeps the last successful data visible when a refresh fails.
 
-## 2. Who it is for
+</details>
 
-| | Detail |
-|---|---|
-| **Fits** | A current Monash student who uses Moodle, university mail, Ed and OnTrack, needs to keep up with coursework, and would rather not read every notice one by one |
-| **Does not fit** | Non-Monash users — the adapters target Monash's Moodle, Ed and OnTrack directly |
-| **Does not fit** | Anyone expecting the app to submit coursework, reply to messages, or change grades |
-| **Does not fit** | Multi-user or cloud-sync scenarios — this is single-user, single-machine software |
+<details>
+<summary><strong>Ed — lessons, recordings and attachments</strong></summary>
 
-## 3. Features
+![Cove Ed learning page with week filters and downloadable lesson attachments](docs/assets/screenshots/ed.png)
 
-| Page | The question it answers |
-|---|---|
-| [Brief](#31-brief-home) | What needs my attention since I last looked? |
-| [Change tracking](#32-change-tracking) | What changed in something I already read? |
-| [Deadlines](#33-deadline-countdown) | What is due next, and how long do I have? |
-| [Weekly materials](#34-weekly-materials) | What did each course publish this week? |
-| [OnTrack](#35-ontrack) | Where is each task, and what did the tutor say? |
-| [Ed learning](#36-ed-learning) | Where are the recording, slides and files for this lesson? |
-| [Attendance](#37-attendance) | What is this week's attendance code? |
-| [Sources](#38-sources-and-credential-lifetime) | Which sources are connected, and how long do the credentials last? |
-| [Local MCP](#39-local-mcp-optional) | How does another agent read this data? |
+Browse lessons in natural week order. Find PDFs attached to videos, native PDF slides and lesson-outline files; search by filename or package a lesson for download.
 
-### 3.1 Brief (home)
+</details>
 
-Compresses everything since your last visit into **Must handle / To confirm / Folded**. Each row shows source, course, arrival time, a quoted excerpt and judgement tags; opening a row shows the full item and the original text. Filter by source, type or course, or narrow to "needs action" and "unread".
+<details>
+<summary><strong>OnTrack — tasks, feedback and worksheets</strong></summary>
 
-### 3.2 Change tracking
+![Cove OnTrack page with task filters and an expanded feedback thread](docs/assets/screenshots/ontrack.png)
 
-Every sync compares the incoming item with the stored version and records field-level changes (due date, title, course, body). The brief shows a collapsible "what changed since your last visit" list with before/after values. Change records are kept for 90 days, and first-time imports are never reported as changes.
+Search tasks, filter by status or grade band, read feedback in place, and download worksheets, task resources and existing submission files.
 
-### 3.3 Deadline countdown
+</details>
 
-Combines Moodle and OnTrack deadlines, grouped into **Overdue / Within 24 hours / Within three days / Later**. Each deadline is a square card with a per-second flip countdown; marking an item submitted removes it from the list.
+## Quick start
 
-### 3.4 Weekly materials
-
-Materials grouped by course and section, with week/section, type and text filters, batch selection and download. Long course names use a separate selector so the heading stays readable. **Moodle assignment materials** has its own searchable course/status list and exports instructions and changes only for assignments or quizzes confirmed by Moodle Grades; OnTrack files stay on OnTrack.
-
-### 3.5 OnTrack
-
-The active OnTrack page shows a read-only task table grouped by course: code, name, grade band, status, target date, effective due date and unread comment count. It includes task definitions that have no student instance yet, and labels uncertain applicability for checking in OnTrack. Known tasks outside the student's target grade or tutorial stream are excluded from the ordinary list.
-
-Each task provides worksheet, task-resource and existing-submission downloads through the local read-only API; a task without a student instance cannot offer a submission file. The conversation drawer remains in the legacy workspace. Full sync includes tasks and historical feedback from projects the account can still access, including existing tasks that no longer match the current target or stream. It cannot restore content hidden or deleted by the server. [Reuse details and limits](docs/always-ontrack-reuse-2026-11-11.md).
-
-### 3.6 Ed learning
-
-Ed lessons run from earlier to later weeks, with week, type and text filters. Videos open the original page, text slides export as Markdown, PPT and PDF files download, and a whole lesson can be packaged at once.
-
-### 3.7 Attendance
-
-Collects attendance codes from Gmail and Moodle. Moodle images are read with a bundled Tesseract.js (WASM) OCR pass, and every result can be checked by hand.
-
-### 3.8 Sources and credential lifetime
-
-Manages the four source connections and shows each one's **credential lifetime**:
-
-| Source | Lifetime |
-|---|---|
-| Gmail | Renews automatically before it expires |
-| Ed | No published expiry; prompts to reconnect when it lapses |
-| Moodle | Cookies rotate automatically; maintenance runs every 10 minutes while the service is running; school-enforced expiry still requires login |
-| OnTrack | Exchanges a refresh credential for short-lived tokens |
-
-### 3.9 Local MCP (optional)
-
-`local-service` also exposes a read-only MCP endpoint (stdio or Streamable HTTP) so an external agent can read the brief, deadlines, source status and course materials. See [docs/mcp.md](docs/mcp.md).
-
-## 4. Data sources
-
-| Source | Connection | Scope | Credential | Lifetime |
-|---|---|---|---|---|
-| Gmail | Google OAuth (`gmail.readonly`) | Read mail and threads | Local Keychain | 1 hour, auto-renewed |
-| Ed | Ed API token | Read course discussions | Local Keychain | Not published |
-| Moodle | Chrome login assistant, captures the session cookie | Read course pages and files | Local Keychain | Not published |
-| OnTrack | Chrome login assistant, captures a refresh credential | Read tasks, feedback and files | Local Keychain | Short-lived tokens, auto-renewed |
-
-All four are read-only. The app sends no mail, submits no work, and changes no task status.
-
-## 5. Architecture
-
-```text
-┌─────────────┐     HTTP/JSON      ┌──────────────────┐     HTTPS      ┌──────────────┐
-│   webapp    │ ─────────────────▶ │  local-service   │ ─────────────▶ │ University   │
-│ React+AntD  │ ◀───────────────── │ Fastify + SQLite │ ◀───────────── │ read-only    │
-└─────────────┘                    └──────────────────┘                └──────────────┘
-        │                                    │
-        │                                    └─ Keychain (credentials)
-        └─ browser UI                        └─ SQLite (items, judgements, changes)
-```
-
-| Process | Responsibility |
-|---|---|
-| **webapp** | Vite + React 19 + Ant Design 6; a pure client that never holds a credential |
-| **local-service** | Node 26 + Fastify + `node:sqlite`; owns source access, sync, triage, change history and downloads |
-| **desktop** | An Electron shell that reuses the same local-service and webapp |
-
-## 6. Getting started
-
-### Prerequisites
-
-| Requirement | Why |
-|---|---|
-| Node.js 26+ | Modern syntax and `node:sqlite` |
-| Google Chrome | The Moodle and OnTrack login assistants drive it |
-| macOS | The only platform fully verified so far |
-| A Monash account | Needed to connect the four sources |
-
-### One command
+Use **Node.js 26+**, **Google Chrome** for the login assistants, and your **Monash account**. macOS is the verified platform; Windows desktop packages have not been tested on real Windows hardware.
 
 ```bash
+git clone https://github.com/jackdsjk/Monash-Cove.git
+cd Monash-Cove
 ./start-cove.sh
 ```
 
-The script installs dependencies and builds both packages as needed, then starts the local service in production mode and serves the UI at <http://127.0.0.1:4317/> (macOS opens the browser automatically).
+The script installs missing dependencies, builds missing production output, and serves the app at **<http://127.0.0.1:4317/>**. macOS opens the browser automatically. After pulling updates, rebuild both packages if their production output already exists; the launcher does not detect stale builds.
 
-### Manual start
+1. Connect the sources you use in **Setup** or **Sources**. You can skip setup and connect later.
+2. For Gmail, configure your Google OAuth client in `local-service/.env.local` using [the example](local-service/.env.example). Other source connections do not require Gmail.
+3. Run **Full sync** in **Settings**, then return to the brief. The local service also schedules background sync while it is running.
 
-```bash
-# terminal 1 — local service
-cd local-service && npm install && npm run dev
+New databases start empty. Demonstration data requires an explicit fixture setting; failed or disconnected sources never trigger example data.
 
-# terminal 2 — web app
-cd webapp && npm install && npm run dev
+For desktop packaging, signing and installation limits, read the [desktop guide](docs/desktop-install.md). Current unsigned builds are for controlled testing; this README does not offer a ready-to-distribute signed release.
+
+## What you can do
+
+| Workflow | Available now |
+|---|---|
+| **Catch up on changes** | A brief since your last visit, course/source filters, quoted evidence and original links. Field-level history tracks deadline, title, course and body changes for 90 days. |
+| **Track coursework** | Moodle and OnTrack deadlines, countdowns and a shared completed/submitted state. Completed items leave the active deadline list. |
+| **Check grades** | Published Moodle scores, category weights, independent Overview text and grade-change notices. Pass/Fail scales stay separate from numeric averages; unknown weights remain unknown. |
+| **Collect Moodle materials** | Week/section, type and search filters; batch downloads. The assignment pack includes only Moodle activities confirmed by Grades. |
+| **Study from Ed** | Week ordering, content/file filters, filename search, videos and independent PDF/PPT attachments. Downloads report actual successes and failures. |
+| **Follow OnTrack feedback** | Definition-first task lists, natural numbering, state/grade filters and on-demand comment threads. Worksheets and resources stay with their tasks. |
+| **Review attendance** | Codes from Gmail and Moodle, local image OCR, and a separate explicit submission flow. |
+| **Connect another client** | Read-only local MCP access to briefs, changes, deadlines, Moodle materials, Ed lessons and OnTrack tasks/feedback. [MCP setup](docs/mcp.md). |
+
+Shared queries and account-scoped SQLite snapshots keep successfully read data visible during refresh or network failure. Moodle semester, hidden-course and pinned-course preferences control bulk material and grade reads.
+
+## Sources and data boundaries
+
+| Source | Connection | Reads |
+|---|---|---|
+| **Moodle** | Chrome login assistant; durable session cookies with periodic maintenance | Courses, grades, assessments, materials and available forum content |
+| **Ed** | API token | Course discussions, replies, lessons and attachments |
+| **OnTrack** | Chrome login assistant; refresh credential exchanged for short-lived tokens | Accessible projects, task definitions, feedback and files |
+| **Gmail** | Google OAuth with `gmail.readonly` | Mail and threads |
+
+School-enforced session expiry can still require reconnection. OnTrack history is limited to content the account can currently access; hidden or deleted records cannot be recovered.
+
+**Local by default.** The service owns the database and source credentials; the browser does not store source secrets. macOS uses Keychain, with a restricted-permission local file fallback on other platforms. The default database is `~/Library/Application Support/Cove/cove.sqlite`; configuration can change its location.
+
+**Optional model access.** Triage uses local rules unless `COVE_MODEL_BASE_URL`, `COVE_MODEL_NAME` and `COVE_MODEL_API_KEY` are configured. Enabling a remote model sends item titles, text and source/author-role fields to that endpoint. An external MCP client can also receive the data it requests. Choose those integrations with your data preferences in mind.
+
+**School-side actions.** Normal browsing, sync and file reads do not change task state, post comments or submit coursework. Attendance has a dedicated submission flow. Cove does not send email, change grades or submit assignments.
+
+## How it fits together
+
+```mermaid
+flowchart LR
+    Sources["Moodle · Ed · OnTrack · Gmail"] --> Service["Local service<br/>Fastify · Node 26"]
+    Service <--> Store["Local SQLite<br/>Items · grades · changes · cache"]
+    Secrets["Local credential store"] --> Service
+    Service <--> Web["Web app<br/>React · Vite"]
+    Service --> MCP["Read-only MCP"]
+    Desktop["Optional Electron shell"] --> Web
 ```
 
-Development mode uses the Vite dev server at <http://127.0.0.1:5174/>; `local-service` serves `/api` on port 4317 and Vite proxies to it.
+The root **`webapp/`** and **`local-service/`** are the active local application. **`desktop/`** wraps them for desktop use. **`demo/`** is an anonymous static prototype. **`stack/unicorn/`** is a separate, independently maintained memory-layer repository; it is not required to start the local app.
 
-Courses, grades, Ed lessons and OnTrack data use shared page queries and account-scoped SQLite snapshots. Cached data stays visible during refresh or network failure. Materials includes semester, hidden-course and pinned-course preferences for bulk material and grade reads; details and verification limits are in the [cache implementation report](docs/muster-reuse-and-cache-2026-11-10.md).
+## Development
 
-Grades reuse Muster's calculator and assessment structure, with confirmed activity details, hidden-grade states and independent Overview text. Category breakdowns, local semester filters, private structure diagnostics, in-app change notices and a shared home summary are available. Sync updates the same account-scoped snapshot; failed weight reads retain the last structure with a warning. Study advice is deferred. [Grading rules and verification](docs/muster-grading-rules-2026-11-11.md).
+For development, start `local-service` before the Web App:
 
-### First run
+```bash
+# Terminal 1
+cd local-service
+npm ci
+npm run dev
+```
 
-1. Connect the sources you use in setup or **Sources**, or explicitly skip setup and connect later;
-2. Run a full sync from **Settings** for configured Gmail, Ed, Moodle and OnTrack sources; OnTrack reads currently accessible projects and historical feedback;
-3. Return to **Brief** and use **Sync** when needed. Opening the app reads local data; the local service has its own background sync schedule.
+```bash
+# Terminal 2
+cd webapp
+npm ci
+npm run dev
+```
 
-New databases start empty. Anonymous demo data requires explicitly setting `COVE_SEED_FIXTURE=1` on an unused database; it is never reinserted because a source disconnected or failed.
+Open <http://127.0.0.1:5174/>. Vite proxies `/api` to the local service on port 4317.
 
-## 7. Repository layout
-
-| Path | Contents |
+| Check | Command |
 |---|---|
-| `webapp/` | Web client (brief, deadlines, materials, OnTrack, Ed, attendance, sources, settings) |
-| `local-service/` | Local service: source adapters, sync orchestration, SQLite, HTTP and MCP endpoints |
-| `desktop/` | Electron shell and packaging configuration |
-| `demo/` | Anonymous static prototype (no real login or sync) |
-| `docs/` | Product definition, design rules, install and integration guides, development log |
-| `redesign/` | Static HTML design directions kept for reference |
-| `scripts/` | Evaluation and operational scripts |
+| Backend tests and build | `cd local-service && npm run check` |
+| Frontend data, types and build | `cd webapp && npm run check` |
+| Frontend unit tests | `cd webapp && npm exec vitest run` |
+| Isolated browser smoke | `cd webapp && npm run e2e` |
 
-## 8. Privacy and security boundaries
+Browser smoke uses temporary data and credentials, blocks external network access and covers first-run, failure, filtering and download flows. Fixtures verify behavior; they do not prove every real-account course or attachment works. [Verification and reuse report](docs/unicorn-feature-reuse-2026-11-11.md).
 
-| Boundary | How it is enforced |
-|---|---|
-| Real credentials | Written only to the local Keychain; never in the repository or the browser |
-| Content | Mail bodies, course content, judgements and change history live only in a local SQLite database |
-| Public repository | Contains no real tokens, cookies, databases or account details |
-| Network | Requests go only to university systems and Google's read-only APIs |
-| External writes | Attendance submission is supported through a dedicated flow; coursework submission, message replies and grade changes are not supported |
+## Status and limits
 
-Database location: `~/Library/Application Support/Cove/cove.sqlite`.
+Cove is built for a single Monash student on one machine. Source connections and selected data paths have been checked against real accounts; broader coverage and failures are documented in the [audit reports](docs/README.md). Screenshots are demonstrations, not records of real student results.
 
-## 9. Development and verification
+- macOS desktop builds remain unsigned; public distribution needs signing/notarization and a review of packaged OAuth configuration. Windows hardware verification is outstanding.
+- OnTrack's date-only deadlines use the Malaysia campus time convention. Other campuses need timezone review.
+- Study advice is deferred. WAM/GPA are not estimated without the required historical results and credit data.
+- There is no shared cloud account, cross-device sync or external user-study validation.
 
-| Command | What it runs |
-|---|---|
-| `cd local-service && npm run check` | Unit tests and build |
-| `cd webapp && npm run check` | Data checks, type check and build |
-| `cd webapp && npm exec vitest run` | Frontend unit tests (separate from `check`) |
-| `cd webapp && npm run e2e` | End-to-end smoke run |
+## Documentation
 
-## 10. Current status and known limits
+[All documentation](docs/README.md) · [Web App](webapp/README.md) · [Local service](local-service/README.md) · [Desktop installation](docs/desktop-install.md) · [MCP access](docs/mcp.md)
 
-| Status | Detail |
-|---|---|
-| **Verified against real accounts** | Source connection, sync, triage, change tracking, OnTrack tasks and conversations, material downloads |
-| Unverified | The Windows desktop build has not been tested on real Windows hardware |
-| Unverified | The macOS Electron build is unsigned; distribution needs a Developer ID and notarization |
-| Known limit | Gmail incremental sync only reads mail after its cursor, so edits to older mail are never re-read (Gmail messages are not editable, so the impact is small) |
-| Known limit | OnTrack deadlines are treated as 23:59 on the due date at +08:00; other campuses need an adjustment |
-| Known limit | No external user research yet; evaluation rests on historical replay and self-testing |
+For implementation details: [cache behavior](docs/muster-reuse-and-cache-2026-11-10.md), [grading rules](docs/muster-grading-rules-2026-11-11.md), and [Unicorn/Ed/OnTrack reuse](docs/unicorn-feature-reuse-2026-11-11.md).
 
-## 11. Documentation
+## License and acknowledgements
 
-| Document | Contents |
-|---|---|
-| [docs/README.md](docs/README.md) | Documentation index |
-| [docs/PRD-Monash-Agent.md](docs/PRD-Monash-Agent.md) | Product definition |
-| [docs/webapp-design.md](docs/webapp-design.md) | Design rules |
-| [local-service/README.md](local-service/README.md) | Local service |
-| [webapp/README.md](webapp/README.md) | Web client |
-| [docs/desktop-install.md](docs/desktop-install.md) | Desktop install |
-| [docs/mcp.md](docs/mcp.md) | MCP access |
+An overall open-source license has not yet been selected for this repository. Public source availability does not grant a general reuse license.
 
-## 12. License
-
-No open-source license is declared for this repository yet. Until one is added, all rights are reserved; contact the owner before quoting or reusing the code.
+Vendored components keep their own licenses and notices, including [Muster grading](webapp/src/lib/muster/README.md), [Ed lesson extraction](local-service/src/vendor/edstem-cli/README.md) and [OnTrack status labels](webapp/src/vendor/ontrack-cli/README.md). Additional OnTrack reuse and its Apache-2.0 source are recorded in the [integration report](docs/always-ontrack-reuse-2026-11-11.md).

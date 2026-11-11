@@ -1,244 +1,170 @@
-# Monash Cove
+<p align="center">
+  <img src="docs/assets/cove-banner.png" alt="Cove — 汇聚校园信息的安静港湾" width="100%" />
+</p>
 
-[English](README.md) · **简体中文**
+<h1 align="center">Monash Cove</h1>
 
-> 面向 Monash 学生的本地优先信息分诊应用：四个来源进，一份可核对的简报出。
+<p align="center"><strong>课程、变化与下一步，在一处看清。</strong></p>
+<p align="center">面向 Monash 学生的本地优先工作台，连接 Moodle、Ed、OnTrack 与 Gmail。</p>
 
-![Node](https://img.shields.io/badge/Node-26%2B-3c873a?style=flat-square)
-![Platform](https://img.shields.io/badge/platform-macOS-lightgrey?style=flat-square)
-![Access](https://img.shields.io/badge/access-read--only-2f7fd1?style=flat-square)
-![Data](https://img.shields.io/badge/data-local--only-177b8a?style=flat-square)
+<p align="center">
+  <a href="README.md">English</a> · <strong>简体中文</strong><br />
+  <a href="#快速开始">快速开始</a> · <a href="#界面预览">界面预览</a> · <a href="docs/README.md">文档</a>
+</p>
 
-所有数据和处理都在本机完成。应用不会向任何服务器上传内容，也不会代替你在学校系统里执行操作。
+<p align="center">
+  <img src="https://img.shields.io/badge/Node-26%2B-205747?style=flat-square" alt="Node 26 或更新版本" />
+  <img src="https://img.shields.io/badge/storage-local--first-205747?style=flat-square" alt="本地优先存储" />
+  <img src="https://img.shields.io/badge/verified%20platform-macOS-557888?style=flat-square" alt="已验证平台：macOS" />
+</p>
 
-## 目录
+截止时间改了、新的 Worksheet 发布了、导师留下反馈了——有用的信息散落在不同平台。Cove 把它们汇成一份可核对的简报，保留原文证据，并记录自上次查看后发生的变化。
 
-| 章节 | 内容 |
-|---|---|
-| [1](#1-这个项目解决什么问题) | 这个项目解决什么问题 |
-| [2](#2-适用对象) | 适用对象 |
-| [3](#3-功能) | 功能 |
-| [4](#4-数据来源) | 数据来源 |
-| [5](#5-架构) | 架构 |
-| [6](#6-快速开始) | 快速开始 |
-| [7](#7-项目结构) | 项目结构 |
-| [8](#8-隐私与安全边界) | 隐私与安全边界 |
-| [9](#9-开发与验证) | 开发与验证 |
-| [10](#10-当前状态与已知限制) | 当前状态与已知限制 |
-| [11](#11-文档) | 文档 |
-| [12](#12-许可) | 许可 |
+## 界面预览
 
-## 1. 这个项目解决什么问题
+![Cove 简报：课程动态、来源筛选与共享成绩摘要](docs/assets/screenshots/brief.png)
 
-一个在读学生每天要面对四套系统的信息：学校邮箱、Moodle 课程页、Ed 讨论区和 OnTrack 作业页。其中有通知、有作业要求变更、有导师反馈，也有大量与个人无关的讨论和推广。现有平台只负责「发布」，不负责「判断」，于是判断的成本全部落在学生身上。
+*截图来自实际运行的应用，使用匿名演示数据。顶部横幅为 AI 生成的品牌插画，产品界面为真实 UI 截图。*
 
-Monash Cove 把这件事拆成四步：
+<details>
+<summary><strong>成绩：已发布结果与分类明细</strong></summary>
 
-| 步骤 | 做什么 |
-|---|---|
-| **只读巡检** | 在本机以只读权限拉取四个来源的新内容 |
-| **分诊** | 按课程归属、发布者身份、是否改变原有安排，判断重要性与是否需要行动 |
-| **可核对** | 每条判断附带原文引文，一键跳回来源 |
-| **记住变化** | 记录内容本身的变化（截止时间、标题、正文），而不只是「有没有新内容」 |
+![Cove 成绩页：课程结果与分类明细](docs/assets/screenshots/grades.png)
 
-它不替代日历，也不替学生写作业。它替代的是「逐条读完再做判断」这件事。
+读取 Moodle Grades 和评估权重，区分数值与 Pass/Fail 成绩；刷新失败时保留上次成功读取的数据。
 
-## 2. 适用对象
+</details>
 
-| | 说明 |
-|---|---|
-| **适用** | 同时使用 Moodle、学校邮箱、Ed 和 OnTrack，需要定期确认课程动态，但不希望逐条读完所有通知的 Monash 在读学生 |
-| **不适用** | 非 Monash 用户（来源适配器直接对接 Monash 的 Moodle、Ed 和 OnTrack） |
-| **不适用** | 希望应用代为提交作业、回复消息或修改成绩的用户 |
-| **不适用** | 需要多人协作或云端同步的场景（当前是单用户、单机） |
+<details>
+<summary><strong>Ed：学习内容、录像与附件</strong></summary>
 
-## 3. 功能
+![Cove Ed 学习页：周筛选与可下载的学习附件](docs/assets/screenshots/ed.png)
 
-| 页面 | 回答的问题 |
-|---|---|
-| [简报](#31-简报首页) | 上次查看之后，有什么需要我处理？ |
-| [变化追踪](#32-内容变化追踪) | 我看过的那条内容，改了什么？ |
-| [截止倒计时](#33-截止倒计时) | 接下来要交什么，还有多久？ |
-| [每周资料](#34-每周资料) | 这周每门课发了什么材料？ |
-| [OnTrack](#35-ontrack) | 任务做到哪一步，导师说了什么？ |
-| [Ed 学习](#36-ed-学习) | 这节课的录像、讲稿和附件在哪？ |
-| [签到](#37-签到) | 本周的考勤码是什么？ |
-| [数据源](#38-数据源与登录有效期) | 哪个来源连上了，凭据还能用多久？ |
-| [本地 MCP](#39-本地-mcp可选) | 怎么让别的 Agent 读这些数据？ |
+按周自然排序，查找视频中的 PDF、原生 PDF 和 lesson 提纲附件；支持文件名搜索与单个 lesson 打包下载。
 
-### 3.1 简报（首页）
+</details>
 
-把上次查看之后的内容压缩成三组：**必须处理 / 待确认 / 已折叠**。每条显示来源、课程、到达时间、原文引文和判断标签，点击打开详情抽屉核对原文。支持按来源、类型、课程筛选，以及「只看需要行动」「只看未读」。
+<details>
+<summary><strong>OnTrack：任务、反馈与 Worksheet</strong></summary>
 
-### 3.2 内容变化追踪
+![Cove OnTrack 页：任务筛选与展开的反馈线程](docs/assets/screenshots/ontrack.png)
 
-每次同步会与库中已有版本比较，记录字段级变化（截止时间、标题、课程、正文）。简报顶部以可折叠列表展示「自上次查看，哪几条内容变过」，并给出改动前后的值。变化记录保留 90 天，首次导入的内容不会被误记为变化。
+搜索任务，按状态或等级筛选，直接查看反馈，下载 Worksheet、任务资料和已有提交文件。
 
-### 3.3 截止倒计时
+</details>
 
-汇总 Moodle 与 OnTrack 的截止日期，按 **已截止 / 24 小时内 / 三天内 / 更晚** 分组。每条截止项是一张方形卡片，内含按秒翻牌的倒计时；标记为已提交后自动移出列表。
+## 快速开始
 
-### 3.4 每周资料
-
-按课程和板块整理资料，支持周／板块、类型和搜索筛选，批量选择与下载。长课程名使用独立选择栏，避免挤压标题。「Moodle 作业资料」另有课程、状态和搜索筛选，只导出能与 Grades 评分项关联的 Moodle 作业／测验原文与变更；OnTrack 文件在 OnTrack 页面查看。
-
-### 3.5 OnTrack
-
-当前 OnTrack 页面按课程显示只读任务表：编号、名称、等级、状态、目标日期、生效截止日期和未读评论数。尚未生成个人实例的任务定义也会显示；适用性未知时提示到 OnTrack 核对，普通列表排除已知高于目标等级或不匹配班级的任务。
-
-每项任务直接提供任务书／Worksheet、任务资料和已有提交文件下载；没有个人实例时不提供提交文件。对话抽屉仍在旧 workspace。全量同步读取账号仍可访问的项目任务与历史反馈，也包含当前目标或班级已不适用的旧实例，无法恢复服务器隐藏或删除的内容。参考版本、复用范围与限制见 [接入记录](docs/always-ontrack-reuse-2026-11-11.md)。
-
-### 3.6 Ed 学习
-
-Ed lesson 按周从早到晚显示，支持周、类型和搜索筛选：视频跳转原页，文字生成 Markdown，PPT / PDF 下载，支持整课打包。
-
-### 3.7 签到
-
-从 Gmail 与 Moodle 汇总 attendance code；Moodle 图片使用内置 Tesseract.js（WASM）做本地 OCR，识别结果可人工核对。
-
-### 3.8 数据源与登录有效期
-
-集中管理四个来源的连接状态，并显示每个来源的**凭据有效期**：
-
-| 来源 | 有效期 |
-|---|---|
-| Gmail | 到期自动续期 |
-| Ed | 无固定到期，失效时提示重连 |
-| Moodle | 自动保存轮换 Cookie，服务运行时每 10 分钟维护；学校强制到期仍需重登 |
-| OnTrack | 通过刷新凭据自动换取短时 token |
-
-### 3.9 本地 MCP（可选）
-
-`local-service` 另外暴露一个只读 MCP 接口（stdio 或 Streamable HTTP），外部 Agent 可以读取简报、截止时间、来源状态和课程资料。接入方式见 [docs/mcp.md](docs/mcp.md)。
-
-## 4. 数据来源
-
-| 来源 | 接入方式 | 权限 | 凭据位置 | 有效期 |
-|---|---|---|---|---|
-| Gmail | Google OAuth（`gmail.readonly`） | 只读邮件与线程 | 本机 Keychain | 1 小时，自动续期 |
-| Ed | Ed API token | 只读课程讨论 | 本机 Keychain | 平台未公布 |
-| Moodle | Chrome 登录助手，捕获会话 Cookie | 只读课程页与文件 | 本机 Keychain | 平台未公布 |
-| OnTrack | Chrome 登录助手，捕获刷新凭据 | 只读任务、反馈与文件 | 本机 Keychain | 自动换取短时 token |
-
-四个来源均为只读。应用不发送邮件、不提交作业、不修改任务状态。
-
-## 5. 架构
-
-```text
-┌─────────────┐     HTTP/JSON      ┌──────────────────┐     HTTPS      ┌──────────────┐
-│   webapp    │ ─────────────────▶ │  local-service   │ ─────────────▶ │ 学校系统      │
-│ React+AntD  │ ◀───────────────── │ Fastify + SQLite │ ◀───────────── │ 只读接口      │
-└─────────────┘                    └──────────────────┘                └──────────────┘
-        │                                    │
-        │                                    └─ Keychain（凭据）
-        └─ 浏览器界面                         └─ SQLite（条目、判断、变化记录）
-```
-
-| 进程 | 职责 |
-|---|---|
-| **webapp** | Vite + React 19 + Ant Design 6；纯前端，不持有任何凭据 |
-| **local-service** | Node 26 + Fastify + `node:sqlite`；负责来源接入、同步、分诊、变化记录与下载 |
-| **desktop** | Electron 桌面壳，复用同一套 local-service 与 webapp |
-
-## 6. 快速开始
-
-### 前置条件
-
-| 要求 | 说明 |
-|---|---|
-| Node.js 26+ | 新版语法与 `node:sqlite` |
-| Google Chrome | Moodle 与 OnTrack 的登录助手依赖它 |
-| macOS | 当前唯一完整验证过的平台 |
-| Monash 账号 | 用于连接四个来源 |
-
-### 一键启动
+准备 **Node.js 26+**、登录助手使用的 **Google Chrome**，以及你的 **Monash 账号**。当前已验证平台为 macOS；Windows 桌面包尚未在真实 Windows 硬件上测试。
 
 ```bash
+git clone https://github.com/jackdsjk/Monash-Cove.git
+cd Monash-Cove
 ./start-cove.sh
 ```
 
-脚本按需安装依赖、构建前后端，然后以生产模式启动本地服务，并在 <http://127.0.0.1:4317/> 提供界面（macOS 会自动打开浏览器）。
+脚本安装缺失的依赖、构建尚不存在的生产产物，然后在 **<http://127.0.0.1:4317/>** 提供界面；macOS 会自动打开浏览器。拉取更新后，如果生产产物已经存在，请重新构建前后端；启动脚本不会判断已有构建是否过期。
 
-### 手动启动
+1. 在「首次设置」或「来源」连接需要的平台，也可以跳过、稍后连接。
+2. Gmail 需要按[配置示例](local-service/.env.example)在 `local-service/.env.local` 填写自己的 Google OAuth client；其他来源不依赖 Gmail。
+3. 在「设置」运行「全量同步」，然后回到简报。本地服务运行时也会按计划执行后台同步。
 
-```bash
-# 终端一：本地服务
-cd local-service && npm install && npm run dev
+新数据库默认空数据。演示数据必须显式启用；来源失败或断开不会触发灌入示例。
 
-# 终端二：Web App
-cd webapp && npm install && npm run dev
+桌面打包、签名与安装限制见[桌面指南](docs/desktop-install.md)。现有未签名构建用于受控测试，本页不提供可直接公开分发的签名版本。
+
+## 可以做什么
+
+| 工作流 | 当前能力 |
+|---|---|
+| **查看变化** | 自上次查看的简报、课程／来源筛选、原文引文和来源链接；截止时间、标题、课程与正文的字段变化保留 90 天。 |
+| **跟进作业** | 汇总 Moodle 与 OnTrack 截止日期、倒计时及统一的完成／已提交状态；完成事项移出当前截止列表。 |
+| **检查成绩** | Moodle 已发布分数、分类权重、独立 Overview 原文和成绩变化提示；Pass/Fail 与数值均分分开，未知权重保持未知。 |
+| **整理 Moodle 资料** | 周／板块、类型与搜索筛选，批量下载；作业资料包仅包含经 Grades 确认的 Moodle 活动。 |
+| **阅读 Ed 内容** | 周排序、内容／文件筛选、文件名搜索、视频与独立 PDF/PPT 附件；下载按实际结果报告成功与失败。 |
+| **查看 OnTrack 反馈** | 定义优先的任务目录、自然编号、状态／等级筛选与按需评论线程；Worksheet 和资源跟随所属任务。 |
+| **核对考勤** | Gmail 与 Moodle 考勤码汇总、本地图片 OCR，以及独立的显式提交流程。 |
+| **连接其他客户端** | 通过本地只读 MCP 读取简报、变化、截止日期、Moodle 资料、Ed lesson 与 OnTrack 任务／反馈。[接入说明](docs/mcp.md)。 |
+
+页面共享查询和按账号隔离的 SQLite 快照让已成功读取的数据在刷新或网络失败时继续显示。Moodle 的学期、隐藏与置顶课程偏好控制批量资料和成绩读取范围。
+
+## 来源与数据边界
+
+| 来源 | 连接方式 | 读取内容 |
+|---|---|---|
+| **Moodle** | Chrome 登录助手；持久 Cookie 与定期会话维护 | 课程、成绩、评估、资料和可访问的论坛内容 |
+| **Ed** | API token | 课程讨论、回复、lesson 与附件 |
+| **OnTrack** | Chrome 登录助手；刷新凭据换取短时 token | 可访问项目、任务定义、反馈和文件 |
+| **Gmail** | Google OAuth，使用 `gmail.readonly` | 邮件与线程 |
+
+学校强制会话到期后仍可能需要重连。OnTrack 历史仅限账号当前可访问内容，不能恢复已隐藏或删除的记录。
+
+**默认本地处理。** 数据库和来源凭据由本地服务管理，浏览器不存储来源密钥。macOS 使用 Keychain，其他平台使用受限文件权限的本地凭据存储。默认数据库为 `~/Library/Application Support/Cove/cove.sqlite`，可通过配置更改路径。
+
+**可选模型接入。** 未配置 `COVE_MODEL_BASE_URL`、`COVE_MODEL_NAME` 和 `COVE_MODEL_API_KEY` 时，分诊使用本地规则。启用远端模型会把条目标题、正文、来源和作者角色发送到该端点；外部 MCP 客户端也会接收它请求的数据。请根据自己的数据偏好选择这些接入。
+
+**学校端操作。** 日常浏览、同步和文件读取不会修改任务状态、发送评论或提交作业。考勤有独立提交流程。Cove 不发送邮件、不修改成绩，也不代交作业。
+
+## 系统结构
+
+```mermaid
+flowchart LR
+    Sources["Moodle · Ed · OnTrack · Gmail"] --> Service["本地服务<br/>Fastify · Node 26"]
+    Service <--> Store["本机 SQLite<br/>条目 · 成绩 · 变化 · 缓存"]
+    Secrets["本机凭据存储"] --> Service
+    Service <--> Web["Web 界面<br/>React · Vite"]
+    Service --> MCP["只读 MCP"]
+    Desktop["可选 Electron 桌面壳"] --> Web
 ```
 
-开发模式使用 Vite 开发服务器，打开 <http://127.0.0.1:5174/>；`local-service` 在 4317 提供 `/api`，由 Vite 代理。
+根目录的 **`webapp/`** 与 **`local-service/`** 是当前本地应用，**`desktop/`** 将它们包装为桌面程序。**`demo/`** 是匿名静态原型。**`stack/unicorn/`** 是独立维护的记忆层仓库，启动本地应用不依赖它。
 
-课程、成绩、Ed 学习内容与 OnTrack 使用页面共享查询和按账号隔离的 SQLite 快照；刷新或网络失败时保留已缓存数据。“每周资料”可设置学期、隐藏和置顶课程，控制批量资料与成绩读取范围。实现与验证边界见 [缓存实施报告](docs/muster-reuse-and-cache-2026-11-10.md)。
+## 开发
 
-成绩复用 Muster 原计算器与评估结构，补全已确认活动的详情、隐藏评分状态及独立 Overview 原文。已接入分类明细、学期本地筛选、脱敏结构诊断、应用内变化提醒和首页共享摘要；同步更新同一账号快照，权重读取失败保留旧结构并提示。学习建议暂不接入。详见 [成绩规则与验证](docs/muster-grading-rules-2026-11-11.md)。
+开发时先启动本地服务，再启动 Web App：
 
-### 首次配置
+```bash
+# 终端一
+cd local-service
+npm ci
+npm run dev
+```
 
-1. 在首次设置或「来源」连接所需来源，也可明确跳过、稍后连接；
-2. 在「设置」全量同步已配置的 Gmail、Ed、Moodle、OnTrack；OnTrack 范围为当前可访问项目及历史反馈；
-3. 回到「简报」，需要时点击「同步」。打开应用会读取本地数据，本地服务另有后台同步调度。
+```bash
+# 终端二
+cd webapp
+npm ci
+npm run dev
+```
 
-新数据库默认空数据。匿名示例需在未使用的数据库上显式设置 `COVE_SEED_FIXTURE=1`；来源断开或报错不会触发重新灌入。
+打开 <http://127.0.0.1:5174/>；Vite 将 `/api` 代理到 4317 端口的本地服务。
 
-## 7. 项目结构
-
-| 目录 | 内容 |
+| 验证 | 命令 |
 |---|---|
-| `webapp/` | Web 前端（简报、倒计时、资料、OnTrack、Ed、签到、数据源、设置） |
-| `local-service/` | 本地服务：来源适配器、同步编排、SQLite、HTTP 与 MCP 接口 |
-| `desktop/` | Electron 桌面壳与打包配置 |
-| `demo/` | 匿名静态原型（不含真实登录与同步） |
-| `docs/` | 产品定义、设计规范、安装说明、接入文档与开发记录 |
-| `redesign/` | 界面改版方向稿（静态 HTML，供设计参考） |
-| `scripts/` | 评测与运维脚本 |
+| 后端测试与构建 | `cd local-service && npm run check` |
+| 前端数据、类型与构建 | `cd webapp && npm run check` |
+| 前端单元测试 | `cd webapp && npm exec vitest run` |
+| 隔离浏览器冒烟 | `cd webapp && npm run e2e` |
 
-## 8. 隐私与安全边界
+浏览器回归使用临时数据和凭据、阻断外网，覆盖首次运行、失败、筛选与下载流程。Fixture 验证行为，不代表所有真实课程或附件均已验证。[验证与复用记录](docs/unicorn-feature-reuse-2026-11-11.md)。
 
-| 边界 | 做法 |
-|---|---|
-| 真实凭据 | 只写入本机 Keychain，不进入仓库、不进入浏览器 |
-| 内容数据 | 邮件正文、课程内容、判断与变化记录只存在本机 SQLite |
-| 公开仓库 | 不包含真实 token、Cookie、数据库或账户信息 |
-| 网络请求 | 仅指向学校系统与 Google 的只读接口 |
-| 外部写入 | 支持独立考勤提交流程；不支持提交作业、回复消息或修改成绩 |
+## 当前状态与限制
 
-数据库位置：`~/Library/Application Support/Cove/cove.sqlite`。
+Cove 面向单个 Monash 学生、单台机器。来源连接和部分数据路径已用真实账号核验；覆盖范围与异常见[排查记录](docs/README.md)。界面截图是演示，不是真实学生的成绩记录。
 
-## 9. 开发与验证
+- macOS 桌面包仍未签名；公开分发前需要签名／公证，并复核打包的 OAuth 配置。Windows 硬件验证尚未完成。
+- OnTrack 仅含日期的截止时间按马来西亚校区约定解释，其他校区需要复核时区。
+- 学习建议暂缓；缺少必要历史成绩与学分时不估算 WAM/GPA。
+- 当前没有共享云账号、跨设备同步或外部用户研究验证。
 
-| 命令 | 作用 |
-|---|---|
-| `cd local-service && npm run check` | 单元测试 + 构建 |
-| `cd webapp && npm run check` | 数据校验 + 类型检查 + 构建 |
-| `cd webapp && npm exec vitest run` | 前端单元测试（`check` 不包含此项） |
-| `cd webapp && npm run e2e` | 端到端冒烟 |
+## 文档
 
-## 10. 当前状态与已知限制
+[文档导航](docs/README.md) · [Web 前端](webapp/README.md) · [本地服务](local-service/README.md) · [桌面安装](docs/desktop-install.md) · [MCP 接入](docs/mcp.md)
 
-| 状态 | 内容 |
-|---|---|
-| **已用真实账号验证** | 四源接入、同步、分诊、变化追踪、OnTrack 任务与对话、资料下载 |
-| 未验证 | Windows 桌面包未在真实 Windows 机器上测试 |
-| 未验证 | macOS Electron 包未签名，正式分发需要 Developer ID 与 notarization |
-| 已知限制 | Gmail 增量同步只读取游标之后的新邮件，历史邮件的编辑不会被重新读取（邮件本身不可编辑，影响有限） |
-| 已知限制 | OnTrack 截止时间按 +08:00 当日 23:59 计算，跨校区使用需按校区调整 |
-| 已知限制 | 尚无外部用户研究，评测基于历史数据回放与自用测试 |
+实现细节：[缓存行为](docs/muster-reuse-and-cache-2026-11-10.md)、[成绩规则](docs/muster-grading-rules-2026-11-11.md)、[Unicorn／Ed／OnTrack 复用](docs/unicorn-feature-reuse-2026-11-11.md)。
 
-## 11. 文档
+## 许可与致谢
 
-| 文档 | 内容 |
-|---|---|
-| [docs/README.md](docs/README.md) | 文档导航 |
-| [docs/PRD-Monash-Agent.md](docs/PRD-Monash-Agent.md) | 产品定义 |
-| [docs/webapp-design.md](docs/webapp-design.md) | 设计规范 |
-| [local-service/README.md](local-service/README.md) | 本地服务 |
-| [webapp/README.md](webapp/README.md) | Web 前端 |
-| [docs/desktop-install.md](docs/desktop-install.md) | 桌面安装 |
-| [docs/mcp.md](docs/mcp.md) | MCP 接入 |
+本仓库尚未选择整体开源许可证。源码公开不等于已授予通用复用许可。
 
-## 12. 许可
-
-本仓库目前未声明开源许可。在补充许可证之前，默认保留所有权利；如需引用或复用，请先联系仓库所有者。
+已复用的第三方模块保留各自许可证与声明，包括 [Muster 成绩模块](webapp/src/lib/muster/README.md)、[Ed 附件解析](local-service/src/vendor/edstem-cli/README.md)和 [OnTrack 状态标签](webapp/src/vendor/ontrack-cli/README.md)。其他 OnTrack 复用及 Apache-2.0 来源见[接入记录](docs/always-ontrack-reuse-2026-11-11.md)。
