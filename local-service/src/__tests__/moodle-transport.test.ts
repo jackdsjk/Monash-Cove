@@ -40,6 +40,89 @@ function use(fetcher: typeof fetch): MoodleSessionTransport {
   return transport;
 }
 
+describe("Moodle shared server cooldown", () => {
+  it.each([
+    [429, "2", 2_000],
+    [503, "Wed, 11 Nov 2026 00:00:02 GMT", 2_000],
+    [503, "soon", 5_000],
+    [429, "999999", 60_000],
+  ] as const)("waits after HTTP %s with Retry-After %s, sharing cooldown across readers", async (status, retryAfter, waitMs) => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-11-11T00:00:00Z"));
+    const fetcher = vi.fn(async () => new Response(dashboard));
+    fetcher.mockResolvedValueOnce(new Response("busy", { status, headers: { "retry-after": retryAfter } }));
+    use(fetcher);
+    expect((await transport.forCredentials(initial)(`${baseUrl}/busy`)).status).toBe(status);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const next = transport.forCredentials(initial)(`${baseUrl}/next`, { signal: new AbortController().signal });
+    await vi.advanceTimersByTimeAsync(waitMs - 1);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await next).status).toBe(200);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows aborting a cooldown wait and discards the old cooldown on reconnect", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn(async () => new Response(dashboard));
+    fetcher.mockResolvedValueOnce(new Response("busy", { status: 429, headers: { "retry-after": "30" } }));
+    use(fetcher);
+    await transport.forCredentials(initial)(`${baseUrl}/busy`);
+    const abort = new AbortController();
+    const pending = transport.forCredentials(initial)(`${baseUrl}/next`, { signal: abort.signal });
+    const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    await vi.advanceTimersByTimeAsync(1);
+    abort.abort();
+    await rejected;
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await transport.replaceCredentials(initial);
+    const raw = await secrets.get(MOODLE_CREDENTIALS_KEY);
+    expect((await transport.forCredentials(raw!)(`${baseUrl}/next`)).status).toBe(200);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("extends an existing wait when another outstanding response requests more time", async () => {
+    vi.useFakeTimers();
+    const late = deferred<Response>();
+    const fetcher = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input);
+      if (url.endsWith("/late")) return late.promise;
+      if (url.endsWith("/busy")) return new Response("busy", { status: 503, headers: { "retry-after": "2" } });
+      return new Response(dashboard);
+    });
+    use(fetcher);
+    const reader = transport.forCredentials(initial);
+    const outstanding = reader(`${baseUrl}/late`);
+    await vi.advanceTimersByTimeAsync(0);
+    await reader(`${baseUrl}/busy`);
+    const waiting = reader(`${baseUrl}/next`);
+    await vi.advanceTimersByTimeAsync(1_000);
+    late.resolve(new Response("busy again", { status: 429, headers: { "retry-after": "3" } }));
+    await outstanding;
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await waiting).status).toBe(200);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it("uses the default cooldown without Retry-After and accepts elapsed HTTP dates", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-11-11T00:00:00Z"));
+    const fetcher = vi.fn(async () => new Response(dashboard));
+    fetcher.mockResolvedValueOnce(new Response("busy", { status: 503 }));
+    use(fetcher);
+    const reader = transport.forCredentials(initial);
+    await reader(`${baseUrl}/busy`);
+    const waiting = reader(`${baseUrl}/next`);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await waiting;
+    fetcher.mockResolvedValueOnce(new Response("past", { status: 429, headers: { "retry-after": "Wed, 21 Oct 2015 07:28:00 GMT" } }));
+    await reader(`${baseUrl}/past`);
+    expect((await reader(`${baseUrl}/immediate`)).status).toBe(200);
+  });
+});
+
 describe("Moodle shared cookie transport", () => {
   it("migrates legacy credentials without changing identity, rotates cookies, and avoids repeated keychain writes", async () => {
     const headers: Headers[] = [];

@@ -11,6 +11,29 @@ export class MoodleConnectionChangedError extends Error {
   constructor() { super("Moodle 连接已更改，请重新读取数据。"); }
 }
 
+export type MoodleConnectionFetch = typeof fetch & { assertCurrent: () => Promise<void> };
+
+// Adapted from pinned Muster http.rs/throttle.rs (ad237268); see vendor/muster/NOTICE.
+const MAX_COOLDOWN_MS = 60_000;
+const DEFAULT_COOLDOWN_MS = 5_000;
+function retryAfterMs(value: string | null): number {
+  if (value === null) return DEFAULT_COOLDOWN_MS;
+  const trimmed = value.trim();
+  const seconds = /^\d+$/.test(trimmed) ? Number(trimmed) * 1_000 : null;
+  const date = seconds === null && /^[A-Za-z]/.test(trimmed) ? Date.parse(trimmed) : NaN;
+  const wait = seconds ?? (Number.isFinite(date) ? Math.max(0, date - Date.now()) : DEFAULT_COOLDOWN_MS);
+  return Math.min(MAX_COOLDOWN_MS, wait);
+}
+
+function waitForCooldown(ms: number, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted();
+  return new Promise<void>((resolve, reject) => {
+    const abort = (): void => { clearTimeout(timer); reject(signal.reason); };
+    const timer = setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, ms);
+    signal.addEventListener("abort", abort, { once: true });
+  });
+}
+
 interface SessionContext {
   identity: string;
   epoch: number;
@@ -114,6 +137,7 @@ export class MoodleSessionTransport {
         }
       }
     }
+    let cooldownUntil = 0;
     const rawFetch: typeof fetch = async (input, init) => {
       await this.assertCurrent(identity, epoch);
       const target = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
@@ -122,8 +146,14 @@ export class MoodleSessionTransport {
       const headers = new Headers(init?.headers);
       if (credentials.userAgent) headers.set("user-agent", credentials.userAgent);
       const signal = AbortSignal.any([abort.signal, init?.signal ?? AbortSignal.timeout(30_000)]);
+      while (cooldownUntil > Date.now()) await waitForCooldown(cooldownUntil - Date.now(), signal);
+      signal.throwIfAborted();
+      await this.assertCurrent(identity, epoch);
       const response = await this.options.fetcher(input, { ...init, headers, signal });
       await this.assertCurrent(identity, epoch);
+      if (response.status === 429 || response.status === 503) {
+        cooldownUntil = Math.max(cooldownUntil, Date.now() + retryAfterMs(response.headers.get("retry-after")));
+      }
       // Native fetch always has a URL; anonymous fixture Responses may omit it.
       if (!response.url) Object.defineProperty(response, "url", { value: target.href, configurable: true });
       return response;
@@ -169,10 +199,10 @@ export class MoodleSessionTransport {
   }
 
   /** Bind each logical reader to the connection that supplied its credentials. */
-  forCredentials(raw: string): typeof fetch {
+  forCredentials(raw: string): MoodleConnectionFetch {
     const identity = moodleCredentialIdentity(raw);
     const epoch = this.epoch;
-    return (async (input, init) => {
+    const fetcher: typeof fetch = async (input, init) => {
       const context = await this.context(identity, epoch);
       const request = input instanceof Request ? input : null;
       const headers = new Headers(init?.headers ?? request?.headers);
@@ -192,6 +222,7 @@ export class MoodleSessionTransport {
         if (error instanceof MoodleSessionExpiredError) await this.persist(context);
         throw error;
       }
-    }) as typeof fetch;
+    };
+    return Object.assign(fetcher, { assertCurrent: async (): Promise<void> => { await this.assertCurrent(identity, epoch); } });
   }
 }
