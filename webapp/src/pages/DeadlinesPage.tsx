@@ -8,7 +8,7 @@ import { fmtCountdown, useTime } from '../lib/time'
 import { Button, Course, DuePill, EmptyLine, PageTitle, Panel, SectionHeader, Source, Tag } from '../components/ui'
 
 const H = 3600_000
-const COLS = 'min-w-[850px] grid-cols-[180px_110px_76px_84px_minmax(0,1fr)_110px]'
+const COLS = 'min-w-[900px] grid-cols-[180px_110px_140px_84px_minmax(0,1fr)_110px]'
 const EXAM_COLS = 'min-w-[850px] grid-cols-[88px_minmax(0,1fr)_224px_minmax(0,190px)_76px_96px]'
 const WEEKDAY: Record<string, string> = {
   Sun: '周日',
@@ -230,9 +230,11 @@ export function DeadlinesPage() {
                           <DuePill due={i.dueAt!} now={now} />
                           <span className="sr-only">{fmtCountdown(i.dueAt!, now)}</span>
                         </span>
-                        <Course code={i.course} />
-                        <Source id={i.source} />
-                        <button onClick={() => openItem(i.id)} className="truncate text-left hover:text-brand-700 hover:underline">
+                        <span className="min-w-0 truncate" title={i.course || undefined}>
+                          <Course code={i.course} />
+                        </span>
+                        <Source id={i.source} className="whitespace-nowrap" />
+                        <button onClick={() => openItem(i.id)} title={i.title} className="min-w-0 truncate text-left hover:text-brand-700 hover:underline">
                           {i.title}
                         </button>
                         <span className="flex flex-col items-end gap-1">

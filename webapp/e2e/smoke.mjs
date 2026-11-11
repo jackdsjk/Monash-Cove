@@ -132,6 +132,13 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     slides: summary.slideCount === 0 ? [] : [{ id: summary.id * 10, title: `Content ${summary.id}`, type: "text", text: "Anonymous learning fixture", markdown: "Anonymous learning fixture", url: "https://ed.example.invalid/lesson", videoUrls: [], files: [] }],
   }));
   const now = Date.now();
+  const deadlineItems = [
+    "TEST1001_S2_2026",
+    "TEST2002 - MUM S2 2026 — A very long course label",
+    "TEST3003_" + "UnbrokenCourseName".repeat(8),
+  ].map((course, index) => ({ ...brief.items[0], id: `deadline-layout-${index}`, source: "moodle", course,
+    title: `Deadline layout fixture ${index + 1}`, dueAt: new Date(now - 86400_000).toISOString(),
+    completedAt: new Date(now - 3600_000).toISOString(), contentType: "assessment" }));
   const assignments = Array.from({ length: 12 }, (_, index) => ({
     id: `moodle:fixture-assignment-${index + 1}`, gradeItemId: `grade-${index + 1}`, courseId: index < 6 ? "101" : "102", course: "TEST1001",
     courseName: courses[index < 6 ? 0 : 1].shortname, title: `Fixture Assignment ${String(index + 1).padStart(2, "0")}`,
@@ -154,7 +161,7 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     const url = new URL(route.request().url());
     const pathname = url.pathname;
     if (pathname === "/api/sources") return route.fulfill({ json: { sources: fixtureSources.map((source) => ({ ...source, status: "connected", lastError: null })) } });
-    if (pathname === "/api/brief") return route.fulfill({ json: { ...brief, items: [] } });
+    if (pathname === "/api/brief") return route.fulfill({ json: { ...brief, items: deadlineItems } });
     if (pathname === "/api/changes") return route.fulfill({ json: { changes: [] } });
     if (pathname === "/api/moodle/courses") return route.fulfill({ json: { courses } });
     if (pathname === "/api/moodle/grades") {
@@ -223,6 +230,33 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
   });
 
   try {
+    await page.goto(`${base}/#/deadlines`, { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: deadlineItems[0].title, exact: true }).waitFor();
+    for (const width of [390, 768, 1280, 1920]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const fixture of deadlineItems) {
+        const courseCell = page.getByTitle(fixture.course, { exact: true });
+        const geometry = await courseCell.evaluate((cell) => {
+          const course = cell.getBoundingClientRect();
+          const source = cell.nextElementSibling.getBoundingClientRect();
+          const style = getComputedStyle(cell);
+          return { right: course.right, sourceLeft: source.left, height: course.height,
+            lineHeight: Number.parseFloat(style.lineHeight), whiteSpace: style.whiteSpace,
+            textOverflow: style.textOverflow, label: cell.textContent.trim() };
+        });
+        assert.ok(geometry.right + 8 <= geometry.sourceLeft, `course and source must remain separate at ${width}`);
+        assert.ok(geometry.height <= geometry.lineHeight + 1, `long course labels must stay on one line at ${width}`);
+        assert.equal(geometry.whiteSpace, "nowrap");
+        assert.equal(geometry.textOverflow, "ellipsis");
+        assert.equal(geometry.label, fixture.course, "full course names must remain available to assistive technology and hover");
+        await page.getByRole("button", { name: fixture.title, exact: true }).scrollIntoViewIfNeeded();
+      }
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `deadline scrolling must stay inside its list at ${width}`);
+      await capture(page, `deadlines-long-courses-${width}.png`);
+    }
+    await page.getByRole("button", { name: deadlineItems[0].title, exact: true }).click();
+    await page.getByRole("dialog", { name: "条目详情", exact: true }).waitFor();
+    await page.getByRole("dialog", { name: "条目详情", exact: true }).getByRole("button", { name: "关闭", exact: true }).click();
     await page.goto(`${base}/#/materials`, { waitUntil: "domcontentloaded" });
     await page.getByRole("checkbox", { name: "选择 Reading One", exact: true }).waitFor();
     for (const width of [390, 768, 1280, 1920]) {
