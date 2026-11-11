@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import type { CoveDatabase } from "./db.js";
 import type { SecretStore } from "./secrets.js";
 import { moodleCookieHeader } from "./moodle-download.js";
-import { MoodleClient } from "./sources/moodle.js";
+import { MoodleClient, MoodleSessionExpiredError } from "./sources/moodle.js";
 
 /** Keyring / secrets-file key that holds the captured Moodle cookie jar. */
 export const MOODLE_CREDENTIALS_KEY = "moodle-credentials";
@@ -15,8 +16,8 @@ export const MOODLE_CREDENTIALS_KEY = "moodle-credentials";
 export const MOODLE_SESSION_EXPIRED_MESSAGE = "Moodle 会话已过期，需要重新登录";
 export const MOODLE_CREDENTIALS_INVALID_MESSAGE = "Moodle 凭据已损坏或缺少 Cookie，已清除，请重新登录";
 
-/** A session cookie dies silently, so check it on a timer instead of on failure. */
-export const MOODLE_SESSION_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+/** Keep the idle session active even when page reads are served from cache. */
+export const MOODLE_SESSION_CHECK_INTERVAL_MS = 10 * 60 * 1000;
 
 /** Muster gives its background ping a 4s budget: a hung check is worse than a retry. */
 const PROBE_TIMEOUT_MS = 5_000;
@@ -34,10 +35,30 @@ export const moodleCredentials = z
     cookie: z.string().min(1).optional(),
     /** Monash account behind the session; shown on the Sources page, never used to authenticate. */
     username: z.string().min(1).max(200).optional(),
+    /** Opaque connection scope; maintained across cookie rotation, replaced on login. */
+    connectionId: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    userAgent: z.string().min(1).max(1000).regex(/^[^\r\n]+$/).optional(),
+    cookies: z.array(z.object({
+      name: z.string().min(1), value: z.string(), domain: z.string().min(1),
+      path: z.string().startsWith("/"), expires: z.number().optional(),
+      secure: z.boolean().optional(), httpOnly: z.boolean().optional(),
+      sameSite: z.enum(["Strict", "Lax", "None"]).optional(),
+    })).max(300).optional(),
+    cookieJar: z.object({ cookies: z.array(z.record(z.string(), z.unknown())).max(300) }).passthrough().optional(),
   })
   .refine((value) => Boolean(value.session || value.cookie), { message: "session or cookie is required" });
 
 export type MoodleCredentialsShape = z.infer<typeof moodleCredentials>;
+
+/** Preserve the original identity for legacy records when migrating to a jar. */
+export function moodleCredentialIdentity(raw: string): string {
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (typeof value === "object" && value !== null && "connectionId" in value &&
+        typeof value.connectionId === "string" && /^[a-f0-9]{64}$/.test(value.connectionId)) return value.connectionId;
+  } catch { /* Invalid records still have a deterministic scope until validation. */ }
+  return createHash("sha256").update(`moodle\0${raw}`).digest("hex");
+}
 
 export type MoodleSessionState = "absent" | "invalid" | "expired" | "valid" | "unreachable";
 
@@ -117,47 +138,54 @@ export interface MoodleSessionCheckOptions {
   secrets: SecretStore;
   fetcher?: typeof fetch;
   timeoutMs?: number;
+  fetcherForCredentials?: (raw: string) => typeof fetch;
 }
 
-/**
- * Verify a stored Moodle session with one lightweight `/my/` request.
- *
- * Outcomes, and why each is different:
- * - `invalid`: the stored JSON does not parse, misses a field, or has no
- *   usable cookie value. Muster's rule is "purge and start over", so the
- *   credential is deleted and the source goes back to `disconnected`.
- * - `expired`: Moodle bounced us to login/SSO. The credential is *kept* (the
- *   user may still be signed in elsewhere) and the source is only degraded.
- * - `unreachable`: a network error or an upstream 5xx. Being offline is not a
- *   logout, so nothing is written; the next interval retries.
- * - `valid`: nothing is written either — a light ping proves the cookie works,
- *   not that the last sync succeeded.
- */
-export async function verifyMoodleSession(options: MoodleSessionCheckOptions): Promise<MoodleSessionState> {
-  const parsed = parseMoodleCredentials(await options.secrets.get(MOODLE_CREDENTIALS_KEY));
+/** One probe per store, shared by startup, setup status and the keepalive timer. */
+const activeChecks = new WeakMap<SecretStore, Promise<MoodleSessionState>>();
+
+export function verifyMoodleSession(options: MoodleSessionCheckOptions): Promise<MoodleSessionState> {
+  const active = activeChecks.get(options.secrets);
+  if (active) return active;
+  const promise = checkMoodleSession(options);
+  activeChecks.set(options.secrets, promise);
+  void promise.then(() => activeChecks.delete(options.secrets), () => activeChecks.delete(options.secrets));
+  return promise;
+}
+
+async function checkMoodleSession(options: MoodleSessionCheckOptions): Promise<MoodleSessionState> {
+  const raw = await options.secrets.get(MOODLE_CREDENTIALS_KEY);
+  const parsed = parseMoodleCredentials(raw);
   if (!parsed.ok) {
     if (parsed.reason === "absent") return "absent";
+    if (await options.secrets.get(MOODLE_CREDENTIALS_KEY) !== raw) return "unreachable";
     await options.secrets.delete(MOODLE_CREDENTIALS_KEY);
     disconnectMoodleSource(options.db);
     return "invalid";
   }
-
-  const client = new MoodleClient(parsed.credentials.baseUrl, parsed.cookie, options.fetcher);
-  let probe: { ok: boolean; status: number; url: string };
+  const identity = moodleCredentialIdentity(raw!);
+  const stillCurrent = async (): Promise<boolean> => {
+    const current = await options.secrets.get(MOODLE_CREDENTIALS_KEY);
+    return current !== null && moodleCredentialIdentity(current) === identity;
+  };
+  const client = new MoodleClient(parsed.credentials.baseUrl, parsed.cookie,
+    options.fetcherForCredentials?.(raw!) ?? options.fetcher);
+  let expired = false;
   try {
-    probe = await client.probeSession(options.timeoutMs ?? PROBE_TIMEOUT_MS);
-  } catch {
-    return "unreachable";
+    const probe = await client.probeSession(options.timeoutMs ?? PROBE_TIMEOUT_MS);
+    if (!await stillCurrent()) return "unreachable";
+    if (probe.ok) {
+      const source = moodleSource(options.db);
+      if (source?.status === "degraded" && source.lastError === MOODLE_SESSION_EXPIRED_MESSAGE) {
+        options.db.setSourceStatus("moodle", "connected", source.lastSyncAt, null);
+      }
+      return "valid";
+    }
+    expired = probe.expired;
+  } catch (error) {
+    expired = error instanceof MoodleSessionExpiredError;
   }
-  if (probe.ok) return "valid";
-
-  const baseUrl = parsed.credentials.baseUrl.replace(/\/$/, "");
-  const offSite = probe.url !== "" && !probe.url.startsWith(baseUrl);
-  // A redirect that lands somewhere else (Okta, Microsoft) is a login bounce;
-  // a 5xx from Moodle itself is an outage and must not claim the cookie died.
-  const bounced = isLoggedOutUrl(probe.url) || (offSite && probe.status < 400);
-  if (!bounced) return "unreachable";
-
+  if (!expired || !await stillCurrent()) return "unreachable";
   degradeMoodleSession(options.db);
   return "expired";
 }
@@ -168,7 +196,7 @@ export interface MoodleSessionScheduleOptions {
 }
 
 /**
- * Run `check` every six hours without keeping the process alive. A rejected
+ * Run `check` every ten minutes without keeping the process alive. A rejected
  * check is reported through `onError` and never becomes an unhandled rejection
  * — the periodic check must not take the service down with it.
  */
@@ -176,15 +204,20 @@ export function scheduleMoodleSessionChecks(
   check: () => unknown,
   { intervalMs = MOODLE_SESSION_CHECK_INTERVAL_MS, onError }: MoodleSessionScheduleOptions = {},
 ): () => void {
+  let running = false;
+  let stopped = false;
   const run = () => {
+    if (running || stopped) return;
+    running = true;
     try {
-      void Promise.resolve(check()).catch((error: unknown) => onError?.(error));
+      void Promise.resolve(check()).catch((error: unknown) => onError?.(error)).finally(() => { running = false; });
     } catch (error) {
+      running = false;
       onError?.(error);
     }
   };
   const timer = setInterval(run, intervalMs);
   // `unref` keeps a test runner or a CLI import from hanging on the timer.
   if (typeof timer.unref === "function") timer.unref();
-  return () => clearInterval(timer);
+  return () => { stopped = true; clearInterval(timer); };
 }

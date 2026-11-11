@@ -6,6 +6,12 @@ export interface MoodleCredentials {
   session?: string;
   /** Full cookie header captured from the login browser, when available. */
   cookie?: string;
+  userAgent?: string;
+  cookies?: Array<{
+    name: string; value: string; domain: string; path: string; expires?: number;
+    secure?: boolean; httpOnly?: boolean; sameSite?: "Strict" | "Lax" | "None";
+  }>;
+  cookieJar?: { cookies: Array<Record<string, unknown>>; [key: string]: unknown };
 }
 
 export function moodleCookieHeader(credentials: { session?: string; cookie?: string }): string {

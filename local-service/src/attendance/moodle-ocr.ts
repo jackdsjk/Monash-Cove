@@ -1,15 +1,12 @@
 import { fileURLToPath } from "node:url";
 import { createWorker, type Worker } from "tesseract.js";
 import { parse } from "node-html-parser";
-import { moodleCookieHeader } from "../moodle-download.js";
+import { moodleCookieHeader, type MoodleCredentials } from "../moodle-download.js";
+import { assertMoodleBrowserPage, assertMoodleOrigin } from "../moodle-browser-session.js";
 import type { MoodleContentRow } from "../domain.js";
 import type { AttendanceCode } from "./parser.js";
 
-export interface MoodleAttendanceCredentials {
-  baseUrl: string;
-  session?: string;
-  cookie?: string;
-}
+export type MoodleAttendanceCredentials = MoodleCredentials;
 
 function courseCode(value: string) {
   return (/^[A-Z]{2,5}\d{3,4}/i.exec(value)?.[0] ?? value).toUpperCase();
@@ -66,13 +63,17 @@ async function ocrImage(buffer: Buffer, worker: Worker) {
 }
 
 /** Fallback for rows synced before image URLs were stored. */
-async function discoverImages(credentials: MoodleAttendanceCredentials, row: MoodleContentRow): Promise<string[]> {
-  const pageResponse = await fetch(row.url, {
-    headers: { cookie: moodleCookieHeader(credentials) },
+async function discoverImages(credentials: MoodleAttendanceCredentials, row: MoodleContentRow, fetcher: typeof fetch): Promise<string[]> {
+  assertMoodleOrigin(credentials.baseUrl, row.url);
+  const pageResponse = await fetcher(row.url, {
+    headers: { cookie: moodleCookieHeader(credentials), ...(credentials.userAgent ? { "user-agent": credentials.userAgent } : {}) },
+    redirect: "manual",
     signal: AbortSignal.timeout(20_000),
   });
-  if (!pageResponse.ok) return [];
-  const root = parse(await pageResponse.text());
+  if (!pageResponse.ok) throw new Error("Moodle attendance page request failed.");
+  const html = await pageResponse.text();
+  assertMoodleBrowserPage(credentials.baseUrl, pageResponse.url || row.url, html);
+  const root = parse(html);
   const images = row.module === "label"
     ? [...root.querySelectorAll("li.activity")]
         .filter((activity) => /attendance/i.test(activity.getAttribute("data-activityname") ?? activity.text))
@@ -87,6 +88,7 @@ async function discoverImages(credentials: MoodleAttendanceCredentials, row: Moo
 export async function scanMoodleAttendanceImages(
   credentials: MoodleAttendanceCredentials,
   rows: MoodleContentRow[],
+  fetcher: typeof fetch = fetch,
 ): Promise<{ codes: AttendanceCode[]; failedRowIds: string[] }> {
   const candidates = rows.filter((row) => /attendance/i.test(`${row.title} ${row.text}`));
   if (candidates.length === 0) return { codes: [], failedRowIds: [] };
@@ -96,14 +98,19 @@ export async function scanMoodleAttendanceImages(
     worker = await createOcrWorker();
     const results = await mapLimit(candidates, 4, async (row) => {
       try {
-        const imageUrls = row.images?.length ? row.images : await discoverImages(credentials, row);
+        const imageUrls = row.images?.length ? row.images : await discoverImages(credentials, row, fetcher);
         if (imageUrls.length === 0) return [];
         const imageCodes = await mapLimit(imageUrls, 2, async (imageUrl) => {
-          const imageResponse = await fetch(imageUrl, {
-            headers: { cookie: moodleCookieHeader(credentials) },
+          assertMoodleOrigin(credentials.baseUrl, imageUrl);
+          const imageResponse = await fetcher(imageUrl, {
+            headers: { cookie: moodleCookieHeader(credentials), ...(credentials.userAgent ? { "user-agent": credentials.userAgent } : {}) },
+            redirect: "manual",
             signal: AbortSignal.timeout(20_000),
           });
-          if (!imageResponse.ok || !worker) return [];
+          if (!imageResponse.ok || imageResponse.headers.get("content-type")?.includes("text/html")) {
+            throw new Error("Moodle attendance image request failed.");
+          }
+          if (!worker) return [];
           const text = await ocrImage(Buffer.from(await imageResponse.arrayBuffer()), worker);
           return parseOcrLines(text, row, row.url);
         });

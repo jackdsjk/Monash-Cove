@@ -22,6 +22,7 @@ const app = buildApp({
   fixturePath: process.env.COVE_FIXTURE_PATH || undefined,
   logger: true,
   autoSync: process.env.COVE_AUTO_SYNC !== "0",
+  moodleSessionCheck: true,
   staticDir: process.env.COVE_STATIC_DIR ?? path.resolve(process.cwd(), "../webapp/dist"),
   google:
     process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET

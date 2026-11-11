@@ -24,8 +24,9 @@ import { MoodleGradesClient, MoodleGradesError } from "./sources/moodle-grades.j
 import { EdClient } from "./sources/ed.js";
 import { syncMoodleContent } from "./sync/moodle-content.js";
 import { downloadMoodleResource, MoodleDownloadError, moodleCookieHeader, safeDownloadName } from "./moodle-download.js";
-import { degradeMoodleSession, moodleCredentials, scheduleMoodleSessionChecks, verifyMoodleSession } from "./moodle-session.js";
+import { moodleCredentialIdentity, moodleCredentials, scheduleMoodleSessionChecks, verifyMoodleSession } from "./moodle-session.js";
 import { captureMoodlePage } from "./moodle-snapshot.js";
+import { MoodleSessionTransport } from "./moodle-transport.js";
 import { AssetFetchError, fetchAsset } from "./safe-download.js";
 import { withTimeout } from "./http.js";
 import { ResourceCache, RESOURCE_TTL, CacheIdentityChangedError } from "./resource-cache.js";
@@ -107,7 +108,7 @@ export interface AppOptions {
   seed?: boolean;
   logger?: boolean;
   autoSync?: boolean;
-  /** 启动时与每 6 小时校验一次 Moodle 会话；默认跟随 `autoSync`。 */
+  /** 启动时及定时维护 Moodle 会话；服务入口显式启用，测试可关闭。 */
   moodleSessionCheck?: boolean;
   staticDir?: string | null;
   secretStore?: SecretStore;
@@ -162,6 +163,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
 
   const resourceCache = new ResourceCache(db);
   const underlyingSecrets = options.secretStore ?? defaultSecretStore();
+  // Moodle owns a shared, credential-bound jar; other sources keep their fetcher.
+  const fetcher = withTimeout(options.fetcher ?? fetch);
+  const moodleTransport = new MoodleSessionTransport({ secrets: underlyingSecrets, fetcher });
   const credentialSource = (key: string): string | undefined => /^(moodle|ed|ontrack)-credentials$/.exec(key)?.[1];
   // All credential writers, including login assistants, share the same invalidation.
   const secrets: SecretStore = {
@@ -169,28 +173,35 @@ export function buildApp(options: AppOptions): FastifyInstance {
     async set(key, value) {
       const source = credentialSource(key);
       if (source) resourceCache.invalidate(source);
-      await underlyingSecrets.set(key, value);
+      if (key === "moodle-credentials") await moodleTransport.replaceCredentials(value);
+      else await underlyingSecrets.set(key, value);
       if (source) resourceCache.invalidate(source);
     },
     async delete(key) {
       const source = credentialSource(key);
       if (source) resourceCache.invalidate(source);
-      await underlyingSecrets.delete(key);
+      if (key === "moodle-credentials") await moodleTransport.deleteCredentials();
+      else await underlyingSecrets.delete(key);
       if (source) resourceCache.invalidate(source);
     },
   };
   const credentialIdentity = async (source: "moodle" | "ed"): Promise<string | null> => {
     const raw = await secrets.get(`${source}-credentials`);
-    return raw ? createHash("sha256").update(`${source}\0${raw}`).digest("hex") : null;
+    return raw ? source === "moodle" ? moodleCredentialIdentity(raw)
+      : createHash("sha256").update(`${source}\0${raw}`).digest("hex") : null;
   };
   const forcedRefresh = (url: string): boolean => new URL(url, "http://localhost").searchParams.get("refresh") === "1";
-  // Every outbound call gets a deadline; a stalled upstream must not hang a
-  // request handler or the hourly sync loop.
-  const fetcher = withTimeout(options.fetcher ?? fetch);
   const google = new GoogleOAuth(options.google ?? null, secrets, fetcher);
-  const orchestrator = new SyncOrchestrator(db, secrets, google, fetcher);
+  const orchestrator = new SyncOrchestrator(db, secrets, google, fetcher, (raw) => moodleTransport.forCredentials(raw));
   const fullSyncJobs = new FullSyncJobs();
-  const moodleAssistant = new MoodleLoginAssistant(secrets, db);
+  const moodleAssistant = new MoodleLoginAssistant(secrets, db, async (value, signal) => {
+    resourceCache.invalidate("moodle");
+    try {
+      await moodleTransport.replaceCredentials(value, signal);
+    } finally {
+      resourceCache.invalidate("moodle");
+    }
+  });
   configureOnTrackCredentials(secrets);
   const onTrackAssistant = new OnTrackLoginAssistant(secrets, db);
   const attendanceAssistant = new AttendanceLoginAssistant(secrets);
@@ -203,20 +214,31 @@ export function buildApp(options: AppOptions): FastifyInstance {
     });
     app.addHook("onClose", async () => clearInterval(timer));
   }
-  // 会话 Cookie 会悄悄过期；与其等下一次同步报错，不如启动时先打一次轻量请求，
-  // 之后每 6 小时复查。失败只把来源降级，不删凭据、不阻断任何请求。
+  let stopMoodleSessionChecks: () => void = () => undefined;
+  let moodleSessionCheckFlight: Promise<unknown> | null = null;
+  // Lightweight maintenance is independent of bulk sync in the production entry.
+  // Fixture-only app instances do not opt in unless explicitly configured.
   if (options.moodleSessionCheck ?? Boolean(options.autoSync)) {
     const reportCheckError = (error: unknown) => app.log.warn({ err: error }, "Moodle session check failed");
-    const check = () => verifyMoodleSession({ db, secrets, fetcher });
-    const stopTimer = scheduleMoodleSessionChecks(check, { onError: reportCheckError });
+    const check = (): Promise<unknown> => {
+      if (!moodleSessionCheckFlight) {
+        moodleSessionCheckFlight = verifyMoodleSession({ db, secrets, fetcherForCredentials: (raw) => moodleTransport.forCredentials(raw) })
+          .finally(() => { moodleSessionCheckFlight = null; });
+      }
+      return moodleSessionCheckFlight;
+    };
+    stopMoodleSessionChecks = scheduleMoodleSessionChecks(check, { onError: reportCheckError });
     app.addHook("onReady", async () => {
       void check().catch(reportCheckError);
     });
-    app.addHook("onClose", async () => stopTimer());
   }
 
   app.decorate("coveDb", db);
   app.addHook("onClose", async () => {
+    stopMoodleSessionChecks();
+    await moodleAssistant.cancel();
+    moodleTransport.close();
+    await moodleSessionCheckFlight?.catch(() => undefined);
     resourceCache.close();
     db.close();
   });
@@ -449,7 +471,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
               return status !== "ok" && status !== "empty";
             });
           if (pending.length > 0) {
-            const { codes, failedRowIds } = await scanMoodleAttendanceImages(credentials, pending);
+            const { codes, failedRowIds } = await scanMoodleAttendanceImages(credentials, pending, moodleTransport.forCredentials(raw));
             for (const code of codes) db.upsertAttendanceCode({ ...code, origin: "ocr" });
             const failed = new Set(failedRowIds);
             const produced = new Set(codes.map((code) => code.id.split(":")[1]));
@@ -561,7 +583,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
       return reply.code(403).send({ error: { code: "blocked_host", message: "Only Moodle pluginfile assets can be served.", retryable: false } } satisfies ApiError);
     }
     try {
-      const response = await fetcher(parsed.toString(), {
+      const response = await moodleTransport.forCredentials(raw)(parsed.toString(), {
         headers: { cookie: moodleCookieHeader(credentials) },
         redirect: "follow",
       });
@@ -980,10 +1002,10 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const identity = createHash("sha256").update(`moodle\0${raw}`).digest("hex");
+      const identity = moodleCredentialIdentity(raw);
       const result = await resourceCache.read({ source: "moodle", identity, resource: "courses:v1", ttlMs: RESOURCE_TTL.courses,
         currentIdentity: () => credentialIdentity("moodle"), force: forcedRefresh(request.url) }, async () => ({
-        data: await new MoodleClient(credentials.baseUrl, moodleCookieHeader(credentials), fetcher).listCourses(),
+        data: await new MoodleClient(credentials.baseUrl, moodleCookieHeader(credentials), moodleTransport.forCredentials(raw)).listCourses(),
       }));
       reply.header("cache-control", "no-store");
       return { courses: result.data, cache: result.cache };
@@ -1003,7 +1025,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const result = await syncMoodleContent(db, credentials.baseUrl, moodleCookieHeader(credentials), courseId, fetcher);
+      const result = await syncMoodleContent(db, credentials.baseUrl, moodleCookieHeader(credentials), courseId, moodleTransport.forCredentials(raw));
       db.setSourceStatus("moodle", "connected", new Date().toISOString(), null);
       return { ok: true, ...result };
     } catch (error) {
@@ -1020,7 +1042,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const file = await downloadMoodleResource(credentials, targetValue, request.query.name, fetcher);
+      const file = await downloadMoodleResource(credentials, targetValue, request.query.name, moodleTransport.forCredentials(raw));
       reply.header("content-type", file.contentType);
       reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
       return reply.send(file.buffer);
@@ -1072,7 +1094,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     const usedNames = new Set<string>();
     for (const item of items) {
       try {
-        const file = await downloadMoodleResource(credentials, item.url, item.name, fetcher);
+        const file = await downloadMoodleResource(credentials, item.url, item.name, moodleTransport.forCredentials(raw));
         if (totalBytes + file.buffer.length > 100 * 1024 * 1024) {
           skipped += 1;
           continue;
@@ -1348,14 +1370,14 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const identity = createHash("sha256").update(`moodle\0${raw}`).digest("hex");
+      const identity = moodleCredentialIdentity(raw);
       const preferences = getMoodleCoursePreferences(db, identity);
       // A range change selects a different snapshot without discarding the course
       // directory or allowing a refresh for the previous range to overwrite it.
       const range = createHash("sha256").update(JSON.stringify(preferences)).digest("hex").slice(0, 16);
       const result = await resourceCache.read({ source: "moodle", identity, resource: `grades:v2:${range}`, ttlMs: RESOURCE_TTL.grades,
         currentIdentity: () => credentialIdentity("moodle"), force: forcedRefresh(request.url) }, async (previous: Awaited<ReturnType<MoodleGradesClient["pull"]>> | undefined, snapshot) => {
-        const pulled = await new MoodleGradesClient(credentials.baseUrl, moodleCookieHeader(credentials), fetcher).pullDetailed(preferences);
+        const pulled = await new MoodleGradesClient(credentials.baseUrl, moodleCookieHeader(credentials), moodleTransport.forCredentials(raw)).pullDetailed(preferences);
         const failed = new Set(pulled.failedCourseIds);
         const at = new Date().toISOString();
         const coverage = Object.fromEntries([
@@ -1393,9 +1415,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
     let moodle = false;
     if (rawMoodle) {
       try {
-        const credentials = moodleCredentials.parse(JSON.parse(rawMoodle));
-        moodle = await new MoodleClient(credentials.baseUrl, moodleCookieHeader(credentials), fetcher).validateSession();
-        if (!moodle) degradeMoodleSession(db);
+        const state = await verifyMoodleSession({ db, secrets, fetcherForCredentials: (raw) => moodleTransport.forCredentials(raw) });
+        moodle = state === "valid" || state === "unreachable" && db.listSources().some((source) => source.id === "moodle" && source.status === "connected");
       } catch {
         moodle = false;
       }
@@ -1474,11 +1495,11 @@ export function buildApp(options: AppOptions): FastifyInstance {
         const raw = await secrets.get("moodle-credentials");
         if (!raw) throw new Error("Moodle session is not configured.");
         const credentials = moodleCredentials.parse(JSON.parse(raw));
-        const assessments = await syncMoodle(db, credentials.baseUrl, moodleCookieHeader(credentials), fetcher);
-        const forum = await syncMoodleForum(db, credentials.baseUrl, moodleCookieHeader(credentials), fetcher);
-        const content = await syncAllMoodleContent(db, credentials.baseUrl, moodleCookieHeader(credentials), fetcher, (processed, total) => {
+        const assessments = await syncMoodle(db, credentials.baseUrl, moodleCookieHeader(credentials), moodleTransport.forCredentials(raw));
+        const forum = await syncMoodleForum(db, credentials.baseUrl, moodleCookieHeader(credentials), moodleTransport.forCredentials(raw));
+        const content = await syncAllMoodleContent(db, credentials.baseUrl, moodleCookieHeader(credentials), moodleTransport.forCredentials(raw), (processed, total) => {
           fullSyncJobs.update("moodle", { processed, total });
-        }, getMoodleCoursePreferences(db, createHash("sha256").update(`moodle\0${raw}`).digest("hex")));
+        }, getMoodleCoursePreferences(db, moodleCredentialIdentity(raw)));
         fullSyncJobs.update("moodle", { status: "done", processed: content.courses, total: content.courses, message: `${assessments.synced + forum.synced} 条简报，${content.items} 条资料` });
         db.setSetting("moodle_full_synced_at", new Date().toISOString());
       });

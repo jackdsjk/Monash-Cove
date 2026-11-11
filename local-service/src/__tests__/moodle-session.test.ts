@@ -9,7 +9,7 @@ import {
   verifyMoodleSession,
 } from "../moodle-session.js";
 import { MemorySecretStore } from "../secrets.js";
-import { MoodleClient } from "../sources/moodle.js";
+import { MoodleClient, MoodleSessionExpiredError } from "../sources/moodle.js";
 import { moodleCookieHeader } from "../moodle-download.js";
 
 function responseWithUrl(body: string, url: string, status = 200) {
@@ -20,7 +20,7 @@ function responseWithUrl(body: string, url: string, status = 200) {
 
 describe("moodle session probing", () => {
   it("accepts a dashboard response served from the Moodle host", async () => {
-    const fetcher = vi.fn(async () => responseWithUrl("<html>dashboard</html>", "https://learning.monash.edu/my/")) as unknown as typeof fetch;
+    const fetcher = vi.fn(async () => responseWithUrl('<html><script>M.cfg = {"sesskey":"fixture-sesskey"};</script></html>', "https://learning.monash.edu/my/")) as unknown as typeof fetch;
     const client = new MoodleClient("https://learning.monash.edu", "MoodleSession=abc", fetcher);
     await expect(client.probeSession()).resolves.toMatchObject({ ok: true, status: 200 });
   });
@@ -35,11 +35,54 @@ describe("moodle session probing", () => {
     const seen: string[] = [];
     const fetcher = vi.fn(async (_input: string | URL, init?: RequestInit) => {
       seen.push(String((init?.headers as Record<string, string>).cookie));
-      return responseWithUrl("<html>dashboard</html>", "https://learning.monash.edu/my/");
+      return responseWithUrl('<html><script>M.cfg = {"sesskey":"fixture-sesskey"};</script></html>', "https://learning.monash.edu/my/");
     }) as unknown as typeof fetch;
     const jar = "MoodleSession=abc; MDL_SSP_SessID=def";
     await new MoodleClient("https://learning.monash.edu", jar, fetcher).validateSession();
     expect(seen[0]).toBe(jar);
+  });
+
+  it("accepts a logout link as authenticated evidence and handles an empty fixture URL", async () => {
+    const fetcher = vi.fn(async () => new Response('<div class="logininfo"><a href="/login/logout.php?sesskey=fixture">Log out</a></div>'));
+    const probe = await new MoodleClient("https://learning.monash.edu", "MoodleSession=abc", fetcher).probeSession();
+    expect(probe).toMatchObject({ ok: true, expired: false, url: "https://learning.monash.edu/my/" });
+  });
+
+  it("does not authenticate an arbitrary successful error or maintenance page", async () => {
+    const fetcher = vi.fn(async () => responseWithUrl("<html>Maintenance, retry later</html>", "https://learning.monash.edu/my/"));
+    await expect(new MoodleClient("https://learning.monash.edu", "MoodleSession=abc", fetcher).probeSession())
+      .resolves.toMatchObject({ ok: false, expired: false });
+  });
+
+  it("does not mistake a hostname prefix for the Moodle origin", async () => {
+    const fetcher = vi.fn(async () => responseWithUrl('<script>{"sesskey":"fixture"}</script>', "https://learning.monash.edu.example.invalid/my/"));
+    await expect(new MoodleClient("https://learning.monash.edu", "MoodleSession=abc", fetcher).probeSession())
+      .resolves.toMatchObject({ ok: false, expired: true });
+  });
+
+  it.each([
+    '<form id="login"><input type="password"></form><script>{"sesskey":"anonymous-token"}</script>',
+    '<body class="notloggedin"><div class="logininfo">You are not logged in</div></body>',
+  ])("identifies a logged-out HTML response without a redirect", async (html) => {
+    const fetcher = vi.fn(async () => responseWithUrl(html, "https://learning.monash.edu/my/"));
+    await expect(new MoodleClient("https://learning.monash.edu", "MoodleSession=abc", fetcher).probeSession())
+      .resolves.toMatchObject({ ok: false, expired: true });
+  });
+
+  it.each([403, 429, 500, 503])("does not call HTTP %s an expired session", async (status) => {
+    const fetcher = vi.fn(async () => responseWithUrl('<form id="login"></form>', "https://learning.monash.edu/login/index.php", status));
+    await expect(new MoodleClient("https://learning.monash.edu", "MoodleSession=abc", fetcher).probeSession())
+      .resolves.toMatchObject({ ok: false, expired: false, status });
+  });
+
+  it("rejects oversized probe bodies rather than reading unbounded HTML", async () => {
+    const fetcher = vi.fn(async () => new Response("ignored", { headers: { "content-length": String(2 * 1024 * 1024 + 1) } }));
+    await expect(new MoodleClient("https://learning.monash.edu", "MoodleSession=abc", fetcher).probeSession())
+      .rejects.toThrow("too large");
+  });
+
+  it("exposes a typed authentication error for transport-blocked SSO redirects", () => {
+    expect(new MoodleSessionExpiredError()).toMatchObject({ name: "MoodleSessionExpiredError", message: MOODLE_SESSION_EXPIRED_MESSAGE });
   });
 });
 
@@ -150,7 +193,7 @@ describe("moodle session schedule", () => {
     vi.useRealTimers();
   });
 
-  it("checks every six hours until cancelled", async () => {
+  it("checks at the configured maintenance interval until cancelled", async () => {
     vi.useFakeTimers();
     const check = vi.fn();
     const stop = scheduleMoodleSessionChecks(check);

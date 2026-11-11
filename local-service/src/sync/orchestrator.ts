@@ -8,7 +8,7 @@ import { syncEd, syncMoodle, syncMoodleForum } from "./sources.js";
 import { syncAllMoodleContent } from "./moodle-content.js";
 import { fetchOnTrackAccount, onTrackCacheIdentity } from "../sources/ontrack.js";
 import { syncOnTrack } from "./ontrack.js";
-import { createHash } from "node:crypto";
+import { moodleCredentialIdentity, moodleCredentials } from "../moodle-session.js";
 import { getMoodleCoursePreferences } from "../course-preferences.js";
 
 export class SyncOrchestrator {
@@ -19,6 +19,7 @@ export class SyncOrchestrator {
     private readonly secrets: SecretStore,
     private readonly google: GoogleOAuth,
     private readonly fetcher: typeof fetch = fetch,
+    private readonly moodleFetcherForCredentials?: (raw: string) => typeof fetch,
   ) {}
 
   async sync(source: Source) {
@@ -39,9 +40,10 @@ export class SyncOrchestrator {
     }
     const raw = await this.secrets.get("moodle-credentials");
     if (!raw) throw new Error("Moodle session is not configured.");
-    const credentials = JSON.parse(raw) as { baseUrl: string; session: string };
-    const assessments = await syncMoodle(this.db, credentials.baseUrl, moodleCookieHeader(credentials), this.fetcher);
-    const posts = await syncMoodleForum(this.db, credentials.baseUrl, moodleCookieHeader(credentials), this.fetcher);
+    const credentials = moodleCredentials.parse(JSON.parse(raw));
+    const moodleFetcher = this.moodleFetcherForCredentials?.(raw) ?? this.fetcher;
+    const assessments = await syncMoodle(this.db, credentials.baseUrl, moodleCookieHeader(credentials), moodleFetcher);
+    const posts = await syncMoodleForum(this.db, credentials.baseUrl, moodleCookieHeader(credentials), moodleFetcher);
     return { synced: assessments.synced + posts.synced };
   }
 
@@ -62,12 +64,13 @@ export class SyncOrchestrator {
     starts.push(`ed:${ed.synced}`);
     const moodleRaw = await this.secrets.get("moodle-credentials");
     if (!moodleRaw) throw new Error("Moodle session is not configured.");
-    const moodleCreds = JSON.parse(moodleRaw) as { baseUrl: string; session: string };
-    const assessments = await syncMoodle(this.db, moodleCreds.baseUrl, moodleCookieHeader(moodleCreds), this.fetcher);
-    const forum = await syncMoodleForum(this.db, moodleCreds.baseUrl, moodleCookieHeader(moodleCreds), this.fetcher);
-    const moodleIdentity = createHash("sha256").update("moodle\0" + moodleRaw).digest("hex");
+    const moodleCreds = moodleCredentials.parse(JSON.parse(moodleRaw));
+    const moodleFetcher = this.moodleFetcherForCredentials?.(moodleRaw) ?? this.fetcher;
+    const assessments = await syncMoodle(this.db, moodleCreds.baseUrl, moodleCookieHeader(moodleCreds), moodleFetcher);
+    const forum = await syncMoodleForum(this.db, moodleCreds.baseUrl, moodleCookieHeader(moodleCreds), moodleFetcher);
+    const moodleIdentity = moodleCredentialIdentity(moodleRaw);
     const preferences = getMoodleCoursePreferences(this.db, moodleIdentity);
-    const content = await syncAllMoodleContent(this.db, moodleCreds.baseUrl, moodleCookieHeader(moodleCreds), this.fetcher, (processed, total) => this.progress?.("moodle", processed, total), preferences);
+    const content = await syncAllMoodleContent(this.db, moodleCreds.baseUrl, moodleCookieHeader(moodleCreds), moodleFetcher, (processed, total) => this.progress?.("moodle", processed, total), preferences);
     starts.push(`moodle:${assessments.synced + forum.synced + content.items}`);
     this.db.setSetting("moodle_full_synced_at", new Date().toISOString());
     if (await onTrackCacheIdentity()) {

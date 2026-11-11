@@ -40,6 +40,49 @@ interface MoodleEvent {
   action?: { name?: string; url?: string };
 }
 
+/** A confirmed login/SSO bounce, distinct from an upstream outage. */
+export class MoodleSessionExpiredError extends Error {
+  constructor() {
+    super("Moodle 会话已过期，需要重新登录");
+    this.name = "MoodleSessionExpiredError";
+  }
+}
+
+export interface MoodleSessionProbe {
+  ok: boolean;
+  status: number;
+  url: string;
+  expired: boolean;
+}
+
+const MAX_PROBE_BODY_BYTES = 2 * 1024 * 1024;
+
+async function probeHtml(response: Response): Promise<string> {
+  if (Number(response.headers.get("content-length")) > MAX_PROBE_BODY_BYTES) {
+    await response.body?.cancel();
+    throw new Error("Moodle session probe response is too large.");
+  }
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      length += chunk.value.byteLength;
+      if (length > MAX_PROBE_BODY_BYTES) {
+        await reader.cancel();
+        throw new Error("Moodle session probe response is too large.");
+      }
+      chunks.push(chunk.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, length).toString("utf8");
+}
+
 export class MoodleClient {
   private readonly baseUrl: string;
 
@@ -69,16 +112,37 @@ export class MoodleClient {
    * `timeoutMs` lets the background verifier run a lighter ping than the
    * 15s budget a user-facing login check gets.
    */
-  async probeSession(timeoutMs = 15_000): Promise<{ ok: boolean; status: number; url: string }> {
-    const response = await this.fetcher(`${this.baseUrl}/my/`, {
+  async probeSession(timeoutMs = 15_000): Promise<MoodleSessionProbe> {
+    const target = `${this.baseUrl}/my/`;
+    const response = await this.fetcher(target, {
       headers: this.headers(),
       redirect: "follow",
       signal: AbortSignal.timeout(timeoutMs),
     });
-    const url = response.url ?? "";
-    const offSite = url !== "" && !url.startsWith(this.baseUrl);
-    const loginPage = /\/login\//.test(url) || /okta\.com|microsoftonline\.com|idp/i.test(url);
-    return { ok: response.ok && !offSite && !loginPage, status: response.status, url };
+    const url = response.url || target;
+    const result = (ok: boolean, expired = false): MoodleSessionProbe => ({ ok, status: response.status, url, expired });
+    // Authentication cannot be inferred from an outage, even if its URL looks
+    // like SSO. A forbidden page without a login form is also not a logout.
+    if (!response.ok) {
+      await response.body?.cancel();
+      return result(false, response.status === 401);
+    }
+    const finalUrl = new URL(url);
+    const offSite = finalUrl.origin !== new URL(this.baseUrl).origin;
+    const loginPage = /\/(?:login|signin)(?:\/|\.php(?:\/|$)|$)/i.test(finalUrl.pathname);
+    if (offSite || loginPage) {
+      await response.body?.cancel();
+      return result(false, true);
+    }
+    const root = parse(await probeHtml(response));
+    const loginForm = root.querySelector('form input[type="password"], form#login, form#loginform, form[action*="/login/index.php"]');
+    const loggedOut = root.querySelector('body.notloggedin, body#page-login-index') ||
+      /you are not logged in|您尚未登录|你尚未登录|您还未登录/i.test(root.querySelector('.logininfo')?.text ?? "");
+    if (loginForm || loggedOut) return result(false, true);
+    const logoutLink = root.querySelector('a[href*="/login/logout.php"]');
+    let hasSesskey = false;
+    try { hasSesskey = Boolean(parseSesskey(root.toString())); } catch { /* A generic 200 is not proof of a session. */ }
+    return result(Boolean(logoutLink || hasSesskey));
   }
 
   async validateSession(): Promise<boolean> {
@@ -87,7 +151,7 @@ export class MoodleClient {
   }
 
   async listCourses(): Promise<MoodleCourseSummary[]> {
-    const dashboard = await this.fetcher(`${this.baseUrl}/my/`, { headers: this.headers(), redirect: "manual" });
+    const dashboard = await this.fetcher(`${this.baseUrl}/my/`, { headers: this.headers(), redirect: "follow" });
     if (!dashboard.ok) throw new Error(`Moodle dashboard returned HTTP ${dashboard.status}.`);
     const sesskey = parseSesskey(await dashboard.text());
     const url = new URL("/lib/ajax/service.php", this.baseUrl);
@@ -111,7 +175,7 @@ export class MoodleClient {
   }
 
   async pull(): Promise<MoodleRawItem[]> {
-    const dashboard = await this.fetcher(`${this.baseUrl}/my/`, { headers: this.headers(), redirect: "manual" });
+    const dashboard = await this.fetcher(`${this.baseUrl}/my/`, { headers: this.headers(), redirect: "follow" });
     if (!dashboard.ok) throw new Error(`Moodle dashboard returned HTTP ${dashboard.status}.`);
     const html = await dashboard.text();
     const sesskey = parseSesskey(html);
