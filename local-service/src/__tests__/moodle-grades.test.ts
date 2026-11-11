@@ -413,6 +413,33 @@ describe("GET /api/moodle/grades", () => {
 
 
 describe("Grades-confirmed activity enrichment", () => {
+  it("reuses recent unchanged graded details but rechecks pending rows and changed scores", async () => {
+    let grade = 8;
+    const reads = new Map<string, number>();
+    const fetcher = (async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/lib/ajax/service.php") return Response.json([{ error: false, data: { courses: [{ id: 1, shortname: "FIT1001", fullname: "Fixture" }] } }]);
+      if (url.pathname === "/grade/report/user/index.php") return new Response(`<table class="user-grade"><tr><th>Grade item</th><th>Grade</th><th>Range</th></tr>
+        <tr><td><a class="gradeitemheader" href="/mod/assign/view.php?id=1">Graded</a></td><td>${grade}</td><td>0–10</td></tr>
+        <tr><td><a class="gradeitemheader" href="/mod/assign/view.php?id=2">Pending</a></td><td>-</td><td>0–10</td></tr></table>`);
+      if (url.pathname === "/mod/assign/view.php") {
+        const id = url.searchParams.get("id")!; reads.set(id, (reads.get(id) ?? 0) + 1);
+        return new Response('<div class="submissionstatustable"><table><tr><th>Submission status</th><td>Submitted for grading</td></tr></table></div>');
+      }
+      return new Response('<script>{"sesskey":"fixture"}</script>');
+    }) as typeof fetch;
+    const client = new MoodleGradesClient("https://moodle.example.invalid", "fixture", fetcher);
+    const first = (await client.pullDetailed()).courses;
+    await client.pullDetailed(undefined, first);
+    expect(reads.get("1")).toBe(1); expect(reads.get("2")).toBe(2);
+    grade = 9;
+    const changed = (await client.pullDetailed(undefined, first)).courses;
+    expect(reads.get("1")).toBe(2); expect(reads.get("2")).toBe(3);
+    changed[0].items[0].detailFetchedAt = "2000-01-01T00:00:00Z";
+    await client.pullDetailed(undefined, changed);
+    expect(reads.get("1")).toBe(3);
+  });
+
   it("keeps overview-only courses, falls back to homepage structure and resets HTML between pulls", async () => {
     let grade: number | null = null;
     const fetcher = (async (input: string | URL | Request) => {

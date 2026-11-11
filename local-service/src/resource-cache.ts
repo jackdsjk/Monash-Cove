@@ -49,6 +49,7 @@ export interface RefreshResult<T> {
 export const RESOURCE_TTL = {
   courses: 6 * 60 * 60_000,
   grades: 5 * 60_000,
+  gradeDetails: 30 * 60_000,
   ed: 15 * 60_000,
   ontrack: 2 * 60_000,
 } as const;

@@ -6,6 +6,7 @@ import { isPortalCourseName, matchGradebookItem } from "../vendor/muster/assessm
 import { discoverAssessmentsSection, parseAssessmentStructure, type AssessmentStructureRow } from "../vendor/muster/assessment-structure.js";
 import { parseMoodleGradeDetail, parseMoodleGradeOverview } from "../vendor/muster/grade-details.js";
 import { createMoodlePageReader, MoodlePageReadError, type MoodlePageReader } from "../moodle-page-reader.js";
+import { RESOURCE_TTL } from "../resource-cache.js";
 
 /** One row of Moodle's own user grade report, as far as HTML exposes it. */
 export interface MoodleGradeItem {
@@ -30,6 +31,7 @@ export interface MoodleGradeItem {
   gradedAt: string | null;
   gradingState?: "graded" | "submitted" | "pending" | "unknown";
   gradeSource?: "gradebook" | "activity";
+  detailFetchedAt?: string | null;
 }
 
 export interface MoodleGradeCourse {
@@ -96,7 +98,7 @@ export class MoodleGradesClient {
     return (await this.pullDetailed()).courses;
   }
 
-  async pullDetailed(preferences?: CoursePreferences): Promise<{ courses: MoodleGradeCourse[]; failedCourseIds: string[]; failureReasons: Record<string, string> }> {
+  async pullDetailed(preferences?: CoursePreferences, previous: MoodleGradeCourse[] = []): Promise<{ courses: MoodleGradeCourse[]; failedCourseIds: string[]; failureReasons: Record<string, string> }> {
     this.pages = createMoodlePageReader(this.fetcher);
     const probe = await this.courses.probeSession().catch((error: unknown) => {
       if (error instanceof MoodleSessionExpiredError) return { ok: false, expired: true };
@@ -139,7 +141,7 @@ export class MoodleGradesClient {
             assessmentWarning = "暂时无法读取 Assessments 评估结构；仍显示 Grades 原始成绩，可重试刷新权重。";
           }
         }
-        const detailFailed = await this.enrichItems(report.items);
+        const detailFailed = await this.enrichItems(report.items, previous.find((old) => old.courseId === String(course.id))?.items ?? []);
         return {
           courseId: String(course.id),
           courseName: course.fullname || course.shortname || String(course.id),
@@ -198,7 +200,7 @@ export class MoodleGradesClient {
     }
   }
 
-  private async enrichItems(items: MoodleGradeItem[]): Promise<boolean> {
+  private async enrichItems(items: MoodleGradeItem[], previous: MoodleGradeItem[]): Promise<boolean> {
     let failed = false;
     await mapLimited(items, 2, async (item) => {
       item.gradeSource = "gradebook";
@@ -207,11 +209,23 @@ export class MoodleGradesClient {
       const url = new URL(item.url, this.baseUrl);
       const type = /^\/mod\/(assign|quiz)\/view\.php$/.exec(url.pathname)?.[1] as "assign" | "quiz" | undefined;
       if (url.origin !== new URL(this.baseUrl).origin || !type || !/^\d+$/.test(url.searchParams.get("id") ?? "")) return;
+      const old = previous.find((candidate) => candidate.id === item.id);
+      const age = old?.detailFetchedAt ? Date.now() - Date.parse(old.detailFetchedAt) : Infinity;
+      // Reuse recently verified detail only for unchanged, publicly graded rows.
+      // Pending/hidden items remain eligible on every grade refresh.
+      if (old && item.gradeText && item.gradeText === old.gradeText && item.gradeMax === old.gradeMax
+        && age >= 0 && age < RESOURCE_TTL.gradeDetails) {
+        item.feedback ||= old.feedback;
+        item.gradedAt ??= old.gradedAt;
+        item.detailFetchedAt = old.detailFetchedAt;
+        return;
+      }
       // A complete gradebook row needs no second read. Pending/hidden grades
       // are checked regardless of due date, including older quizzes.
       if (item.gradeText && item.feedback) return;
       try {
         const detail = parseMoodleGradeDetail(await this.readPage(url.href), type);
+        item.detailFetchedAt = new Date().toISOString();
         if (!item.gradeText && detail.gradeText) {
           item.gradeText = detail.gradeText;
           Object.assign(item, mark(detail.gradeText, null, { max: item.gradeMax }));
