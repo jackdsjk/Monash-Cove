@@ -467,7 +467,7 @@ export interface SectionGroup extends SectionMeta {
   items: DemoItem[];
 }
 
-/** 一条已同步到本机的 Moodle 作业，以及能安全关联到它的变更与 Ed 帖子。 */
+/** 一条已同步到本机的 Moodle 作业及其 Moodle 变更。 */
 export interface PackAssignmentView {
   id: string;
   courseId: string;
@@ -484,21 +484,10 @@ export interface PackAssignmentView {
   dueAt: string | null;
   completedAt: string | null;
   changes: Array<{ field: string; before: string | null; after: string | null; changedAt: string }>;
-  posts: Array<{
-    id: string;
-    number: number | null;
-    title: string;
-    text: string;
-    authorRole: "staff" | "student";
-    publishedAt: string;
-    url: string;
-  }>;
 }
 
-/** 「作业资料包」页的只读数据源；评分标准后端没有，固定为 null。 */
+/** 「Moodle 作业资料」页的只读数据源；评分标准后端没有，固定为 null。 */
 export interface PackResponse {
   rubric: null;
-  /** 每份作业按角色最多带几条 Ed 帖子，用来在界面上如实说明范围。 */
-  postsPerRole: number;
   assignments: PackAssignmentView[];
 }

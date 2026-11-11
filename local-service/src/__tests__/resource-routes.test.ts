@@ -17,6 +17,33 @@ beforeEach(() => {
 });
 
 describe("single source sync HTTP results", () => {
+  it("keeps Moodle assignment exports separate from other sources and supports course filtering", async () => {
+    app = buildApp({ dbPath: ":memory:", seed: true, secretStore: new MemorySecretStore() });
+    const db = (app as FastifyInstance & { coveDb: CoveDatabase }).coveDb;
+    const storedMoodle = db.listItems({ source: "moodle" })[0];
+    const base = { sectionNumber: 1, sectionTitle: "Week 1", module: "assign", text: "Fixture Moodle instructions", updatedAt: new Date().toISOString() };
+    db.replaceMoodleContent("101", [
+      { ...base, id: "assignment-101", courseId: "101", courseName: "TEST101_S2_2026", title: "Moodle assignment", url: storedMoodle.url },
+      { ...base, id: "resource-101", courseId: "101", courseName: "TEST101_S2_2026", module: "resource", title: "Weekly file", url: "https://moodle.example.invalid/mod/resource/view.php?id=2" },
+    ]);
+    db.replaceMoodleContent("102", [
+      { ...base, id: "assignment-102", courseId: "102", courseName: "TEST101_S1_2026", title: "Other semester", url: "https://moodle.example.invalid/mod/assign/view.php?id=3" },
+    ]);
+    const response = await app.inject("/api/pack");
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.assignments.map((item: { id: string }) => item.id)).toEqual(["assignment-102", "assignment-101"]);
+    expect(body).not.toHaveProperty("postsPerRole");
+    for (const assignment of body.assignments) {
+      expect(assignment).not.toHaveProperty("posts");
+      expect(assignment.text).toBe("Fixture Moodle instructions");
+    }
+    expect(body.assignments[1].dueAt).toBe(storedMoodle.dueAt);
+    expect((await app.inject("/api/pack?courseId=101")).json().assignments.map((item: { id: string }) => item.id)).toEqual(["assignment-101"]);
+    expect((await app.inject("/api/pack?courseId=unknown")).json().assignments).toEqual([]);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   it("keeps the previous successful sync time after an upstream failure", async () => {
     const secrets = new MemorySecretStore();
     await secrets.set("ed-credentials", JSON.stringify({ token: "fixture-only", region: "us" }));

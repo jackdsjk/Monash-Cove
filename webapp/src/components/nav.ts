@@ -6,7 +6,7 @@ export const NAV: { route: Route; label: string; group: 'main' | 'work' | 'syste
   { route: '/grades', label: '成绩', group: 'work' },
   { route: '/materials', label: '每周资料', group: 'work' },
   { route: '/ed', label: 'Ed 学习内容', group: 'work' },
-  { route: '/pack', label: '作业资料包', group: 'work' },
+  { route: '/pack', label: 'Moodle 作业资料', group: 'work' },
   { route: '/ontrack', label: 'OnTrack 任务', group: 'work' },
   { route: '/attendance', label: '考勤', group: 'work' },
   { route: '/sources', label: '来源', group: 'system' },

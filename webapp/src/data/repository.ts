@@ -351,7 +351,7 @@ export async function fetchMoodleContent(courseId: number): Promise<MoodleConten
   return data.items;
 }
 
-/** 作业资料包的数据：本机已同步的作业、变更和 Ed 帖子，不依赖当前 Moodle 会话。 */
+/** Moodle 作业与变更：从本机读取，不依赖当前 Moodle 会话。 */
 export async function fetchPack(courseId?: string): Promise<PackResponse> {
   return getJson<PackResponse>(courseId ? `/pack?courseId=${encodeURIComponent(courseId)}` : "/pack");
 }
