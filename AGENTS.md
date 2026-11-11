@@ -131,6 +131,8 @@ Tests use Vitest and mirror production behavior under `tests/`; `npm run check` 
 
 ## Commit & Pull Request Guidelines
 
+GitHub presentation assets live in `docs/assets/`; their provenance and regeneration commands belong in `docs/assets/README.md`. `scripts/build-github-art.py` only typesets the saved AI background with Python/Pillow; do not add generation credentials or application dependencies. `webapp/e2e/capture-readme.mjs` captures the built UI using fixed anonymous DTOs, temporary stores, a random port and blocked external network. Never capture real student records for public documentation or target the user's running service. Review all four screenshots, bilingual README links, image dimensions and whitespace after changes; keep social previews below 1 MB at 1280×640. Brand illustrations may use AI generation; product screenshots must remain actual UI captures. Do not change application behavior, overall licensing, security settings or push commits as incidental presentation work.
+
 Every completed change, including code, configuration, tests, documentation, and agent instructions, must be verified as appropriate and committed locally immediately. Do not accumulate multiple completed changes for a final batch commit. Stage only the current change; preserve unrelated work. Do not push unless the user requests it.
 
 Use short, imperative subjects and keep commits focused. Pull requests should explain the change, list validation results, link the relevant issue, and call out API, configuration, migration, or documentation changes. Include screenshots only for rendered interfaces.
