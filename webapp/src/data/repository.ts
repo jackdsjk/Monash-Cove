@@ -437,7 +437,19 @@ export const moodleCoursesQuery = new ResourceQuery<MoodleCourse[]>("moodle", (f
 export const moodleGradesQuery = new ResourceQuery<MoodleGradeCourse[]>("moodle", (force) =>
   resource("/moodle/grades", (body: { courses: MoodleGradeCourse[] }) => body.courses, force, 90_000), 5 * 60_000);
 export const moodleCoursePreferencesQuery = new ResourceQuery<MoodleCoursePreferences>("moodle", async () =>
-  ({ data: await getJson<MoodleCoursePreferences>("/moodle/course-preferences") }), 60_000);
+  ({ data: await readMoodleCoursePreferences() }), 60_000);
+
+async function coursePreferencesError(response: Response): Promise<Error> {
+  if (response.status === 404) return new Error("本地服务版本较旧，尚未提供课程同步设置。请重启本地服务后点击“重新读取”；无需重新连接 Moodle。");
+  const body = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+  return new Error(body?.error?.message ?? `读取或保存同步范围失败（HTTP ${response.status}）`);
+}
+
+async function readMoodleCoursePreferences(): Promise<MoodleCoursePreferences> {
+  const response = await request("/moodle/course-preferences");
+  if (!response.ok) throw await coursePreferencesError(response);
+  return response.json() as Promise<MoodleCoursePreferences>;
+}
 
 export async function saveMoodleCoursePreferences(preferences: MoodleCoursePreferences): Promise<MoodleCoursePreferences> {
   const generation = moodleCoursePreferencesQuery.getGeneration();
@@ -446,10 +458,7 @@ export async function saveMoodleCoursePreferences(preferences: MoodleCoursePrefe
     headers: { "content-type": "application/json" },
     body: JSON.stringify(preferences),
   });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-    throw new Error(body?.error?.message ?? `保存同步范围失败（HTTP ${response.status}）`);
-  }
+  if (!response.ok) throw await coursePreferencesError(response);
   const saved = await response.json() as MoodleCoursePreferences;
   if (generation !== moodleCoursePreferencesQuery.getGeneration()) throw new Error("连接状态已改变，请重新读取同步范围。");
   moodleCoursePreferencesQuery.replace(saved);

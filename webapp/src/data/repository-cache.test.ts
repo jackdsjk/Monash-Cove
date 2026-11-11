@@ -45,6 +45,22 @@ describe('course preference writes', () => {
   const initial = { activeSemester: null, hiddenCourseIds: [], pinnedCourseIds: [] };
   const updated = { activeSemester: '2026-S2', hiddenCourseIds: ['101'], pinnedCourseIds: ['102'] };
 
+  it('explains a missing local route without claiming the Moodle login has expired', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { message: 'Not found' } }, { status: 404 })));
+    await expect(moodleCoursePreferencesQuery.load()).rejects.toThrow('重启本地服务');
+    const state = moodleCoursePreferencesQuery.getSnapshot();
+    expect(state.data).toBeUndefined();
+    expect(state.error).toContain('重启本地服务');
+    expect(state.error).toContain('无需重新连接 Moodle');
+  });
+
+  it('preserves settings and reports an outdated service when PATCH is missing', async () => {
+    moodleCoursePreferencesQuery.replace(initial);
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { message: 'Not found' } }, { status: 404 })));
+    await expect(saveMoodleCoursePreferences(updated)).rejects.toThrow('重启本地服务');
+    expect(moodleCoursePreferencesQuery.getSnapshot().data).toEqual(initial);
+  });
+
   it('installs server-confirmed preferences and invalidates only the affected grade result', async () => {
     moodleCoursePreferencesQuery.replace(initial);
     moodleGradesQuery.replace(courses);
