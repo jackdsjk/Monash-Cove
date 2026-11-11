@@ -196,6 +196,12 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     await page.getByRole("checkbox", { name: "选择 Reading One", exact: true }).waitFor();
     for (const width of [390, 768, 1280, 1920]) {
       await page.setViewportSize({ width, height: 900 });
+      // Recreate the document after resizing: Chromium can reuse stale screenshot
+      // compositor tiles when a tall internal scroller grows across breakpoints.
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.getByRole("checkbox", { name: "选择 Reading One", exact: true }).waitFor();
+      assert.equal(await page.getByRole("navigation", { name: "主导航", exact: true }).count(), 1, "materials must mount one shell");
+      assert.equal(await page.getByRole("button", { name: "搜索或跳转", exact: true }).count(), 1, "materials must mount one topbar");
       const heading = await page.getByRole("heading", { name: "每周资料", exact: true }).boundingBox();
       const description = await page.getByText("按 Moodle 板块列出资料、作业和公告。资料文件可以批量下载到本机。", { exact: true }).boundingBox();
       assert.ok(heading && heading.height < 45 && heading.width >= 110, `materials heading must remain horizontal at ${width}`);
