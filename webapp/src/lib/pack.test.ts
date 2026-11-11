@@ -2,93 +2,107 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_OPTIONS,
   MISSING_DATA,
-  selectPosts,
+  assignmentPackStatus,
+  filterAssignmentPacks,
+  toAssignmentPacks,
+  toJSON,
   toMarkdown,
   type AssignmentPack,
-  type PackPost,
 } from './pack'
+import type { PackAssignmentView, PackResponse } from '../types'
 
 const NOW = Date.UTC(2026, 4, 16, 8, 0)
 const HOUR = 3_600_000
-const before = (hours: number) => NOW - hours * HOUR
-
-function post(over: Partial<PackPost> = {}): PackPost {
-  return {
-    id: 'post-1',
-    number: 598,
-    title: 'A2 deadline moved to 11:55pm',
-    category: '',
-    author: '',
-    role: 'staff',
-    at: before(1),
-    body: 'The submission cut-off has been updated.',
-    url: 'https://edstem.org/au/courses/16411/discussion/598',
-    replies: [],
-    ...over,
-  }
-}
-
-const staffPost = post({ id: 'staff', role: 'staff', title: 'A2 deadline moved to 11:55pm' })
-const studentPost = post({ id: 'student', role: 'student', title: 'Can we use heapq?' })
-const studentQuestion = post({
-  id: 'mixed',
-  role: 'student',
-  title: 'Is heapq allowed?',
-  replies: [
-    { author: 'Ravi', role: 'student', at: before(3), body: 'I think heapq is fine.' },
-    { author: 'Kevin', role: 'staff', at: before(2), body: 'Only without decrease-key.' },
-  ],
-})
 
 function pack(over: Partial<AssignmentPack> = {}): AssignmentPack {
   return {
-    id: 'fit2004-a2',
-    course: 'FIT2004',
-    courseName: 'FIT2004_S2_2026',
-    title: 'Assignment 2',
-    dueAt: Date.UTC(2026, 4, 16, 15, 55),
-    moodleUrl: 'https://learning.monash.edu/mod/assign/view.php?id=3920144',
-    spec: 'Submit a single file assignment2.py to Moodle.',
-    rubric: null,
-    changes: [{ field: '截止时间', before: '4:55 PM', after: '11:55 PM', at: before(0.7), source: 'Moodle' }],
-    posts: [],
+    id: 'fit2004-a2', courseId: '24', course: 'FIT2004', courseName: 'FIT2004_S2_2026',
+    title: 'Assignment 2', dueAt: NOW + HOUR, completedAt: null,
+    moodleUrl: 'https://moodle.example.invalid/mod/assign/view.php?id=123',
+    spec: 'Submit a single file assignment2.py to Moodle.', rubric: null,
+    changes: [{ field: '截止时间', before: '4:55 PM', after: '11:55 PM', at: NOW - HOUR, source: 'Moodle' }],
     ...over,
   }
 }
 
-describe('selectPosts', () => {
-  it('keeps only staff content, including posts that carry a staff reply, when student posts are off', () => {
-    const selected = selectPosts(pack({ posts: [staffPost, studentPost, studentQuestion] }), {
-      ...DEFAULT_OPTIONS,
-      studentPosts: false,
-    })
+function assignment(over: Partial<PackAssignmentView> = {}): PackAssignmentView {
+  return {
+    id: 'moodle:assignment:123', courseId: '24', course: 'FIT2004', courseName: 'FIT2004_S2_2026',
+    sectionTitle: 'Assessment', title: 'Assignment 2',
+    url: 'https://moodle.example.invalid/mod/assign/view.php?id=123', text: 'Moodle fixture specification',
+    dueAt: new Date(NOW + HOUR).toISOString(), completedAt: null, updatedAt: new Date(NOW).toISOString(),
+    changes: [], ...over,
+  }
+}
 
-    expect(selected.map((p) => p.id)).toEqual(['staff', 'mixed'])
-    expect(selected[1].replies.map((r) => r.role)).toEqual(['staff'])
+function payload(assignments: PackAssignmentView[]): PackResponse { return { rubric: null, assignments } }
+
+describe('Moodle-only assignment packs', () => {
+  it('keeps full source IDs distinct and rejects task pages from other workflows', () => {
+    const packs = toAssignmentPacks(payload([
+      assignment({ id: 'moodle:assignment:123' }),
+      assignment({ id: 'moodle:assignment:124' }),
+      assignment({ id: 'ontrack-task', url: 'https://ontrack.example.invalid/#/projects/1/tasks/2' }),
+      assignment({ id: 'invalid', url: 'broken' }),
+    ]))
+    expect(packs.map((entry) => entry.id)).toEqual(['moodle:assignment:123', 'moodle:assignment:124'])
+    expect(new Set(packs.map((entry) => entry.id)).size).toBe(2)
   })
 
-  it('drops every post that contains staff content when staff posts are off', () => {
-    const selected = selectPosts(pack({ posts: [staffPost, studentPost, studentQuestion] }), {
-      ...DEFAULT_OPTIONS,
-      staffPosts: false,
-    })
-
-    expect(selected.map((p) => p.id)).toEqual(['student'])
-    expect(selected[0].replies).toEqual([])
+  it('does not carry legacy Ed posts through the adapter or either export format', () => {
+    const legacy = {
+      ...assignment(),
+      posts: [{ id: 'ed-1', title: 'Legacy Ed topic', text: 'Private discussion body', authorRole: 'staff', publishedAt: new Date(NOW).toISOString(), url: 'https://edstem.org/fixture' }],
+    }
+    const packs = toAssignmentPacks(payload([legacy]))
+    for (const result of [toMarkdown(packs, DEFAULT_OPTIONS, NOW), toJSON(packs, DEFAULT_OPTIONS, NOW)]) {
+      expect(result).toContain('Moodle fixture specification')
+      expect(result).not.toContain('Private discussion body')
+      expect(result).not.toContain('edPosts')
+      expect(result).not.toContain('https://edstem.org')
+    }
   })
 
-  it('returns every post and reply when both roles are on', () => {
-    const selected = selectPosts(pack({ posts: [staffPost, studentPost, studentQuestion] }), DEFAULT_OPTIONS)
-
-    expect(selected).toHaveLength(3)
-    expect(selected[2].replies).toHaveLength(2)
+  it('retains completion evidence and uses null for an unknown due date', () => {
+    const [result] = toAssignmentPacks(payload([assignment({ dueAt: 'invalid', completedAt: new Date(NOW).toISOString() })]))
+    expect(result.dueAt).toBeNull()
+    expect(result.completedAt).toBe(NOW)
   })
 })
 
-describe('toMarkdown', () => {
-  it('exports the specification, missing rubric, changes and Ed posts with role labels', () => {
-    const markdown = toMarkdown([pack({ posts: [staffPost, studentPost] })], DEFAULT_OPTIONS, NOW)
+describe('assignment filters', () => {
+  const entries = [
+    pack(),
+    pack({ id: 'overdue', dueAt: NOW - HOUR }),
+    pack({ id: 'completed', dueAt: NOW - HOUR, completedAt: NOW - HOUR }),
+    pack({ id: 'undated', dueAt: null }),
+    pack({ id: 'other-semester', courseId: '25', courseName: 'FIT2004_S1_2026' }),
+  ]
+  const all = { courseId: '', status: 'all', query: '' } as const
 
+  it('isolates semester-specific course IDs even when their course codes match', () => {
+    expect(filterAssignmentPacks(entries, { ...all, courseId: '25' }, NOW).map((entry) => entry.id)).toEqual(['other-semester'])
+  })
+
+  it.each([
+    ['upcoming', ['fit2004-a2', 'other-semester']],
+    ['overdue', ['overdue']],
+    ['completed', ['completed']],
+    ['undated', ['undated']],
+  ] as const)('filters %s without treating completed or undated work as overdue', (status, ids) => {
+    expect(filterAssignmentPacks(entries, { ...all, status }, NOW).map((entry) => entry.id)).toEqual(ids)
+  })
+
+  it('combines a case-insensitive search with course and status and permits empty results', () => {
+    expect(filterAssignmentPacks(entries, { courseId: '25', status: 'upcoming', query: '  fit2004_s1  ' }, NOW)).toHaveLength(1)
+    expect(filterAssignmentPacks(entries, { ...all, query: 'nonexistent' }, NOW)).toEqual([])
+    expect(assignmentPackStatus(pack({ dueAt: NOW }), NOW)).toBe('upcoming')
+  })
+})
+
+describe('Moodle export', () => {
+  it('exports the specification, missing rubric and associated Moodle changes', () => {
+    const markdown = toMarkdown([pack()], DEFAULT_OPTIONS, NOW)
     expect(markdown).toContain('# FIT2004 · Assignment 2')
     expect(markdown).toContain('- 课程：FIT2004 · FIT2004_S2_2026')
     expect(markdown).toContain('## 作业要求（Moodle 原文）')
@@ -96,41 +110,30 @@ describe('toMarkdown', () => {
     expect(markdown).toContain('## 评分标准')
     expect(markdown).toContain(MISSING_DATA)
     expect(markdown).toContain('- 截止时间：4:55 PM → 11:55 PM（Moodle')
-    expect(markdown).toContain('## Ed 帖子（2）')
-    expect(markdown).toContain('### #598 A2 deadline moved to 11:55pm')
-    expect(markdown).toContain('- 作者：教学人员')
-    expect(markdown).toContain('### #598 Can we use heapq?')
-    expect(markdown).toContain('- 作者：学生')
   })
 
-  it('omits unchecked sections and student posts', () => {
-    const markdown = toMarkdown(
-      [pack({ posts: [staffPost, studentPost] })],
-      { ...DEFAULT_OPTIONS, spec: false, rubric: false, changes: false, studentPosts: false },
-      NOW,
-    )
-
+  it('omits unchecked sections in both formats', () => {
+    const opts = { spec: false, rubric: false, changes: false }
+    const markdown = toMarkdown([pack()], opts, NOW)
     expect(markdown).not.toContain('作业要求（Moodle 原文）')
     expect(markdown).not.toContain('评分标准')
-    expect(markdown).not.toContain('变更记录')
-    expect(markdown).not.toContain('Can we use heapq?')
-    expect(markdown).toContain('## Ed 帖子（1）')
+    expect(markdown).not.toContain('## 变更记录')
+    const output = JSON.parse(toJSON([pack()], opts, NOW))
+    expect(output.assignments[0]).not.toHaveProperty('specification')
+    expect(output.assignments[0]).not.toHaveProperty('rubric')
+    expect(output.assignments[0]).not.toHaveProperty('changes')
   })
 
-  it('names every pack when more than one assignment is exported', () => {
-    const markdown = toMarkdown([pack(), pack({ id: 'fit3155-a2', course: 'FIT3155', title: 'Assignment 2 — BWT' })], DEFAULT_OPTIONS, NOW)
-
-    expect(markdown).toContain('# 作业资料包（2 项作业）')
+  it('names every Moodle assignment when exporting multiple results', () => {
+    const markdown = toMarkdown([pack(), pack({ id: 'other', course: 'FIT3155', title: 'Assignment 2 — BWT' })], DEFAULT_OPTIONS, NOW)
+    expect(markdown).toContain('# Moodle 作业资料（2 项作业）')
     expect(markdown).toContain('## FIT2004 · Assignment 2')
     expect(markdown).toContain('## FIT3155 · Assignment 2 — BWT')
-    expect(markdown).toContain('\n---\n')
   })
 
-  it('says the data is missing instead of inventing a due date or specification', () => {
-    const markdown = toMarkdown([pack({ dueAt: null, spec: '   ', posts: [] })], DEFAULT_OPTIONS, NOW)
-
+  it('reports missing dates and specifications without inventing data', () => {
+    const markdown = toMarkdown([pack({ dueAt: null, spec: '   ' })], DEFAULT_OPTIONS, NOW)
     expect(markdown).toContain(`- 截止时间：${MISSING_DATA}`)
     expect(markdown).toContain(MISSING_DATA)
-    expect(markdown).not.toContain('Ed 帖子（')
   })
 })
