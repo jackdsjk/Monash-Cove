@@ -71,7 +71,7 @@ export function BriefGrades({ connected, online }: { connected: boolean; online:
               const summary = courseSummary(course)
               return <li key={course.courseId} className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-5 py-3 text-[13px]">
                 <span className="min-w-0 flex-1 break-words font-medium text-slate-800">{course.courseName}</span>
-                <span className="text-slate-500">已评分 {summary.gradedCount} / {summary.count} 项</span>
+                <span className="text-slate-500">已评分 {summary.gradedCount} 项</span>
                 {course.overviewGrade && <span className="w-full text-xs text-slate-600">Moodle Overview 原文：{course.overviewGrade}</span>}
               </li>
             })}

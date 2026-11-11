@@ -182,6 +182,12 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
       { courseId: "hidden", courseName: "TEST2004 Hidden released score", courseShortName: "TEST2004_S2_2026", total: { earned: null, max: null }, overviewGrade: "P (provisional)", items: [
         { id: "hidden-mark", name: "Hidden assessed task", grade: null, gradeText: "-", gradingState: "graded", gradeMax: 100, weight: 100, feedback: "PRIVATE_FEEDBACK_SENTINEL", gradedAt: null },
       ], gradeChanges: [{ id: "fixture-opaque-event", kind: "released", itemName: "Hidden assessed task", detectedAt: new Date(now).toISOString() }] },
+      { courseId: "scale", courseName: "TEST2006 Mixed scale results", total: { earned: null, max: null }, items: [
+        { id: "scale-numeric", name: "Numeric scale companion", grade: 8, gradeMax: 10, weight: 70, feedback: "", gradedAt: null },
+        { id: "scale-pass", name: "Passed requirement sentinel", grade: null, gradeText: "Pass", gradeRange: "Fail–Pass", gradeMax: null, weight: 15, feedback: "", gradedAt: null },
+        { id: "scale-fail", name: "Failed requirement sentinel", grade: null, gradeText: "Fail", gradeRange: "Fail–Pass", gradeMax: null, weight: 15, feedback: "", gradedAt: null },
+        { id: "scale-ungraded", name: "Ungraded sentinel", grade: null, gradeText: "Ungraded", gradeMax: 100, weight: 0, feedback: "", gradedAt: null },
+      ] },
       { courseId: "previous", courseName: "TEST2005 Previous semester", courseShortName: "TEST2005_S1_2026", total: { earned: null, max: null }, items: [
         { id: "previous-mark", name: "Previous quiz", grade: 13.37, gradeMax: 20, weight: 100, feedback: "PRIVATE_PREVIOUS_FEEDBACK", gradedAt: null },
       ] },
@@ -342,7 +348,7 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     await page.goto(`${base}/#/grades`, { waitUntil: "domcontentloaded" });
     await page.getByText("16.0 / 100", { exact: true }).waitFor();
     assert.equal(await page.getByRole("button", { name: /TEST2001.*Known weights/ }).getAttribute("aria-pressed"), "true", "default selection must skip empty gradebooks");
-    await page.getByText(/剩余 80% 中需拿到 42\.5%/).waitFor();
+    assert.equal(await page.getByRole("button", { name: /Pending final/ }).count(), 0, "ungraded rows must be hidden");
     await page.getByRole("button", { name: /TEST2002.*Unknown weights/ }).click();
     await page.getByText(/本课程已得\s*—/).waitFor();
     await page.getByText("Moodle 公布总评：80.0%（以原成绩册为准）", { exact: true }).waitFor();
@@ -352,20 +358,29 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     await page.getByText("3.6 / 100", { exact: true }).waitFor();
     await page.getByRole("button", { name: /TEST2003.*Assessment categories/ }).getByText(/已评占 4\.5%/).waitFor();
     await page.getByRole("button", { name: /Widget quiz A/ }).getByText("4.5%", { exact: true }).waitFor();
-    await page.getByRole("region", { name: "Exam 60%", exact: true }).getByText(/评分项目尚未发布/).waitFor();
+    assert.equal(await page.getByRole("region", { name: "Exam 60%", exact: true }).count(), 0, "ungraded exam placeholders must be hidden");
+    assert.equal(await page.getByRole("button", { name: /Widget quiz B/ }).count(), 0, "pending children must be hidden without changing the 4.5% share");
     await page.getByRole("button", { name: /Letter grade item/ }).click();
     await page.getByText("已发布原始成绩，无法换算百分比", { exact: true }).waitFor();
     assert.equal(await page.getByRole("button", { name: /Letter grade item/ }).getByText("已评分", { exact: true }).count(), 1, "letter grades are released scores, never pending");
     await page.getByRole("button", { name: /TEST2000.*Empty gradebook/ }).click();
-    await page.getByText("这门课的评分表里没有评分项。", { exact: true }).waitFor();
+    await page.getByText("这门课暂无可显示的已评分结果。", { exact: true }).waitFor();
     await page.getByRole("button", { name: /TEST2003.*Assessment categories/ }).click();
     await page.getByText("分类成绩明细", { exact: true }).waitFor();
     await page.getByRole("region", { name: "Quiz / Test 9%", exact: true }).waitFor();
 
+    await page.getByRole("button", { name: /TEST2006.*Mixed scale results/ }).click();
+    await page.getByRole("button", { name: /TEST2006.*Mixed scale results/ }).getByText("80.0%", { exact: true }).waitFor();
+    await page.getByRole("button", { name: /Failed requirement sentinel/ }).getByText("Fail · 未通过", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: /Passed requirement sentinel|Ungraded sentinel/ }).count(), 0, "passed requirements and ungraded rows must be hidden");
+    await page.getByRole("button", { name: "WAM、GPA 和等级是怎么算的", exact: true }).click();
+    assert.ok(!/Muster/i.test(await page.getByRole("main").innerText()), "product copy must omit reference implementation attribution");
+    await page.getByRole("button", { name: "WAM、GPA 和等级是怎么算的", exact: true }).click();
+
     await page.getByRole("button", { name: /TEST2004.*Hidden released score/ }).click();
     await page.getByText("Moodle Overview 原文：P (provisional)", { exact: true }).waitFor();
     await page.getByText("已评分，分数未公开", { exact: true }).first().waitFor();
-    await page.getByRole("region", { name: "Other 100%", exact: true }).getByText("已评分 1 / 1 项", { exact: true }).waitFor();
+    await page.getByRole("region", { name: "Other 100%", exact: true }).getByText("已评分 1 项", { exact: true }).waitFor();
     assert.equal(await page.getByText(/剩余 .*中需拿到/).count(), 0, "hidden selected marks must suppress unsupported predictions");
     const notice = page.getByRole("status", { name: "成绩变化提醒", exact: true });
     await notice.getByText("发现 1 项成绩变化", { exact: true }).waitFor();
@@ -374,7 +389,7 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
 
     await page.getByText("成绩结构诊断", { exact: true }).click();
     const diagnostic = await page.getByLabel("成绩结构诊断内容", { exact: true }).innerText();
-    assert.ok(diagnostic.includes("courses=6"));
+    assert.ok(diagnostic.includes("courses=7"));
     for (const sensitive of ["TEST2004", "Hidden assessed task", "PRIVATE_FEEDBACK_SENTINEL", "PRIVATE_PREVIOUS_FEEDBACK", "13.37", "P (provisional)", "fixture-opaque-event", "https://"]) {
       assert.ok(!diagnostic.includes(sensitive), `grade diagnostics must omit ${sensitive}`);
     }

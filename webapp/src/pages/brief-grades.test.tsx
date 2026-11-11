@@ -25,7 +25,7 @@ afterEach(() => vi.clearAllMocks())
 describe('homepage shared grade summary', () => {
   it('counts explicitly graded hidden marks without inventing a score or exposing feedback', () => {
     const html = show([course({ overviewGrade: 'HD (provisional)' })])
-    expect(html).toContain('已评分 1 / 1 项')
+    expect(html).toContain('已评分 1 项')
     expect(html).toContain('Moodle Overview 原文：HD (provisional)')
     expect(html).not.toContain('Private feedback')
     expect(html).not.toContain('0 / 100')

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MoodleGradeCourse, MoodleGradeItem } from '../types'
-import { courseSummary, gradeBreakdown, gradeItemWeights, isGradeReleased, isGradeMarked, gradeStatus, gradeOutlook, gradeCoursesInView, percentage } from './grades'
+import { courseSummary, gradeBreakdown, gradeItemWeights, isGradeReleased, isGradeMarked, isPassFail, isPassFailFailure, isGradeVisible, gradeStatus, gradeOutlook, gradeCoursesInView, percentage } from './grades'
 
 const row = (values: Partial<MoodleGradeItem> = {}): MoodleGradeItem => ({
   id: 'a', name: 'Assessment', grade: 8, gradeMax: 10, weight: 20,
@@ -11,6 +11,29 @@ const course = (items: MoodleGradeItem[], total: MoodleGradeCourse['total'] = { 
 })
 
 describe('Moodle to Muster grade adapter', () => {
+  it('excludes Pass/Fail ranges from numeric grades and only exposes Fail results', () => {
+    const pass = row({ id: 'pass', grade: null, gradeMax: null, gradeText: 'Pass', gradeRange: 'Fail–Pass', weight: 15 })
+    const fail = row({ id: 'fail', grade: null, gradeMax: null, gradeText: 'Fail', gradeRange: 'Fail, Pass', weight: 15 })
+    const input = course([row({ weight: 70 }), pass, fail])
+    expect(courseSummary(input)).toMatchObject({ current: 80, earned: 56, hidden: 0, gradedWeight: 70, gradedCount: 1 })
+    expect(percentage(pass)).toBeNull()
+    expect(isGradeVisible(pass)).toBe(false)
+    expect(isGradeVisible(fail)).toBe(true)
+    expect(isPassFailFailure(fail)).toBe(true)
+    expect(gradeOutlook(input)).toBeNull()
+    expect(courseSummary(course([pass, fail]))).toMatchObject({ current: null, hasWeights: false, earned: 0, lost: 0 })
+    // Exact legacy text is supported, but a known numeric Range takes precedence.
+    expect(isPassFail(row({ gradeText: 'Pass', gradeRange: undefined }))).toBe(true)
+    expect(isPassFail(row({ gradeText: 'Pass', gradeRange: '0–100' }))).toBe(false)
+    expect(isPassFail(row({ gradeText: 'HD', gradeMax: null }))).toBe(false)
+    expect(isPassFail(row({ gradeText: 'Pass', gradeRange: 'Fail, Pass, Distinction' }))).toBe(false)
+  })
+  it('does not treat explicit Ungraded as released even with an old numeric zero or graded state', () => {
+    const ungraded = row({ id: 'pending', gradeText: 'Ungraded', grade: 0, weight: 50, gradingState: 'graded' })
+    expect(isGradeReleased(ungraded)).toBe(false)
+    expect(isGradeVisible(ungraded)).toBe(false)
+    expect(courseSummary(course([row({ weight: 50 }), ungraded])).current).toBe(80)
+  })
   it('keeps marked but unpublished scores hidden rather than pending or zero', () => {
     const hidden = row({ grade: null, gradeText: '-', gradingState: 'graded', weight: 100 })
     expect(isGradeReleased(hidden)).toBe(false)
@@ -94,6 +117,16 @@ describe('Moodle to Muster grade adapter', () => {
   const structureRow = (values: Partial<NonNullable<MoodleGradeCourse['assessmentStructure']>[number]> = {}): NonNullable<MoodleGradeCourse['assessmentStructure']>[number] => ({
     name: 'Quiz', url: null, isCategory: false, category: 'Quiz', categoryId: 1,
     weight: null, categoryWeight: null, gradeItemId: null, ...values,
+  })
+  it('removes scale results after category allocation without inflating numeric or pending shares', () => {
+    const input = course([row({ weight: null }), row({ id: 'pass', grade: null, gradeMax: null, gradeText: 'Pass', gradeRange: 'Fail - Pass', weight: null }), row({ id: 'pending', grade: null, weight: null })])
+    input.assessmentStructure = [structureRow({ isCategory: true, categoryWeight: 90 }),
+      structureRow({ gradeItemId: 'a' }), structureRow({ gradeItemId: 'pass' }), structureRow({ gradeItemId: 'pending' })]
+    expect(gradeItemWeights(input).get('a')).toBe(30)
+    expect(gradeItemWeights(input).get('pending')).toBe(30)
+    expect(gradeItemWeights(input).get('pass')).toBeNull()
+    expect(courseSummary(input)).toMatchObject({ current: 80, earned: 24, gradedWeight: 30, ungraded: 30, hidden: 0 })
+    expect(gradeBreakdown(input).categories[0].items.map((item) => item.id)).toEqual([0, 2])
   })
   it('splits widget category weights and keeps empty exams pending', () => {
     const input = course([row({ weight: null }), row({ id: 'b', grade: 0, weight: null })])

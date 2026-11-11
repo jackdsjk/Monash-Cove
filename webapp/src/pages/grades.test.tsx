@@ -25,7 +25,7 @@ beforeEach(() => vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Real netw
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks() })
 
 describe('grade presentation', () => {
-  it('renders category detail and keeps an unpublished exam placeholder visible', () => {
+  it('renders marked category detail and hides unpublished exams without reallocating weights', () => {
     const course = entry()
     course.assessmentStructure = [
       { name: 'Quizzes', url: null, isCategory: true, category: 'Quizzes', categoryId: 1, weight: null, categoryWeight: 30, gradeItemId: null },
@@ -35,8 +35,8 @@ describe('grade presentation', () => {
     const html = render([course])
     expect(html).toContain('分类成绩明细')
     expect(html).toContain('已得 24 / 30 个总评分')
-    expect(html).toContain('Final exam')
-    expect(html).toContain('评分项目尚未发布')
+    expect(html).not.toContain('Final exam')
+    expect(html).not.toContain('评分项目尚未发布')
     expect(html).toContain('role="img"')
     expect(html).toContain('aria-label="成绩进度图例"')
   })
@@ -54,9 +54,26 @@ describe('grade presentation', () => {
     const html = render([course])
     expect(html).toContain('已评分，分数未公开')
     expect(html).toContain('Moodle 已标记评分完成')
-    expect(html).toContain('已评分 1 / 1 项')
+    expect(html).toContain('已评分 1 项')
     expect(html).toContain('还没有已发布的成绩。')
     expect(html).not.toContain('未评分 1 项')
+  })
+  it('hides Pass and ungraded rows, warns for Fail and retains the numeric average', () => {
+    const course = entry()
+    course.items.push(
+      { ...course.items[0], id: 'pass', name: 'Passed requirement sentinel', grade: null, gradeText: 'Pass', gradeMax: null, gradeRange: 'Fail–Pass' },
+      { ...course.items[0], id: 'fail', name: 'Failed requirement sentinel', grade: null, gradeText: 'Fail', gradeMax: null, gradeRange: 'Fail–Pass' },
+      { ...course.items[0], id: 'ungraded', name: 'Ungraded sentinel', grade: null, gradeText: 'Ungraded' },
+    )
+    course.gradeChanges = [{ id: 'pass-event', kind: 'released', itemName: 'Passed requirement sentinel', detectedAt: '2026-11-11T00:00:00Z' }]
+    const html = render([course])
+    expect(html).toContain('80.0%')
+    expect(html).toContain('存在 Fail 项')
+    expect(html).toContain('Fail · 未通过')
+    expect(html).not.toContain('Passed requirement sentinel')
+    expect(html).not.toContain('Ungraded sentinel')
+    expect(html).not.toContain('成绩变化提醒')
+    expect(html).not.toMatch(/Muster|待评分|尚未评分|距及格线还差/)
   })
   it('filters by short-name semester and retains unknowns without another upstream read', () => {
     const html = render([

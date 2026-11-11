@@ -24,17 +24,57 @@ export function band(mark: number): GradeBand {
 
 /** 一个评分项占满分的百分比。Moodle 没给满分时算不出来，返回 null。 */
 export function percentage(item: MoodleGradeItem): number | null {
+  if (isPassFail(item)) return null
   if (item.grade === null || !Number.isFinite(item.grade) || item.gradeMax === null || !Number.isFinite(item.gradeMax)) return null
   return parseScorePercent(String(item.grade), item.gradeMax)
 }
 
 export function isGradeReleased(item: MoodleGradeItem): boolean {
+  if (/^(?:ungraded|not graded)$/i.test(item.gradeText?.trim() ?? '')) return false
   return item.grade !== null && Number.isFinite(item.grade) ||
     !!item.gradeText?.trim() && !['-', '–', '—'].includes(item.gradeText.trim())
 }
 
 export function isGradeMarked(item: MoodleGradeItem): boolean {
+  if (/^(?:ungraded|not graded)$/i.test(item.gradeText?.trim() ?? '')) return false
   return isGradeReleased(item) || item.gradingState === 'graded'
+}
+
+/** Range is authoritative; exact Pass/Fail text supports snapshots predating Range. */
+export function isPassFail(item: MoodleGradeItem): boolean {
+  const range = item.gradeRange?.trim()
+  if (range) return /^(?:pass|fail)(?:[\s,;/|–—-]+(?:pass|fail))+$/i.test(range)
+  return /^(?:pass|fail)$/i.test(item.gradeText?.trim() ?? '')
+}
+
+export function isPassFailFailure(item: MoodleGradeItem): boolean {
+  return isPassFail(item) && /^fail$/i.test(item.gradeText?.trim() ?? '')
+}
+
+/** Pending rows and passed requirements remain internal evidence, not visible results. */
+export function isGradeVisible(item: MoodleGradeItem): boolean {
+  return isGradeMarked(item) && (!isPassFail(item) || isPassFailFailure(item))
+}
+
+function withoutPassFail(course: MoodleGradeCourse, grade: CourseGrade): CourseGrade {
+  if (!course.items.some(isPassFail)) return grade
+  // Allocate against the complete original structure FIRST. Removing children
+  // before the upstream split would inflate the other children's shares.
+  const categories = grade.categories.flatMap((category) => {
+    const items = category.items.filter((score) => !course.items[score.id] || !isPassFail(course.items[score.id]))
+    if (!items.length) return []
+    const sum = (state: 'graded' | 'hidden' | 'pending') => items.filter((item) => item.state === state).reduce((total, item) => total + item.share, 0)
+    return [{ ...category, items, weight: items.reduce((total, item) => total + item.share, 0),
+      earned: items.reduce((total, item) => total + item.share * (item.percent ?? 0) / 100, 0),
+      gradedWeight: sum('graded'), hiddenWeight: sum('hidden'), pendingWeight: sum('pending') }]
+  })
+  const total = (field: 'weight' | 'earned' | 'gradedWeight' | 'hiddenWeight' | 'pendingWeight') => categories.reduce((sum, category) => sum + category[field], 0)
+  const totalWeight = total('weight')
+  return { ...grade, categories, totalWeight, earned: total('earned'),
+    gradedWeight: total('gradedWeight'), hiddenWeight: total('hiddenWeight'), pendingWeight: total('pendingWeight'),
+    // Removing a nonnumeric requirement cannot establish a numeric pass outlook.
+    outcome: 'no-data', needed: 0, requiredAverage: null,
+    weightsComplete: grade.weightsComplete && Math.abs(totalWeight - 100) < 0.5 }
 }
 
 export function gradeStatus(item: MoodleGradeItem): string {
@@ -46,7 +86,7 @@ export function gradeStatus(item: MoodleGradeItem): string {
 function gradeFields(item: MoodleGradeItem): Pick<Assignment, 'status' | 'grade' | 'gradeMax'> {
   return {
     status: isGradeMarked(item) ? 'graded' : item.gradingState === 'submitted' ? 'submitted' : 'pending',
-    grade: item.grade !== null && Number.isFinite(item.grade) ? String(item.grade) : isGradeReleased(item) ? item.gradeText ?? undefined : undefined,
+    grade: isGradeReleased(item) ? item.grade !== null && Number.isFinite(item.grade) ? String(item.grade) : item.gradeText ?? undefined : undefined,
     gradeMax: item.gradeMax !== null && Number.isFinite(item.gradeMax) ? item.gradeMax : undefined,
   }
 }
@@ -75,17 +115,17 @@ function assessmentBreakdown(course: MoodleGradeCourse): CourseGrade | null {
 /** Grades supplies scores; Assessments supplies grouping and weight provenance. */
 export function gradeBreakdown(course: MoodleGradeCourse): CourseGrade {
   const structured = assessmentBreakdown(course)
-  if (structured) return structured
+  if (structured) return withoutPassFail(course, structured)
   const assignments: Assignment[] = course.items.map((item, index) => ({
     id: index, name: item.name, courseId: 0, isCategory: false,
     url: item.url || 'moodle:gradebook', ...gradeFields(item), weight: validWeight(item.weight),
   }))
-  return buildCourseGrade(assignments)
+  return withoutPassFail(course, buildCourseGrade(assignments))
 }
 
 /** Shares come from the copied calculator, never from a second split algorithm. */
 export function gradeItemWeights(course: MoodleGradeCourse, breakdown = gradeBreakdown(course)): Map<string, number | null> {
-  const weights = new Map<string, number | null>(course.items.map((item) => [item.id, item.weight === 0 ? 0 : null]))
+  const weights = new Map<string, number | null>(course.items.map((item) => [item.id, !isPassFail(item) && item.weight === 0 ? 0 : null]))
   for (const category of breakdown.categories) {
     for (const score of category.items) {
       const item = course.items[score.id]
@@ -125,9 +165,9 @@ export interface CourseSummary {
  * fallback: Moodle may use categories, unequal weights or unpublished scores.
  */
 export function courseSummary(course: MoodleGradeCourse): CourseSummary {
-  const items = course.items
+  const items = course.items.filter((item) => !isPassFail(item))
   const structured = assessmentBreakdown(course)
-  const breakdown = structured ?? gradeBreakdown(course)
+  const breakdown = structured ? withoutPassFail(course, structured) : gradeBreakdown(course)
   const hasWeights = breakdown.totalWeight > 0 && breakdown.totalWeight <= 100.5
   const weights = gradeItemWeights(course, breakdown)
   const releasedWeightsKnown = structured !== null ||
@@ -162,6 +202,7 @@ export function courseSummary(course: MoodleGradeCourse): CourseSummary {
  * Copyright 2026 Poetrynan; see muster/LICENSE and NOTICE. Guard partial weights/unreadable scores.
  */
 export function gradeOutlook(course: MoodleGradeCourse): string | null {
+  if (course.items.some(isPassFail)) return null
   const summary = courseSummary(course)
   const grade = gradeBreakdown(course)
   if (!summary.weightsComplete || grade.hiddenWeight > 0) return null

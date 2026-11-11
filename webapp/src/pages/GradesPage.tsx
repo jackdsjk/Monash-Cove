@@ -5,7 +5,7 @@ import { moodleCoursePreferencesQuery, moodleGradesQuery } from '../data/reposit
 import { useResourceQuery } from '../lib/use-resource-query'
 import { CacheStatus } from '../components/CacheStatus'
 import type { MoodleGradeCourse, MoodleGradeItem } from '../types'
-import { BAND_LABEL, band, courseSummary, gradeBreakdown, gradeCoursesInView, gradeItemWeights, gradeOutlook, gradeStatus, isGradeMarked, isGradeReleased, parseMoodleDate, percentage, splitCourseName, type CourseSummary, type GradeBand } from '../lib/grades'
+import { BAND_LABEL, band, courseSummary, gradeBreakdown, gradeCoursesInView, gradeItemWeights, gradeStatus, isGradeMarked, isGradeReleased, isGradeVisible, isPassFail, isPassFailFailure, parseMoodleDate, percentage, splitCourseName, type CourseSummary, type GradeBand } from '../lib/grades'
 import { useTime } from '../lib/time'
 import { availableSemesters } from '../lib/course-sync-preferences'
 import { buildGradeDiagnosticReport } from '../lib/grade-diagnostics'
@@ -39,12 +39,11 @@ function ProgressBar({ s }: { s: CourseSummary }) {
   const pct = (value: number) => `${s.total > 0 ? Math.max(0, Math.min(100, (value / s.total) * 100)) : 0}%`
   return (
     <div role="img" aria-label={s.hasWeights
-      ? `已得 ${s.earned.toFixed(1)} 分，已扣 ${s.lost.toFixed(1)} 分，待评分 ${s.ungraded.toFixed(1)}%，分数未公开或无法换算 ${s.hidden.toFixed(1)}%，及格线 50 分。${s.weightsComplete ? '' : '权重不完整。'}`
+      ? `已得 ${s.earned.toFixed(1)} 分，已扣 ${s.lost.toFixed(1)} 分，分数未公开或无法换算 ${s.hidden.toFixed(1)}%，及格线 50 分。`
       : '权重未知，暂不推算成绩。'} className="relative h-2.5 w-full overflow-visible">
       <div className="flex h-full w-full overflow-hidden rounded-full bg-slate-100">
         <span className="h-full bg-brand-500" style={{ width: pct(s.earned) }} />
         <span className="h-full bg-slate-300" style={{ width: pct(s.lost) }} />
-        <span className="h-full bg-amber-300" style={{ width: pct(s.ungraded) }} />
         <span className="h-full bg-violet-300" style={{ width: pct(s.hidden) }} />
       </div>
       <span aria-hidden className="absolute -top-1 -bottom-1 left-1/2 w-0.5 rounded-full bg-slate-700" title="及格线 50%" />
@@ -57,7 +56,6 @@ function Legend({ hasWeights }: { hasWeights: boolean }) {
     ? [
         ['bg-brand-500', '已得分'],
         ['bg-slate-300', '已扣分'],
-        ['bg-amber-300', '尚未评分'],
         ['bg-violet-300', '分数未公开或无法换算'],
       ]
     : [['bg-slate-100', '权重未知，暂不推算']]
@@ -104,7 +102,9 @@ function scoreLabel(item: MoodleGradeItem) {
 /** Adapted from Muster src/components/GradeBreakdown.tsx at ad2372683e0fbc4efb148af8b81840ae8dee5f39.
  * Copyright 2026 Poetrynan; see lib/muster/LICENSE and NOTICE. */
 function CategoryBlock({ category }: { category: CategoryScore }) {
-  const marked = category.items.filter((entry) => entry.state !== 'pending').length
+  const visible = category.items.filter((entry) => entry.state !== 'pending')
+  const marked = visible.length
+  if (!marked) return null
   return <section aria-label={`${category.name} ${fmtPoints(category.weight)}%`} className="min-w-0 rounded-xl border border-line bg-white p-4">
     <div className="flex flex-wrap items-baseline justify-between gap-2">
       <h4 className="min-w-0 break-words text-sm font-semibold text-slate-900">{category.name}</h4>
@@ -113,11 +113,11 @@ function CategoryBlock({ category }: { category: CategoryScore }) {
     <div role="img" aria-label={`${category.name}已得 ${fmtPoints(category.earned)}，总权重 ${fmtPoints(category.weight)}%。`} className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
       <div className="h-full bg-brand-500" style={{ width: `${category.weight > 0 ? Math.min(100, category.earned / category.weight * 100) : 0}%` }} />
     </div>
-    <p className="mt-2 text-xs text-slate-500">已评分 {marked} / {category.items.filter((entry) => !entry.placeholder).length} 项</p>
+    <p className="mt-2 text-xs text-slate-500">已评分 {marked} 项</p>
     <ul className="mt-3 space-y-2 text-xs">
-      {category.items.map((entry) => <li key={entry.id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+      {visible.map((entry) => <li key={entry.id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <span className="min-w-0 break-words text-slate-600">{entry.name}</span>
-        <span className="text-slate-700">{fmtPoints(entry.share)}% · {entry.state === 'graded' ? `${fmtPoints(entry.percent!)}%` : entry.state === 'hidden' ? '分数未公开或无法换算' : entry.placeholder ? '评分项目尚未发布' : '待评分'}</span>
+        <span className="text-slate-700">{fmtPoints(entry.share)}% · {entry.state === 'graded' ? `${fmtPoints(entry.percent!)}%` : '分数未公开或无法换算'}</span>
       </li>)}
     </ul>
   </section>
@@ -139,7 +139,7 @@ export function GradesPage() {
   const [showDiagnostic, setShowDiagnostic] = useState(false)
   const [copyStatus, setCopyStatus] = useState<string | null>(null)
   const [dismissedChanges, setDismissedChanges] = useState(() => new Set(dismissedGradeChanges))
-  const changes = (query.data ?? []).flatMap((entry) => (entry.gradeChanges ?? []).map((change) => ({ ...change, course: entry })))
+  const changes = (query.data ?? []).flatMap((entry) => (entry.gradeChanges ?? []).filter((change) => !change.itemName || entry.items.some((item) => item.name === change.itemName && isGradeVisible(item))).map((change) => ({ ...change, course: entry })))
     .filter((change) => !dismissedChanges.has(change.id))
   const dismissChanges = () => {
     changes.forEach((change) => dismissedGradeChanges.add(change.id))
@@ -155,14 +155,12 @@ export function GradesPage() {
 
   const summaries = useMemo(() => new Map((courses ?? []).map((course) => [course.courseId, courseSummary(course)])), [courses])
   const entries = useMemo(
-    () => (courses ?? []).flatMap((course) => course.items.map((item) => ({ item, course }))),
+    () => (courses ?? []).flatMap((course) => course.items.filter(isGradeVisible).map((item) => ({ item, course }))),
     [courses],
   )
   const gradedEntries = useMemo(() => entries.filter(({ item }) => isGradeReleased(item)), [entries])
   const gradedItems = gradedEntries.length
   const markedItems = entries.filter(({ item }) => isGradeMarked(item)).length
-  const totalItems = entries.length
-  const progressPct = totalItems === 0 ? 0 : Math.round((markedItems / totalItems) * 100)
   const latest = useMemo(
     () =>
       [...gradedEntries].sort((a, b) => (parseMoodleDate(b.item.gradedAt) ?? 0) - (parseMoodleDate(a.item.gradedAt) ?? 0))[0] ?? null,
@@ -171,10 +169,11 @@ export function GradesPage() {
   const hasWeights = (courses ?? []).some((course) => summaries.get(course.courseId)?.hasWeights)
 
   const course = (courses ?? []).find((c) => c.courseId === courseId) ??
-    courses?.find((c) => c.items.some(isGradeReleased)) ?? courses?.find((c) => c.items.length > 0) ?? courses?.[0] ?? null
+    courses?.find((c) => c.items.some(isGradeVisible)) ?? courses?.find((c) => c.items.length > 0) ?? courses?.[0] ?? null
   const summary = course ? summaries.get(course.courseId) ?? courseSummary(course) : null
-  const firstItem = course?.items[0] ?? null
-  const item = course?.items.find((candidate) => candidate.id === itemId) ?? firstItem
+  const visibleItems = course?.items.filter(isGradeVisible) ?? []
+  const firstItem = visibleItems[0] ?? null
+  const item = visibleItems.find((candidate) => candidate.id === itemId) ?? firstItem
   const itemPct = item ? percentage(item) : null
   const itemBand = itemPct === null ? null : band(itemPct)
   const latestAt = latest ? parseMoodleDate(latest.item.gradedAt) : null
@@ -255,9 +254,6 @@ export function GradesPage() {
   const { code, name } = splitCourseName(course.courseName)
   const breakdown = gradeBreakdown(course)
   const itemWeights = gradeItemWeights(course, breakdown)
-  // 及格线按整门课的 100% 算。Moodle 没给全权重时算不出差距，按设计稿的空态显示「—」。
-  const weightsKnown = summary.weightsComplete && breakdown.hiddenWeight === 0
-  // 「已得多少」只需要已评分项的权重，是事实；「还差多少及格」才需要完整权重，是推断。两者分开。
   const earnedKnown = summary.hasWeights
 
   return (
@@ -272,11 +268,8 @@ export function GradesPage() {
         <StatCard label="GPA" value="—">
           同样缺历史学期与学分，不做估算。
         </StatCard>
-        <StatCard label="评分进度" value={`${progressPct}%`}>
-          <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
-            <div className="h-full rounded-full bg-brand-500" style={{ width: `${progressPct}%` }} />
-          </div>
-          已评分 {markedItems} / {totalItems} 项（含未公开分数）
+        <StatCard label="已评分项目" value={String(markedItems)} unit="项">
+          仅展示已评分结果；Pass/Fail 不计入数值均分，仅提示 Fail。
         </StatCard>
         <StatCard label="已发布成绩" value={String(gradedItems)} unit="项">
           {latest ? (
@@ -301,10 +294,10 @@ export function GradesPage() {
       {showMethod && (
         <div className="mt-2 rounded-xl border border-line bg-slate-50 px-5 py-3.5 text-[13px] leading-relaxed text-slate-700">
           <p>WAM 和 GPA 需要历史学期的成绩与学分。Moodle 成绩册接口不提供这两项，所以这里不做估算，只显示「—」。</p>
-          <p>当前平均：沿用 Muster 的权重折算，只算已知评估中已发布且可换算的分数。Assessments 分类内优先保留名称明确的百分比，其余均分剩余权重。缺少权重或满分时保留原始成绩；未评分不当 0 分。</p>
+          <p>当前平均：按权重折算，只算已发布且可换算的数值成绩。Assessments 分类内优先保留名称明确的百分比，其余均分剩余权重。缺少权重或满分时保留原始成绩。Pass/Fail 项不计入数值均分，仅提示 Fail；未评分项目不展示。</p>
           <p>当前等级：把当前平均对应到 Monash 等级区间（HD ≥ 80、D ≥ 70、C ≥ 60、P ≥ 50），只代表已评分部分，不是最终成绩。</p>
           <p>
-            进度条按整门课 100% 展示已得分、已扣分和待评分权重；未公开的权重留空，不拉伸成完整总评。只有权重完整且已评分分数可读时才推算距 50 分还差多少；课程 hurdle 仍需查阅原要求。
+            进度条按原始权重展示已发布成绩的已得分与已扣分，不把已出分部分拉伸成最终总评；课程 hurdle 仍需查阅原要求。
           </p>
         </div>
       )}
@@ -336,7 +329,7 @@ export function GradesPage() {
                       <span className="font-semibold text-slate-700">{label.name}</span>
                     </p>
                     <p className="mt-0.5 text-[13px] text-slate-500">
-                      已评分 {s.gradedCount} / {s.count} 项{s.hasWeights ? ` · 已评占 ${Number(s.gradedWeight.toFixed(2))}%` : ''}
+                      已评分 {s.gradedCount} 项{s.hasWeights ? ` · 已评占 ${Number(s.gradedWeight.toFixed(2))}%` : ''}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2.5">
@@ -353,18 +346,12 @@ export function GradesPage() {
                   <ProgressBar s={s} />
                 </div>
                 <p className="mt-3 truncate text-[13px] text-slate-600">
-                  已得 {s.hasWeights ? `${s.earned.toFixed(1)} 个总评分${s.weightsComplete ? '' : '（仅已知权重）'}` : s.count === 0 ? '—（暂无评分项）' : '—（未取得评估权重，见原始成绩）'}
+                  已得 {s.hasWeights ? `${s.earned.toFixed(1)} 个总评分` : s.count === 0 ? '—（暂无评分项）' : '—（未取得评估权重，见原始成绩）'}
                   {s.hasWeights && ` / 已评 ${Number(s.gradedWeight.toFixed(2))}%`}
-                  {s.ungradedCount > 0 && (
-                    <>
-                      <span className="mx-1.5 text-slate-300">·</span>
-                      未评分 {s.ungradedCount} 项
-                    </>
-                  )}
                 </p>
                 {s.reported !== null && <p className="mt-1 text-xs text-slate-500">Moodle 公布总评：{s.reported.toFixed(1)}%（以原成绩册为准）</p>}
                 {entry.overviewGrade && <p className="mt-1 break-words text-xs text-slate-500">Moodle Overview 原文：{entry.overviewGrade}</p>}
-                {gradeOutlook(entry) && <p className="mt-2 text-xs text-slate-700">{gradeOutlook(entry)} 课程 hurdle 以原要求为准。</p>}
+                {entry.items.some(isPassFailFailure) && <p className="mt-2 text-xs font-medium text-red-700">存在 Fail 项，请核对课程要求。</p>}
               </button>
             )
           })}
@@ -373,10 +360,10 @@ export function GradesPage() {
 
       {/* 选中课程的明细 */}
       <section className="mt-9">
-        <SectionHeader title={code ? `${code} 评估项目` : `${name} 评估项目`} count={course.items.length} hint={code ? name : undefined} />
+        <SectionHeader title={code ? `${code} 评估项目` : `${name} 评估项目`} count={visibleItems.length} hint={code ? name : undefined} />
         <p className="mb-3 text-[13px] text-slate-500">
           {course.assessmentStructure?.some((row) => (row.categoryWeight ?? row.weight ?? 0) > 0)
-            ? '权重来自 Assessments，分类内按 Muster 规则分摊；以课程要求为准。未关联到 Grades 的资料不作为已发布成绩。'
+            ? '权重来自 Assessments；以课程要求为准。只显示 Grades 已确认的评分结果。'
             : summary.hasWeights ? '权重来自 Moodle 成绩册。' : '尚未取得可用权重，无法推算总评；下方仍显示 Moodle 已发布的原始成绩。'}
         </p>
         {course.assessmentWarning && <p role="status" className="mb-3 text-[13px] text-amber-800">{course.assessmentWarning}</p>}
@@ -391,11 +378,11 @@ export function GradesPage() {
               <span className="text-right">成绩</span>
               <span />
             </div>
-            {course.items.length === 0 ? (
-              <EmptyLine>这门课的评分表里没有评分项。</EmptyLine>
+            {visibleItems.length === 0 ? (
+              <EmptyLine>这门课暂无可显示的已评分结果。</EmptyLine>
             ) : (
               <ul className="divide-y divide-line">
-                {course.items.map((row) => {
+                {visibleItems.map((row) => {
                   const on = row.id === item?.id
                   const score = scoreLabel(row)
                   const weight = itemWeights.get(row.id) ?? null
@@ -414,7 +401,7 @@ export function GradesPage() {
                         </span>
                         <span className="text-right text-slate-600">{weight === null ? '—' : `${Number(weight.toFixed(2))}%`}</span>
                         <span>
-                          <Tag tone={isGradeMarked(row) ? 'green' : 'slate'}>{gradeStatus(row)}</Tag>
+                          <Tag tone={isPassFailFailure(row) ? 'red' : 'green'}>{isPassFailFailure(row) ? 'Fail · 未通过' : gradeStatus(row)}</Tag>
                         </span>
                         <span className="text-right font-semibold text-slate-900">
                           {score === null ? <span className="font-normal text-slate-400">—</span> : score}
@@ -429,15 +416,7 @@ export function GradesPage() {
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-slate-50/50 px-5 py-3 text-[13px] text-slate-600">
               <span>
                 本课程已得 <strong className="font-semibold text-slate-900">{earnedKnown ? `${breakdown.earned.toFixed(1)} / 100` : '—'}</strong>
-                {earnedKnown && !summary.weightsComplete && <span>（已知权重 {breakdown.totalWeight.toFixed(1)}%）</span>}
-              </span>
-              <span>
-                距及格线还差 <strong className="font-semibold text-slate-900">{weightsKnown ? `${breakdown.needed.toFixed(1)}%` : '—'}</strong>
-                {weightsKnown && breakdown.requiredAverage !== null && (
-                  <span className="text-slate-500">
-                    ，剩余 {Number(breakdown.pendingWeight.toFixed(2))}% 中需拿到 {breakdown.requiredAverage.toFixed(1)}%
-                  </span>
-                )}
+                {earnedKnown && !summary.weightsComplete && <span>（{course.items.some(isPassFail) ? '不含 Pass/Fail，数值权重' : '已知权重'} {breakdown.totalWeight.toFixed(1)}%）</span>}
               </span>
             </div>
           </div>
@@ -450,7 +429,7 @@ export function GradesPage() {
             </div>
           )}
         </Panel>
-        {summary.hasWeights && <div className="mt-5 space-y-3">
+        {summary.hasWeights && breakdown.categories.some((category) => category.items.some((entry) => entry.state !== 'pending')) && <div className="mt-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900">分类成绩明细</h3>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">{breakdown.categories.map((category) => <CategoryBlock key={category.key} category={category} />)}</div>
           {breakdown.hiddenWeight > 0 && <p className="text-xs text-slate-600">紫色：已评分但分数未公开或无法换算，共 {Number(breakdown.hiddenWeight.toFixed(2))}% 权重。</p>}
@@ -481,7 +460,7 @@ function ItemDetail({ item, course, weight, band, code, name }: { item: MoodleGr
                 {item.grade !== null && <span className="ml-1 text-base font-semibold text-slate-500">/ {item.gradeMax === null ? '—' : item.gradeMax}</span>}
               </p>
               <p className="mt-1.5 text-xs text-slate-500">
-                {pct === null ? '已发布原始成绩，无法换算百分比' : `${pct.toFixed(1)}%`}
+                {isPassFail(item) ? 'Pass/Fail 项不计入数值成绩；Fail 请核对课程要求。' : pct === null ? '已发布原始成绩，无法换算百分比' : `${pct.toFixed(1)}%`}
                 {pct !== null && weight !== null && ` · 计入总评 ${((pct / 100) * weight).toFixed(2)}%`}
               </p>
             </div>

@@ -268,6 +268,8 @@ export interface MoodleGradeItem {
   grade: number | null;
   /** 分项满分，来自 Range 列；Moodle 没印 Range 时为 null */
   gradeMax: number | null;
+  /** Grades 的 Range 原文，含 Fail–Pass 等非数值量表。 */
+  gradeRange?: string | null;
   /** 占总评的权重；没有 Weight 列时为 null */
   weight: number | null;
   feedback: string;
