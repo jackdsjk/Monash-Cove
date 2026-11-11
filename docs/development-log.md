@@ -82,6 +82,13 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 
 ## 二、开发日志
 
+### 2026-11-11：资料页与成绩修复
+
+- 复现本机旧后端健康检查 200、课程范围接口 404；确认进程与实际目录后重启，接口恢复 200。前端缺路由时明确提示重启本地服务，不归因为 Moodle 失效。
+- 每周资料独立课程选择，加入周／板块、类型与搜索；Ed 自然周升序并支持筛选。Moodle 作业资料列表增高并按真实课程 ID、状态及搜索筛选，API／导出移除 Ed；OnTrack 行内提供 Worksheet、任务资料和已有提交文件。
+- 统一使用已有 Muster 计算模块，补齐许可证与固定版本，修复 gradebook 百分比尺度、缩进列、分类相对权重及总分重复；未知值不等权推算，快照升 `grades:v3`。
+- 后端 289 项、前端 118 项测试及两端构建通过；扩展浏览器回归覆盖 390／768／1280／1920px 布局、筛选／排序／导出、OnTrack 下载和成绩口径，隔离 fixture 全部通过。源码与浏览器测试批次均已分别本地 commit，未 push；参考与验证边界见 [专项记录](learning-pages-and-grades-2026-11-11.md)。
+
 ### 2026-11-11：修复 Moodle 会话容易失效
 
 - 参考用户提供 Muster 的 `ad2372683e0fbc4efb148af8b81840ae8dee5f39`（PolyForm Noncommercial 1.0.0），借鉴共享 Cookie jar、实际 UA 与离线判定；未复制其 Rust 代码。采用 fetch-cookie 3.2.0（MIT）和 tough-cookie 6.1.0（BSD-3-Clause）适配 Node。

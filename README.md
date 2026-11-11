@@ -80,17 +80,17 @@ Combines Moodle and OnTrack deadlines, grouped into **Overdue / Within 24 hours 
 
 ### 3.4 Weekly materials
 
-Materials grouped by course and week: slides, recordings, assignment instructions and notices, with filtering by course and type, batch selection and download.
+Materials grouped by course and section, with week/section, type and text filters, batch selection and download. Long course names use a separate selector so the heading stays readable. **Moodle assignment materials** has its own searchable course/status list and exports Moodle instructions and changes; OnTrack files stay on OnTrack.
 
 ### 3.5 OnTrack
 
 The active OnTrack page shows a read-only task table grouped by course: code, name, grade band, status, target date, effective due date and unread comment count. It includes task definitions that have no student instance yet, and labels uncertain applicability for checking in OnTrack. Known tasks outside the student's target grade or tutorial stream are excluded from the ordinary list.
 
-The local service also exposes read-only comments and artifact download APIs; the active page does not currently provide the conversation drawer or download controls from the legacy workspace. Full sync includes tasks and historical feedback from projects the account can still access, including existing tasks that no longer match the current target or stream. It cannot restore content hidden or deleted by the server. [Reuse details and limits](docs/always-ontrack-reuse-2026-11-11.md).
+Each task provides worksheet, task-resource and existing-submission downloads through the local read-only API; a task without a student instance cannot offer a submission file. The conversation drawer remains in the legacy workspace. Full sync includes tasks and historical feedback from projects the account can still access, including existing tasks that no longer match the current target or stream. It cannot restore content hidden or deleted by the server. [Reuse details and limits](docs/always-ontrack-reuse-2026-11-11.md).
 
 ### 3.6 Ed learning
 
-Browse Ed lessons by video, text and attachments: videos open the original page, text slides export as Markdown, PPT and PDF files download, and a whole lesson can be packaged at once.
+Ed lessons run from earlier to later weeks, with week, type and text filters. Videos open the original page, text slides export as Markdown, PPT and PDF files download, and a whole lesson can be packaged at once.
 
 ### 3.7 Attendance
 
@@ -172,6 +172,8 @@ cd webapp && npm install && npm run dev
 Development mode uses the Vite dev server at <http://127.0.0.1:5174/>; `local-service` serves `/api` on port 4317 and Vite proxies to it.
 
 Courses, grades, Ed lessons and OnTrack data use shared page queries and account-scoped SQLite snapshots. Cached data stays visible during refresh or network failure. Materials includes semester, hidden-course and pinned-course preferences for bulk material and grade reads; details and verification limits are in the [cache implementation report](docs/muster-reuse-and-cache-2026-11-10.md).
+
+Grades reuse Muster's calculation helper with a single local adapter. Category weights are converted only when their parentage is known; unknown weights are not replaced with equal weights. Moodle's published course total is separate from the estimate. [Learning-page and grade fixes](docs/learning-pages-and-grades-2026-11-11.md).
 
 ### First run
 

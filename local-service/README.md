@@ -56,7 +56,7 @@ npm run retriage
 - `GET /api/items/:id/detail`（来源原文、作者、老师/学生回复）
 - `GET /api/moodle/courses` / `POST /api/moodle/content-sync` / `GET /api/moodle/content?courseId=`
 - `GET/PATCH /api/moodle/course-preferences`（完整对象 `{activeSemester:null|"2026-S2",hiddenCourseIds:[],pinnedCourseIds:[]}`；课程 ID 为数字字符串）
-- `GET /api/pack?courseId=`（作业资料包：本机已同步的作业、变更与同课程 Ed 帖子，只读）
+- `GET /api/pack?courseId=`（Moodle 作业资料：本机已同步的 Moodle 作业与关联变更，只读；不返回 Ed 帖子或 OnTrack 文件）
 - `GET /api/moodle/download?url=`（仅 `mod/resource`，服务端用本机 session 代理文件）
 - `POST /api/moodle/download-batch`（1–100 个 resource，返回 ZIP）
 - `POST /api/sync/full` / `GET /api/sync/status`（Gmail/Ed/Moodle/OnTrack 全量后台任务与进度；未配置来源跳过，OnTrack 范围为账号当前可访问的项目及历史反馈）
@@ -90,13 +90,15 @@ Moodle 课程、成绩，Ed 课程/lesson，以及 OnTrack 概览/任务的 GET 
 
 每周资料页的“同步范围”按当前 Moodle 连接隔离保存：默认全部学期，支持显式学期、隐藏与置顶。未知学期保留，隐藏优先，置顶覆盖学期筛选。范围只影响批量资料同步和成绩抓取，不过滤已保存的资料浏览，也不改变简报 assessment/forum 拉取；单课手动同步可绕过范围。成绩快照包含范围版本，设置变更不会误用旧范围的缓存或删除课程目录。内部 Cookie 轮换保留范围；显式重连后需重新设置。
 
+成绩快照现为 `grades:v3:<range>`，避免沿用旧解析结果。成绩行优先按 Moodle 列类名读取，忽略缩进和操作菜单；支持百分比及分数范围，分类相对权重仅在祖先归属可确认时折算。分类小计不作为普通评分项，未公布课程总分时保留 null；网络/503 与明确登录失效分别报告。参考和测试边界见 [资料页与成绩修复记录](../docs/learning-pages-and-grades-2026-11-11.md)。
+
 ## OnTrack 读取范围
 
 任务目录采用 Always-Ontrack 的定义优先投影：合并课程定义与个人实例，兼容 camelCase/snake_case 元数据；未实例化任务使用 `id:null` / `isInstantiated:false` / `status:"not_instantiated"`，不会伪造实例 ID。截止日期优先使用个人实例日期，目标日期单独保留。普通目录排除已知高于目标等级或不匹配班级的任务；适用性未知时保留并提示核对，不据此断言必须完成。
 
 全量反馈扫描按主机、用户、项目与任务定义隔离；断开或换账号后的迟到结果不得写回。普通同步保留 90 天反馈窗口，全量同步重新扫描服务器仍返回的历史反馈；任务、反馈仍通过既有本地条目幂等入库。概览和任务列表继续共用账号隔离快照，目录结构版本为 `overview:v2`，新鲜期仍为 2 分钟。OnTrack 全量同步成功后使相应快照失效，避免继续显示全量前的旧值。
 
-下载拒绝服务器返回的 `FileNotFound.pdf` / `AwaitingProcessing.pdf` 占位文件；任务书与提交文件校验 PDF 签名，资源校验 ZIP 或保留上游声明的原文件扩展，返回安全生成的本地文件名。单文件最多 25 MiB，部分响应（206）报错，尚不实现分段合并。以上能力通过本地只读 API 提供，当前 OnTrack 页面仍以任务表为主；不自动归档全部附件，也不上传、改状态或发表评论。
+下载拒绝服务器返回的 `FileNotFound.pdf` / `AwaitingProcessing.pdf` 占位文件；任务书与提交文件校验 PDF 签名，资源校验 ZIP 或保留上游声明的原文件扩展，返回安全生成的本地文件名。单文件最多 25 MiB，部分响应（206）报错，尚不实现分段合并。OnTrack 任务行直接调用这些只读 API，按需提供 Worksheet、资料和已有提交文件；不自动归档全部附件，也不上传、改状态或发表评论。
 
 参考版本、Apache-2.0 许可证及裁剪范围见 [复用记录](../docs/always-ontrack-reuse-2026-11-11.md)。
 
