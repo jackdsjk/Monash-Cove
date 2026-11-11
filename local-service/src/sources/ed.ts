@@ -1,4 +1,5 @@
 import { parse } from "node-html-parser";
+import { listLessonFiles, parseLessonSlide, type LessonFile, type LessonSlide, type RawLessonSlide } from "../vendor/edstem-cli/lessons.js";
 
 export type EdRegion = "us" | "au" | "eu";
 
@@ -98,6 +99,8 @@ export interface EdLessonDetail {
   courseId: number;
   title: string;
   slides: EdMaterialSlide[];
+  /** Attachments in the lesson outline, independent of any slide. */
+  files?: EdMaterialFile[];
 }
 
 export class EdClient {
@@ -182,32 +185,27 @@ export class EdClient {
   }
 
   async getLesson(lessonId: number): Promise<EdLessonDetail> {
-    const data = await this.get<{ lesson?: { id?: number; course_id?: number; title?: string; slides?: Array<{ id?: number; title?: string; type?: string; content?: string; document?: string }> } }>(`lessons/${lessonId}`);
+    const data = await this.get<{ lesson?: { id?: number; course_id?: number; title?: string; outline?: string; slides?: RawLessonSlide[] } }>(`lessons/${lessonId}`);
     const lesson = data.lesson;
     if (!lesson?.id) throw new Error("Ed lesson response did not include an id.");
     const courseId = Number(lesson.course_id ?? 0);
-    const slides = (lesson.slides ?? [])
-      .filter((slide): slide is { id: number; title?: string; type?: string; content?: string; document?: string } => Boolean(slide.id))
-      .map((slide) => this.mapLessonSlide(slide, { id: Number(lesson.id) }, courseId));
-    return { id: lesson.id, courseId, title: lesson.title ?? `Lesson ${lesson.id}`, slides };
+    const normalized = (lesson.slides ?? []).filter((slide) => Boolean(slide.id)).map(parseLessonSlide);
+    const files = listLessonFiles({ id: lesson.id, outline: lesson.outline, slides: normalized });
+    const slides = normalized.map((slide) => this.mapLessonSlide(slide, { id: Number(lesson.id) }, courseId,
+      files.filter((file) => file.slideId === slide.id).map(materialFile)));
+    return { id: lesson.id, courseId, title: lesson.title ?? `Lesson ${lesson.id}`, slides,
+      files: files.filter((file) => file.slideId === undefined).map(materialFile) };
   }
 
   private mapLessonSlide(
-    slide: { id: number; title?: string; type?: string; content?: string; document?: string },
+    slide: LessonSlide,
     lesson: { id: number },
     courseId: number,
+    files: EdMaterialFile[],
   ): EdMaterialSlide {
-    const raw = slide.content ?? slide.document ?? "";
+    const raw = slide.content;
     const root = raw.includes("<") ? parse(raw) : null;
     const videoUrls = root ? [...root.querySelectorAll("video")].map((node) => node.getAttribute("src") ?? "").filter(Boolean) : [];
-    const files = root
-      ? [...root.querySelectorAll("file")].map((node) => {
-          const url = node.getAttribute("url") ?? "";
-          const name = node.getAttribute("filename") ?? url.split("/").pop() ?? "file";
-          const kind = /\.pptx?$/i.test(name) ? "slides" : /\.pdf$/i.test(name) ? "pdf" : "file";
-          return { name, url, kind } as EdMaterialFile;
-        }).filter((file) => Boolean(file.url))
-      : [];
     const paragraphs = root
       ? root.querySelectorAll("paragraph").map((node) => node.text.replace(/\s+/g, " ").trim()).filter(Boolean)
       : [];
@@ -218,13 +216,13 @@ export class EdClient {
         ? "slides"
         : files.length > 0
           ? "file"
-          : slide.type === "quiz" || !text
+          : slide.type === "quiz"
             ? "quiz"
             : "text";
     const url = `https://edstem.org/${this.region}/courses/${courseId}/lessons/${lesson.id}/slides/${slide.id}`;
     const fileLines = files.map((file) => `- [${file.name}](${file.url})`).join("\n");
-    const markdown = `# ${slide.title ?? "Ed material"}\n\n${text}${fileLines ? `\n\n## Files\n${fileLines}` : ""}`.trim();
-    return { id: slide.id, title: slide.title ?? `Slide ${slide.id}`, type, url, text, markdown, videoUrls, files };
+    const markdown = `# ${slide.title || "Ed material"}\n\n${text}${fileLines ? `\n\n## Files\n${fileLines}` : ""}`.trim();
+    return { id: slide.id, title: slide.title || `Slide ${slide.id}`, type, url, text, markdown, videoUrls, files };
   }
 
   async getThreadDetail(threadId: number): Promise<EdThreadDetailResult> {
@@ -288,4 +286,10 @@ export class EdClient {
       url: `https://edstem.org/${this.region}/courses/${course.id}/discussion/${thread.number ?? id}`,
     };
   }
+}
+
+function materialFile(file: LessonFile): EdMaterialFile {
+  const kind = file.mediaType === "application/pdf" || /\.pdf$/i.test(file.filename)
+    ? "pdf" : /\.pptx?$/i.test(file.filename) ? "slides" : "file";
+  return { name: file.filename, url: file.url, kind };
 }

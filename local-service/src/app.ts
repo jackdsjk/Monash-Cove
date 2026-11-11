@@ -1203,7 +1203,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     try {
       const credentials = JSON.parse(raw) as { token: string; region: "us" | "au" | "eu" };
       const identity = createHash("sha256").update(`ed\0${raw}`).digest("hex");
-      const result = await resourceCache.read({ source: "ed", identity, resource: `lesson:v1:${lessonId}`, ttlMs: RESOURCE_TTL.ed,
+      const result = await resourceCache.read({ source: "ed", identity, resource: `lesson:v2:${lessonId}`, ttlMs: RESOURCE_TTL.ed,
         currentIdentity: () => credentialIdentity("ed"), force: forcedRefresh(request.url) }, async () => ({
         data: await new EdClient(credentials.token, credentials.region, fetcher).getLesson(lessonId),
       }));
