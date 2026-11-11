@@ -259,6 +259,9 @@ export interface MoodleContentItem {
 export interface MoodleGradeItem {
   id: string;
   name: string;
+  url?: string | null;
+  /** 原始已发布成绩，包括不可换算的字母等级。 */
+  gradeText?: string | null;
   /** 已发布的分数；未发布时为 null（不是 0） */
   grade: number | null;
   /** 分项满分，来自 Range 列；Moodle 没印 Range 时为 null */
@@ -270,13 +273,27 @@ export interface MoodleGradeItem {
   gradedAt: string | null;
 }
 
-/** 一门课的成绩册内容，直接对应 Moodle 的用户成绩报告页。 */
+/** Assessments 的结构元数据，不是 Grades 已发布成绩。 */
+export interface MoodleAssessmentStructureRow {
+  name: string;
+  url: string | null;
+  isCategory: boolean;
+  category: string | null;
+  categoryId: number | null;
+  weight: number | null;
+  categoryWeight: number | null;
+  gradeItemId: string | null;
+}
+
+/** 一门课的 Grades 分数与独立的 Assessments 结构。 */
 export interface MoodleGradeCourse {
   courseId: string;
   courseName: string;
   items: MoodleGradeItem[];
   /** 课程总分行；Moodle 没印总分行时两项都是 null */
   total: { earned: number | null; max: number | null };
+  assessmentStructure?: MoodleAssessmentStructureRow[];
+  assessmentWarning?: string | null;
 }
 
 /** 已连接的 OnTrack 账号，用于在界面上显示"现在是谁在用"。 */

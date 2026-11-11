@@ -157,12 +157,24 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     if (pathname === "/api/changes") return route.fulfill({ json: { changes: [] } });
     if (pathname === "/api/moodle/courses") return route.fulfill({ json: { courses } });
     if (pathname === "/api/moodle/grades") return route.fulfill({ json: { courses: [
+      { courseId: "empty", courseName: "TEST2000 Empty gradebook", total: { earned: null, max: null }, items: [] },
       { courseId: "known", courseName: "TEST2001 Known weights", total: { earned: null, max: null }, items: [
         { id: "known-graded", name: "Known weighted quiz", grade: 8, gradeMax: 10, weight: 20, feedback: "", gradedAt: null },
         { id: "known-pending", name: "Pending final", grade: null, gradeMax: 100, weight: 80, feedback: "", gradedAt: null },
       ] },
       { courseId: "unknown", courseName: "TEST2002 Unknown weights", total: { earned: 80, max: 100 }, items: [
         { id: "unknown-weight", name: "Unweighted published mark", grade: 8, gradeMax: 10, weight: null, feedback: "", gradedAt: null },
+      ] },
+      { courseId: "structured", courseName: "TEST2003 Assessment categories", total: { earned: null, max: null }, items: [
+        { id: "quiz-a", name: "Widget quiz A", grade: 8, gradeMax: 10, weight: null, feedback: "", gradedAt: null },
+        { id: "quiz-b", name: "Widget quiz B", grade: null, gradeMax: 10, weight: null, feedback: "", gradedAt: null },
+        { id: "letter", name: "Letter grade item", grade: null, gradeText: "HD", gradeMax: null, weight: null, feedback: "", gradedAt: null },
+      ], assessmentStructure: [
+        { name: "Quiz / Test", category: "Quiz / Test", categoryId: 1, isCategory: true, weight: 9, categoryWeight: 9, url: null, gradeItemId: null },
+        { name: "Widget quiz A", category: "Quiz / Test", categoryId: 1, isCategory: false, weight: 9, categoryWeight: 9, url: "https://moodle.example.invalid/mod/quiz/view.php?id=1", gradeItemId: "quiz-a" },
+        { name: "Widget quiz B", category: "Quiz / Test", categoryId: 1, isCategory: false, weight: 9, categoryWeight: 9, url: "https://moodle.example.invalid/mod/quiz/view.php?id=2", gradeItemId: "quiz-b" },
+        { name: "Project", category: "Project", categoryId: 2, isCategory: true, weight: 31, categoryWeight: 31, url: null, gradeItemId: null },
+        { name: "Exam", category: "Exam", categoryId: 3, isCategory: true, weight: 60, categoryWeight: 60, url: null, gradeItemId: null },
       ] },
     ] } });
     if (pathname === "/api/moodle/content") return route.fulfill({ json: { items: url.searchParams.get("courseId") === "101" ? materials : [] } });
@@ -319,11 +331,24 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
 
     await page.goto(`${base}/#/grades`, { waitUntil: "domcontentloaded" });
     await page.getByText("16.0 / 100", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: /TEST2001.*Known weights/ }).getAttribute("aria-pressed"), "true", "default selection must skip empty gradebooks");
     await page.getByText(/剩余 80% 中需拿到 42\.5%/).waitFor();
     await page.getByRole("button", { name: /TEST2002.*Unknown weights/ }).click();
     await page.getByText(/本课程已得\s*—/).waitFor();
     await page.getByText("Moodle 公布总评：80.0%（以原成绩册为准）", { exact: true }).waitFor();
     assert.equal(await page.getByText("本课程已得 80.0 / 100", { exact: true }).count(), 0, "an unweighted Moodle total must not be reinterpreted as earned weighted marks");
+    await page.getByRole("button", { name: /Unweighted published mark/ }).getByText("8 / 10", { exact: true }).waitFor();
+    await page.getByRole("button", { name: /TEST2003.*Assessment categories/ }).click();
+    await page.getByText("3.6 / 100", { exact: true }).waitFor();
+    await page.getByRole("button", { name: /TEST2003.*Assessment categories/ }).getByText(/已评占 4\.5%/).waitFor();
+    await page.getByRole("button", { name: /Widget quiz A/ }).getByText("4.5%", { exact: true }).waitFor();
+    await page.getByText("Exam · 60% · 评分项目尚未发布", { exact: true }).waitFor();
+    await page.getByRole("button", { name: /Letter grade item/ }).click();
+    await page.getByText("已发布原始成绩，无法换算百分比", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: /Letter grade item/ }).getByText("已评分", { exact: true }).count(), 1, "letter grades are released scores, never pending");
+    await page.getByRole("button", { name: /TEST2000.*Empty gradebook/ }).click();
+    await page.getByText("这门课的评分表里没有评分项。", { exact: true }).waitFor();
+    await page.getByRole("button", { name: /TEST2003.*Assessment categories/ }).click();
     await capture(page, "grades-fixture.png");
   } catch (error) {
     await capture(page, "learning-failure.png").catch(() => undefined);

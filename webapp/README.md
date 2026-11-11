@@ -51,6 +51,7 @@ cd ../local-service && npm run build
 - `/ontrack`：任务行提供任务书／Worksheet、任务资料、已有提交文件的按需下载，复用既有只读 API；无个人实例时禁用提交文件，错误就地显示。不会自动批量抓取文件。
 - `/grades`：复用 `lib/muster/gradeBreakdown.ts` 并统一由 `lib/grades.ts` 适配，未知权重不做等权平均，Moodle 公布总评单列。保留该目录 LICENSE/NOTICE 和参考版本；WAM/GPA 缺历史学分时不估算。
 - “每周资料”的“同步范围”支持学期、隐藏与置顶课程，影响批量资料和成绩读取；浏览仍保留全部课程，未知学期不排除，单课同步可手动执行。设置按当前连接隔离，保存失败保留草稿；本地接口 404 会提示重启本地服务，无需重新连接 Moodle。
+- 成绩页把 Grades 分数与 Assessments 分类权重关联，再复用 Muster 原计算器分摊。保留重复分类 ID、未关联子项的待评份额和空考试分类；默认打开有已发布成绩的课程。部分权重显示已知贡献，无权重仍显示原始成绩；字母成绩算已发布但不猜数值。Moodle 公布总评与推算分开，WAM/GPA 缺少正式历史与学分时不估算。规则和验证见 [Muster 成绩核对](../docs/muster-grading-rules-2026-11-11.md)。
 - 成绩、资料、Ed、OnTrack 页面保留共享查询结果并显示上次成功时间及后台更新状态；返回已读页面无需重新等待上游，刷新失败保留旧数据。Ed 详情逐批展示，全部详情未齐时禁用整课下载。
 - `/sources`：Gmail OAuth、Ed token、Moodle session、来源状态和同步；
 - `/settings`：本地状态、清除数据和隐私说明；

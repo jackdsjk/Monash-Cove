@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MoodleGradeCourse, MoodleGradeItem } from '../types'
-import { courseSummary, gradeBreakdown, percentage } from './grades'
+import { courseSummary, gradeBreakdown, gradeItemWeights, isGradeReleased, percentage } from './grades'
 
 const row = (values: Partial<MoodleGradeItem> = {}): MoodleGradeItem => ({
   id: 'a', name: 'Assessment', grade: 8, gradeMax: 10, weight: 20,
@@ -23,7 +23,9 @@ describe('Moodle to Muster grade adapter', () => {
   })
   it('keeps missing weights unknown instead of inventing equal weighting', () => {
     const result = courseSummary(course([row(), row({ id: 'b', grade: 1, weight: null })]))
-    expect(result.hasWeights).toBe(false)
+    expect(result.hasWeights).toBe(true)
+    expect(result.earned).toBe(16)
+    expect(result.weightsComplete).toBe(false)
     expect(result.current).toBeNull()
     expect(result.band).toBeNull()
   })
@@ -60,5 +62,64 @@ describe('Moodle to Muster grade adapter', () => {
   })
   it('keeps numbered gradebook activities as items rather than widget category rows', () => {
     expect(gradeBreakdown(course([row({ name: '1. Assignment', weight: 100 })])).earned).toBe(80)
+  })
+
+  const structureRow = (values: Partial<NonNullable<MoodleGradeCourse['assessmentStructure']>[number]> = {}): NonNullable<MoodleGradeCourse['assessmentStructure']>[number] => ({
+    name: 'Quiz', url: null, isCategory: false, category: 'Quiz', categoryId: 1,
+    weight: null, categoryWeight: null, gradeItemId: null, ...values,
+  })
+  it('splits widget category weights and keeps empty exams pending', () => {
+    const input = course([row({ weight: null }), row({ id: 'b', grade: 0, weight: null })])
+    input.assessmentStructure = [
+      structureRow({ isCategory: true, categoryWeight: 9 }),
+      structureRow({ gradeItemId: 'a' }), structureRow({ gradeItemId: 'b' }),
+      structureRow({ name: 'Exam', category: 'Exam', isCategory: true, categoryId: 2, categoryWeight: 91 }),
+    ]
+    expect([...gradeItemWeights(input).values()]).toEqual([4.5, 4.5])
+    expect(courseSummary(input)).toMatchObject({ hasWeights: true, weightsComplete: true, earned: 3.6, current: 40, ungraded: 91 })
+    expect(gradeBreakdown(input).categories[1].items[0].placeholder).toBe(true)
+  })
+  it('preserves item title weights using the original Muster calculator', () => {
+    const input = course([row({ weight: null }), row({ id: 'b', weight: null })])
+    input.assessmentStructure = [structureRow({ isCategory: true, categoryWeight: 40 }),
+      structureRow({ name: 'Paper (32%)', gradeItemId: 'a' }), structureRow({ gradeItemId: 'b' })]
+    expect([...gradeItemWeights(input).values()]).toEqual([32, 8])
+  })
+  it('does not merge repeated category names with distinct IDs', () => {
+    const input = course([row({ weight: null }), row({ id: 'b', grade: 5, weight: null })])
+    input.assessmentStructure = [
+      structureRow({ isCategory: true, categoryWeight: 30 }), structureRow({ gradeItemId: 'a' }),
+      structureRow({ isCategory: true, categoryId: 2, categoryWeight: 70 }), structureRow({ categoryId: 2, gradeItemId: 'b' }),
+    ]
+    expect(gradeBreakdown(input).categories.map((category) => category.weight)).toEqual([30, 70])
+    expect(courseSummary(input).earned).toBe(59)
+  })
+  it('keeps unmatched assessment links pending without reallocating their share', () => {
+    const input = course([row({ weight: null })])
+    input.assessmentStructure = [structureRow({ isCategory: true, categoryWeight: 100 }),
+      structureRow({ gradeItemId: 'a' }), structureRow({ name: 'Unmatched link' })]
+    expect(gradeItemWeights(input).get('a')).toBe(50)
+    expect(courseSummary(input)).toMatchObject({ earned: 40, ungraded: 50, gradedCount: 1, count: 1 })
+  })
+  it('does not let extra gradebook rows erase the authoritative assessment breakdown', () => {
+    const input = course([row({ weight: null }), row({ id: 'extra', weight: null })])
+    input.assessmentStructure = [structureRow({ isCategory: true, categoryWeight: 100 }), structureRow({ gradeItemId: 'a' })]
+    expect(courseSummary(input)).toMatchObject({ earned: 80, current: 80, weightsComplete: true })
+    expect(gradeItemWeights(input).get('extra')).toBeNull()
+  })
+  it('retains letter grades as released but non-convertible weight', () => {
+    const input = course([row({ grade: null, gradeText: 'HD', weight: 100 })])
+    expect(isGradeReleased(input.items[0])).toBe(true)
+    expect(courseSummary(input)).toMatchObject({ gradedCount: 1, ungradedCount: 0, current: null, hidden: 100, ungraded: 0 })
+    expect(gradeBreakdown(input).hiddenWeight).toBe(100)
+  })
+  it('falls back to explicit gradebook weights when the assessment template has no usable weight', () => {
+    const input = course([row()])
+    input.assessmentStructure = [structureRow({ gradeItemId: 'a' })]
+    expect(courseSummary(input).earned).toBe(16)
+  })
+  it('does not declare a gradebook complete while an extra pending item has unknown weight', () => {
+    const input = course([row({ weight: 100 }), row({ id: 'b', grade: null, weight: null })])
+    expect(courseSummary(input).weightsComplete).toBe(false)
   })
 })
