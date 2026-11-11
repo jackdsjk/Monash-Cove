@@ -20,6 +20,7 @@ export class SyncOrchestrator {
     private readonly google: GoogleOAuth,
     private readonly fetcher: typeof fetch = fetch,
     private readonly moodleFetcherForCredentials?: (raw: string) => typeof fetch,
+    private readonly refreshMoodleGrades?: (raw: string) => Promise<string | null>,
   ) {}
 
   async sync(source: Source) {
@@ -44,7 +45,8 @@ export class SyncOrchestrator {
     const moodleFetcher = this.moodleFetcherForCredentials?.(raw) ?? this.fetcher;
     const assessments = await syncMoodle(this.db, credentials.baseUrl, moodleCookieHeader(credentials), moodleFetcher);
     const posts = await syncMoodleForum(this.db, credentials.baseUrl, moodleCookieHeader(credentials), moodleFetcher);
-    return { synced: assessments.synced + posts.synced };
+    const gradeWarning = await this.refreshMoodleGrades?.(raw);
+    return { synced: assessments.synced + posts.synced, ...(gradeWarning ? { gradeWarning } : {}) };
   }
 
   async full() {
@@ -71,7 +73,9 @@ export class SyncOrchestrator {
     const moodleIdentity = moodleCredentialIdentity(moodleRaw);
     const preferences = getMoodleCoursePreferences(this.db, moodleIdentity);
     const content = await syncAllMoodleContent(this.db, moodleCreds.baseUrl, moodleCookieHeader(moodleCreds), moodleFetcher, (processed, total) => this.progress?.("moodle", processed, total), preferences);
+    const gradeWarning = await this.refreshMoodleGrades?.(moodleRaw);
     starts.push(`moodle:${assessments.synced + forum.synced + content.items}`);
+    if (gradeWarning) starts.push(`moodle-grades: ${gradeWarning}`);
     this.db.setSetting("moodle_full_synced_at", new Date().toISOString());
     if (await onTrackCacheIdentity()) {
       const ontrack = await syncOnTrack(this.db, await fetchOnTrackAccount(), {

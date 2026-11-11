@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { mergeGradeCourse } from "../moodle-grade-refresh.js";
+import { mergeGradeCourse, applyGradeSubmissionEvidence } from "../moodle-grade-refresh.js";
+import { createDatabase } from "../db.js";
 import type { MoodleGradeCourse } from "../sources/moodle-grades.js";
 
 const base = "https://moodle.example.invalid";
@@ -13,6 +14,29 @@ function course(): MoodleGradeCourse {
 }
 
 describe("account-scoped grade refresh merge", () => {
+  it("completes old/no-due quizzes from definite evidence while preserving explicit user decisions", () => {
+    const db = createDatabase({ dbPath: ":memory:", seed: false });
+    const url = `${base}/mod/quiz/view.php?id=7`;
+    const item = { id: "moodle:fixture", source: "moodle" as const, sourceItemId: "quiz:7", course: "Fixture", title: "Old quiz",
+      authorRole: "system", publishedAt: at, updatedAt: at, url, dueAt: null, contentHash: "fixture",
+      contentType: "assessment_fact" as const, importance: "critical" as const, actionRequired: "yes" as const,
+      openOriginal: "required" as const, evidenceQuote: "Fixture", text: "Fixture", triageVersion: "fixture", model: "fixture" };
+    try {
+      db.upsertItem(item);
+      const grades = course(); grades.items[0].url = url; grades.items[0].gradingState = "submitted";
+      applyGradeSubmissionEvidence(db, [grades]);
+      const completed = db.getItem(item.id)?.completedAt;
+      expect(completed).toBeTruthy();
+      grades.items[0].gradingState = "unknown"; applyGradeSubmissionEvidence(db, [grades]);
+      expect(db.getItem(item.id)?.completedAt).toBe(completed);
+      db.setItemUserCompleted(item.id, false);
+      grades.items[0].gradingState = "graded"; applyGradeSubmissionEvidence(db, [grades]);
+      expect(db.getItem(item.id)).toMatchObject({ completedAt: null, completedSource: "user" });
+      expect(db.db.prepare("SELECT submission_state FROM items WHERE id = ?").get(item.id)).toMatchObject({ submission_state: "graded" });
+      grades.items[0].gradingState = "submitted"; applyGradeSubmissionEvidence(db, [grades]);
+      expect(db.db.prepare("SELECT submission_state FROM items WHERE id = ?").get(item.id)).toMatchObject({ submission_state: "graded" });
+    } finally { db.close(); }
+  });
   it("retains stale weights and their timestamp, rematching current grade rows", () => {
     const previous = course();
     const current = course(); current.assessmentStructure = []; current.assessmentWarning = "unavailable";

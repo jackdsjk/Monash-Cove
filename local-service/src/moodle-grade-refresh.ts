@@ -1,6 +1,19 @@
 import { randomUUID } from "node:crypto";
 import type { MoodleGradeCourse } from "./sources/moodle-grades.js";
 import { matchGradebookItem } from "./vendor/muster/assessment-match.js";
+import type { CoveDatabase } from "./db.js";
+
+/** Apply definite evidence after the cache/account guard, never remote writes. */
+export function applyGradeSubmissionEvidence(db: CoveDatabase, courses: MoodleGradeCourse[]): void {
+  const matching = db.db.prepare("SELECT id, submission_state FROM items WHERE source = 'moodle' AND deleted_at IS NULL AND url = ?");
+  for (const course of courses) for (const item of course.items) {
+    if (!item.url || (item.gradingState !== "graded" && item.gradingState !== "submitted")) continue;
+    for (const row of matching.all(item.url) as Array<{ id: string; submission_state: string | null }>) {
+      if (row.submission_state === "graded" && item.gradingState !== "graded") continue;
+      db.setItemSubmissionState(row.id, item.gradingState);
+    }
+  }
+}
 
 /** Merge within an already account/range-scoped resource snapshot only. */
 export function mergeGradeCourse(current: MoodleGradeCourse, previous: MoodleGradeCourse | undefined, baseUrl: string, at: string): MoodleGradeCourse {

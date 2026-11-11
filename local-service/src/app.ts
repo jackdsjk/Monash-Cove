@@ -22,7 +22,7 @@ import { FullSyncJobs, type SyncSource } from "./sync/jobs.js";
 import { MoodleClient } from "./sources/moodle.js";
 import { MoodleGradesClient, MoodleGradesError, type MoodleGradeCourse } from "./sources/moodle-grades.js";
 import { matchGradebookItem } from "./vendor/muster/assessment-match.js";
-import { mergeGradeCourse } from "./moodle-grade-refresh.js";
+import { mergeGradeCourse, applyGradeSubmissionEvidence } from "./moodle-grade-refresh.js";
 import { EdClient } from "./sources/ed.js";
 import { syncMoodleContent } from "./sync/moodle-content.js";
 import { downloadMoodleResource, MoodleDownloadError, moodleCookieHeader, safeDownloadName } from "./moodle-download.js";
@@ -194,7 +194,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   };
   const forcedRefresh = (url: string): boolean => new URL(url, "http://localhost").searchParams.get("refresh") === "1";
   const google = new GoogleOAuth(options.google ?? null, secrets, fetcher);
-  const orchestrator = new SyncOrchestrator(db, secrets, google, fetcher, (raw) => moodleTransport.forCredentials(raw));
+  const orchestrator = new SyncOrchestrator(db, secrets, google, fetcher, (raw) => moodleTransport.forCredentials(raw), refreshMoodleGradeEvidence);
   const fullSyncJobs = new FullSyncJobs();
   const moodleAssistant = new MoodleLoginAssistant(secrets, db, async (value, signal) => {
     resourceCache.invalidate("moodle");
@@ -1299,6 +1299,19 @@ export function buildApp(options: AppOptions): FastifyInstance {
     });
   }
 
+  async function refreshMoodleGradeEvidence(raw: string): Promise<string | null> {
+    try {
+      const result = await readMoodleGrades(raw, true);
+      if (await credentialIdentity("moodle") !== moodleCredentialIdentity(raw)) throw new CacheIdentityChangedError();
+      applyGradeSubmissionEvidence(db, result.data);
+      return result.cache.error;
+    } catch (error) {
+      if (error instanceof CacheIdentityChangedError) throw error;
+      // The resource coordinator already retains the last good grade snapshot.
+      return "成绩复核暂未完成，已同步的课程内容不受影响；请到成绩页重试。";
+    }
+  }
+
   /**
    * Only Grades-confirmed assessment content and its Moodle changes.
    * Existing account-scoped grade snapshots remain usable when Moodle is offline.
@@ -1497,7 +1510,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
         const content = await syncAllMoodleContent(db, credentials.baseUrl, moodleCookieHeader(credentials), moodleTransport.forCredentials(raw), (processed, total) => {
           fullSyncJobs.update("moodle", { processed, total });
         }, getMoodleCoursePreferences(db, moodleCredentialIdentity(raw)));
-        fullSyncJobs.update("moodle", { status: "done", processed: content.courses, total: content.courses, message: `${assessments.synced + forum.synced} 条简报，${content.items} 条资料` });
+        const gradeWarning = await refreshMoodleGradeEvidence(raw);
+        fullSyncJobs.update("moodle", { status: "done", processed: content.courses, total: content.courses, message: `${assessments.synced + forum.synced} 条简报，${content.items} 条资料${gradeWarning ? `；${gradeWarning}` : ""}` });
         db.setSetting("moodle_full_synced_at", new Date().toISOString());
       });
 

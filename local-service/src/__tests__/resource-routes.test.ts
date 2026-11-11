@@ -17,6 +17,48 @@ beforeEach(() => {
 });
 
 describe("single source sync HTTP results", () => {
+  it("rechecks Grades on unchanged Moodle sync and completes a no-due quiz using the shared snapshot", async () => {
+    const secrets = new MemorySecretStore();
+    const baseUrl = "https://moodle.example.invalid";
+    await secrets.set("moodle-credentials", JSON.stringify({ baseUrl, session: "fixture" }));
+    let grade = 0;
+    let reportReads = 0;
+    const quizUrl = `${baseUrl}/mod/quiz/view.php?id=20`;
+    const courses = { error: false, data: { courses: [{ id: 1, shortname: "TEST1001", fullname: "Fixture course" }] } };
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/my/") return new Response('<script>{"sesskey":"fixture"}</script>');
+      if (url.pathname === "/lib/ajax/service.php") return Response.json(url.searchParams.get("info")?.includes("core_calendar_")
+        ? [courses, { error: false, data: { events: [] } }] : [courses]);
+      if (url.pathname === "/course/view.php") return new Response("<html></html>");
+      if (url.pathname === "/grade/report/overview/index.php") return new Response("<table></table>");
+      if (url.pathname === "/grade/report/user/index.php") {
+        reportReads++;
+        return new Response(`<table class="user-grade"><tr><th>Grade item</th><th>Grade</th><th>Range</th></tr>
+          <tr><td><a class="gradeitemheader" href="${quizUrl}">Old quiz</a></td><td>-</td><td>0–10</td></tr></table>`);
+      }
+      if (url.pathname === "/mod/quiz/view.php") return new Response(`<div class="quizgrade">Final grade: ${grade} / 10</div>`);
+      throw new Error(`Unexpected fixture path ${url.pathname}`);
+    });
+    app = buildApp({ dbPath: ":memory:", seed: true, secretStore: secrets, fetcher });
+    const db = (app as FastifyInstance & { coveDb: CoveDatabase }).coveDb;
+    const stored = db.listItems({ source: "moodle" })[0];
+    db.db.prepare("UPDATE items SET url = ?, due_at = NULL, triage_version = 'verified-fixture', completed_at = NULL, completed_source = NULL WHERE id = ?").run(quizUrl, stored.id);
+    expect((await app.inject({ method: "POST", url: "/api/sync", payload: { source: "moodle" } })).statusCode).toBe(200);
+    expect(db.getItem(stored.id)?.completedAt).toBeTruthy();
+    const first = (await app.inject("/api/moodle/grades")).json();
+    expect(first.courses[0].items[0]).toMatchObject({ grade: 0, gradingState: "graded", gradeSource: "activity" });
+    expect(first.courses[0].gradeChanges).toEqual([]);
+    expect(reportReads).toBe(1);
+    grade = 1;
+    expect((await app.inject({ method: "POST", url: "/api/sync", payload: { source: "moodle" } })).statusCode).toBe(200);
+    const second = (await app.inject("/api/moodle/grades")).json();
+    expect(second.courses[0].items[0].grade).toBe(1);
+    expect(second.courses[0].gradeChanges).toHaveLength(1);
+    expect(reportReads).toBe(2);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   it("exports only Grades-confirmed Moodle work, sharing the grade cache and preserving course boundaries", async () => {
     const secrets = new MemorySecretStore();
     let assignmentUrl = "";
@@ -156,7 +198,8 @@ describe("full sync HTTP results", () => {
     expect(result.job.status).toBe("done");
     expect(Object.fromEntries(Object.entries(result.job.sources).map(([source, progress]) => [source, progress.status])))
       .toEqual({ gmail: "skipped", ed: "skipped", moodle: "done", ontrack: "skipped" });
-    expect(fetcher).toHaveBeenCalledTimes(5);
+    // Content sync plus a grade-session probe and enrolled-course read.
+    expect(fetcher).toHaveBeenCalledTimes(8);
     expect((await app.inject("/api/setup/status")).json().setupRequired).toBe(false);
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
