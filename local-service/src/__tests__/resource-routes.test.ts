@@ -279,9 +279,9 @@ describe("cached resource HTTP routes", () => {
     app = buildApp({ dbPath: ":memory:", seed: false, secretStore: secrets, fetcher });
     const [first, concurrent] = await Promise.all([app.inject("/api/moodle/grades"), app.inject("/api/moodle/grades")]);
     expect(first.statusCode).toBe(200); expect(concurrent.statusCode).toBe(200);
-    expect(calls).toHaveLength(9);
+    expect(calls).toHaveLength(10);
     const again = await app.inject("/api/moodle/grades");
-    expect(again.json().cache.stale).toBe(false); expect(calls).toHaveLength(9);
+    expect(again.json().cache.stale).toBe(false); expect(calls).toHaveLength(10);
     grade = "9"; failCourse = true;
     const partial = await app.inject("/api/moodle/grades?refresh=1");
     const body = partial.json();
@@ -300,7 +300,7 @@ describe("cached resource HTTP routes", () => {
     // Range changes must not serve the still-fresh snapshot for the old range.
     const scoped = await app.inject("/api/moodle/grades");
     expect(scoped.json().courses.map((course: { courseId: string }) => course.courseId)).toEqual(["1"]);
-    expect(calls.length - beforeScopedRead).toBe(6);
+    expect(calls.length - beforeScopedRead).toBe(7);
     await secrets.set("moodle-credentials", JSON.stringify({ baseUrl: "https://moodle.example.invalid", session: "fixture-new-account" }));
     expect((await app.inject("/api/moodle/course-preferences")).json()).toEqual({ activeSemester: null, hiddenCourseIds: [], pinnedCourseIds: [] });
     const disconnected = await app.inject({ method: "POST", url: "/api/sources/moodle/disconnect" });

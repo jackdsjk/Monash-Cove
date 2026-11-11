@@ -4,6 +4,8 @@ import { MoodleClient, MoodleSessionExpiredError } from "./moodle.js";
 import { selectMoodleCourses, type CoursePreferences } from "../course-preferences.js";
 import { isPortalCourseName, matchGradebookItem } from "../vendor/muster/assessment-match.js";
 import { discoverAssessmentsSection, parseAssessmentStructure, type AssessmentStructureRow } from "../vendor/muster/assessment-structure.js";
+import { parseMoodleGradeDetail, parseMoodleGradeOverview } from "../vendor/muster/grade-details.js";
+import { createMoodlePageReader, MoodlePageReadError, type MoodlePageReader } from "../moodle-page-reader.js";
 
 /** One row of Moodle's own user grade report, as far as HTML exposes it. */
 export interface MoodleGradeItem {
@@ -26,17 +28,26 @@ export interface MoodleGradeItem {
    * renders dates in the account's locale and a wrong guess would invent time.
    */
   gradedAt: string | null;
+  gradingState?: "graded" | "submitted" | "pending" | "unknown";
+  gradeSource?: "gradebook" | "activity";
 }
 
 export interface MoodleGradeCourse {
   courseId: string;
   courseName: string;
+  courseShortName?: string;
   items: MoodleGradeItem[];
   /** The course total row; both `null` when Moodle did not print one. */
   total: { earned: number | null; max: number | null };
   /** Assessments provides weights and grouping; Grades remains the score source. */
   assessmentStructure: AssessmentStructureRow[];
   assessmentWarning: string | null;
+  assessmentFetchedAt?: string | null;
+  assessmentStale?: boolean;
+  overviewGrade?: string | null;
+  overviewWarning?: string | null;
+  detailWarning?: string | null;
+  gradeChanges?: Array<{ id: string; kind: "released" | "changed"; itemName: string | null; detectedAt: string }>;
 }
 
 export type MoodleGradesErrorCode = "session_expired" | "grades_failed";
@@ -58,11 +69,13 @@ const COURSE_CONCURRENCY = 4;
 export class MoodleGradesClient {
   private readonly baseUrl: string;
   private readonly courses: MoodleClient;
+  private readonly pages: MoodlePageReader;
 
   /** `cookie` is the full Cookie header for Moodle (see `moodleCookieHeader`). */
-  constructor(baseUrl: string, private readonly cookie: string, private readonly fetcher: typeof fetch = fetch) {
+  constructor(baseUrl: string, private readonly cookie: string, fetcher: typeof fetch = fetch) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.courses = new MoodleClient(this.baseUrl, cookie, fetcher);
+    this.pages = createMoodlePageReader(fetcher);
   }
 
   private headers() {
@@ -95,30 +108,47 @@ export class MoodleGradesClient {
     const enrolled = await this.courses.listCourses();
     const targets = (preferences ? selectMoodleCourses(enrolled, preferences) : enrolled)
       .filter((course) => !isPortalCourseName(course.fullname || course.shortname));
-    const results = await mapLimited(targets, COURSE_CONCURRENCY, async (course) => {
+    let overview: Array<{ courseId: string; gradeText: string }> = [];
+    let overviewFailed = false;
+    if (targets.length) {
+      try { overview = parseMoodleGradeOverview(await this.readPage("/grade/report/overview/index.php"), this.baseUrl); }
+      catch (error) {
+        if (error instanceof MoodleGradesError && error.code === "session_expired") throw error;
+        overviewFailed = true;
+      }
+    }
+    const results = await mapLimited(targets, COURSE_CONCURRENCY, async (course): Promise<MoodleGradeCourse | { error: unknown; courseId: string } | null> => {
       try {
         const report = await this.scrapeCourse(course.id);
         if (!report) return null;
         let assessmentStructure: AssessmentStructureRow[] = [];
         let assessmentWarning: string | null = null;
+        let assessmentFetchedAt: string | null = null;
         if (report.items.length > 0) {
           try {
             assessmentStructure = await this.readAssessmentStructure(course.id);
             const activities = assessmentStructure.filter((row) => !row.isCategory);
             for (const row of activities) row.gradeItemId = matchGradebookItem(row, report.items, activities, this.baseUrl)?.id ?? null;
+            assessmentFetchedAt = new Date().toISOString();
           } catch (error) {
             // A missing weight source must not hide successfully read scores.
             if (error instanceof MoodleGradesError && error.code === "session_expired") throw error;
             assessmentWarning = "暂时无法读取 Assessments 评估结构；仍显示 Grades 原始成绩，可重试刷新权重。";
           }
         }
+        const detailFailed = await this.enrichItems(report.items);
         return {
           courseId: String(course.id),
           courseName: course.fullname || course.shortname || String(course.id),
+          courseShortName: course.shortname,
           items: report.items,
           total: report.total,
           assessmentStructure,
           assessmentWarning,
+          assessmentFetchedAt, assessmentStale: false,
+          overviewGrade: overview.find((row) => row.courseId === String(course.id))?.gradeText ?? null,
+          overviewWarning: overviewFailed ? "Overview 总评暂时无法读取。" : null,
+          detailWarning: [overviewFailed ? "Overview 总评暂时无法读取。" : "", detailFailed ? "部分活动详情暂时无法读取；仍显示 Grades 成绩。" : ""].filter(Boolean).join(" ") || null,
         } satisfies MoodleGradeCourse;
       } catch (error) {
         if (error instanceof MoodleGradesError && error.code === "session_expired") throw error;
@@ -149,27 +179,44 @@ export class MoodleGradesClient {
   }
 
   private async readPage(path: string): Promise<string> {
-    const response = await this.fetcher(`${this.baseUrl}${path}`, {
-      headers: this.headers(),
-      redirect: "follow",
-      signal: AbortSignal.timeout(20_000),
-    }).catch((error: unknown) => {
+    try {
+      return await this.pages.text(new URL(path, this.baseUrl), { headers: this.headers(), redirect: "follow" });
+    } catch (error) {
       if (error instanceof MoodleSessionExpiredError) throw new MoodleGradesError("session_expired", "Moodle sent the grade report to a login page; reconnect Moodle.");
+      if (error instanceof MoodlePageReadError) throw new MoodleGradesError("grades_failed", `Moodle grade report returned HTTP ${error.status}.`);
       throw error;
+    }
+  }
+
+  private async enrichItems(items: MoodleGradeItem[]): Promise<boolean> {
+    let failed = false;
+    await mapLimited(items, 2, async (item) => {
+      item.gradeSource = "gradebook";
+      item.gradingState = item.gradeText ? "graded" : "unknown";
+      if (!item.url) return;
+      const url = new URL(item.url, this.baseUrl);
+      const type = /^\/mod\/(assign|quiz)\/view\.php$/.exec(url.pathname)?.[1] as "assign" | "quiz" | undefined;
+      if (url.origin !== new URL(this.baseUrl).origin || !type || !/^\d+$/.test(url.searchParams.get("id") ?? "")) return;
+      // A complete gradebook row needs no second read. Pending/hidden grades
+      // are checked regardless of due date, including older quizzes.
+      if (item.gradeText && item.feedback) return;
+      try {
+        const detail = parseMoodleGradeDetail(await this.readPage(url.href), type);
+        if (!item.gradeText && detail.gradeText) {
+          item.gradeText = detail.gradeText;
+          Object.assign(item, mark(detail.gradeText, null, { max: item.gradeMax }));
+          item.gradeSource = "activity";
+        }
+        if (!item.feedback && detail.feedback) item.feedback = detail.feedback;
+        item.gradedAt ??= detail.gradedAt;
+        if (!item.gradeText) item.gradingState = detail.gradingState;
+        else item.gradingState = "graded";
+      } catch (error) {
+        if (error instanceof MoodleGradesError && error.code === "session_expired") throw error;
+        failed = true;
+      }
     });
-    if (!response.ok) {
-      if (response.status === 401) throw new MoodleGradesError("session_expired", "Moodle requires login to read the grade report.");
-      throw new MoodleGradesError("grades_failed", `Moodle grade report returned HTTP ${response.status}.`);
-    }
-    const landed = response.url || `${this.baseUrl}/grade/report/user/index.php`;
-    if (new URL(landed).origin !== new URL(this.baseUrl).origin || /\/(?:login|signin)(?:\/|\.php|$)/i.test(new URL(landed).pathname)) {
-      throw new MoodleGradesError("session_expired", "Moodle sent the grade report to a login page; reconnect Moodle.");
-    }
-    const html = await response.text();
-    if (parse(html).querySelector('form input[type="password"], form#login, form#loginform, body.notloggedin, body#page-login-index')) {
-      throw new MoodleGradesError("session_expired", "Moodle returned a login page instead of the grade report; reconnect Moodle.");
-    }
-    return html;
+    return failed;
   }
 }
 

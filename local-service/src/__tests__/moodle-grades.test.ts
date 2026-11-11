@@ -410,3 +410,46 @@ describe("GET /api/moodle/grades", () => {
     expect(response.json().error.code).toBe("moodle_grades_failed");
   });
 });
+
+
+describe("Grades-confirmed activity enrichment", () => {
+  it("enriches old/no-due quizzes and hidden grades while keeping Grades authoritative", async () => {
+    const calls: string[] = [];
+    const fetcher = (async (input: string | URL | Request) => {
+      const url = new URL(String(input)); calls.push(url.pathname + url.search);
+      if (url.pathname === "/lib/ajax/service.php") return Response.json([{ error: false, data: { courses: [{ id: 101, shortname: "FIT1001_S2_2026", fullname: "Fixture" }] } }]);
+      if (url.pathname === "/grade/report/overview/index.php") return new Response('<table><tr><td><a href="/course/user.php?id=101&amp;user=999&amp;mode=grade">Fixture</a></td><td>HD</td></tr></table>');
+      if (url.pathname === "/grade/report/user/index.php") return new Response(`<table class="user-grade"><tr><th>Grade item</th><th>Grade</th><th>Range</th></tr>
+        <tr><td><a class="gradeitemheader" href="/mod/assign/view.php?id=1">Released</a></td><td>8</td><td>0–10</td></tr>
+        <tr><td><a class="gradeitemheader" href="/mod/quiz/view.php?id=2">Old quiz</a></td><td>-</td><td>0–20</td></tr>
+        <tr><td><a class="gradeitemheader" href="/mod/assign/view.php?id=3">Hidden</a></td><td>-</td><td>0–10</td></tr>
+        <tr><td><a class="gradeitemheader" href="https://foreign.invalid/mod/assign/view.php?id=4">Foreign</a></td><td>-</td><td>0–10</td></tr></table>`);
+      if (url.pathname === "/mod/quiz/view.php") return new Response('<div class="quizgrade">Final grade: 0 / 20</div>');
+      if (url.pathname === "/mod/assign/view.php") return new Response(`<div class="submissionstatustable"><table><tr><th>Grading status</th><td>Graded</td></tr></table></div>
+        ${url.searchParams.get("id") === "1" ? '<div class="feedback"><table><tr><th>Grade</th><td>2 / 10</td></tr><tr><th>Feedback comments</th><td>&lt;p&gt;Reviewed&lt;/p&gt;</td></tr></table></div>' : ''}`);
+      return new Response('<html><script>{"sesskey":"fixture"}</script></html>');
+    }) as typeof fetch;
+    const [course] = await new MoodleGradesClient("https://moodle.example.invalid", "fixture", fetcher).pull();
+    expect(course.overviewGrade).toBe("HD");
+    expect(course.courseShortName).toBe("FIT1001_S2_2026");
+    expect(course.items[0]).toMatchObject({ grade: 8, gradeMax: 10, gradeSource: "gradebook", feedback: "Reviewed" });
+    expect(course.items[1]).toMatchObject({ grade: 0, gradeMax: 20, gradeSource: "activity", gradingState: "graded" });
+    expect(course.items[2]).toMatchObject({ grade: null, gradingState: "graded" });
+    expect(calls.filter((url) => url.includes("/mod/"))).toHaveLength(3);
+    expect(course.items).toHaveLength(4);
+  });
+
+  it("keeps raw scores when activity and overview reads fail", async () => {
+    const fetcher = (async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/lib/ajax/service.php") return Response.json([{ error: false, data: { courses: [{ id: 1, shortname: "FIT1001", fullname: "Fixture" }] } }]);
+      if (url.pathname === "/grade/report/user/index.php") return new Response(moodleGradeTable);
+      if (url.pathname.includes("/overview/") || url.pathname.includes("/mod/")) return new Response("Unavailable", { status: 503 });
+      return new Response('<html><script>{"sesskey":"fixture"}</script></html>');
+    }) as typeof fetch;
+    const [course] = await new MoodleGradesClient("https://moodle.example.invalid", "fixture", fetcher).pull();
+    expect(course.items[0].grade).toBe(17);
+    expect(course.overviewWarning).toContain("Overview");
+    expect(course.overviewGrade).toBeNull();
+  });
+});
