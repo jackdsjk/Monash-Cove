@@ -25,6 +25,14 @@ eligibility and primary scores; confirmed activity details may fill missing valu
 Unmatched assessment links stay pending metadata.
 The frontend uses the unchanged upstream calculator to split category weights.
 
+Local layout extensions: exact named Assessments navigation takes precedence over
+weekly titles containing assessment; repeated link labels are retained. Flat
+`.assessment-item` widgets without category headers use explicit per-activity
+weights, including title suffixes such as `(Case study 1 - 10%)`. Linked SCORM
+and H5P rows are structure candidates, with score eligibility still decided by
+Grades matching. These layouts are not handled by the pinned Rust Type A/B
+parser, so the extension is tested locally rather than claimed as copied code.
+
 `grade-details.ts` adapts assignment feedback/grading status, quiz attempt/grade
 parsing and the official grade overview from `scraper.rs` in the same revision.
 It preserves zero/letter/denominator-less scores and explicit graded-but-hidden

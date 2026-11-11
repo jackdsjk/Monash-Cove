@@ -32,6 +32,26 @@ describe("Muster assessment structure port", () => {
       <a href="/course/view.php?id=2&amp;section=4" title="Assessments">Other course</a>`, 1, base)).toBe(9);
   });
 
+  it("prefers the actual Assessments navigation over a weekly assessment and considers repeated link labels", () => {
+    expect(discoverAssessmentsSection(`<a href="/course/view.php?id=1&amp;section=52">Week 12 - In-class assessment</a>
+      <a href="/course/view.php?id=1&amp;section=56" title="Open section">Open</a>
+      <a href="/course/view.php?id=1&amp;section=56">ASSESSMENTS</a>`, 1, base)).toBe(56);
+    expect(discoverAssessmentsSection('<a href="/course/view.php?id=1&amp;section=52">Week 12 - Assessment</a>', 1, base)).toBeNull();
+    expect(discoverAssessmentsSection('<a href="/course/view.php?id=1&amp;section=7">Unit Assessments and feedback</a>', 1, base)).toBe(7);
+  });
+
+  it("reads flat widget weights, including SCORM and H5P, without inventing categories or other cohort rows", () => {
+    const rows = parseAssessmentStructure(`<div class="assessment-item"><a class="name-content-text" href="/mod/assign/view.php?id=1">Report (40%)</a></div>
+      <div class="assessment-item"><a class="name-content-text" href="/mod/scorm/view.php?id=2">Module (Case study 1 - 10%)</a></div>
+      <div class="assessment-item"><a class="name-content-text" href="/mod/hvp/view.php?id=3">Interactive (5%)</a><span class="weight-content">0%</span></div>
+      <div class="assessment-item"><a class="name-content-text" href="/mod/quiz/view.php?id=4">Quiz</a></div>
+      <div class="assessment-item"><span>Alternative (45%)</span></div>
+      <div class="assessment-item"><a class="name-content-text" href="https://foreign.invalid/mod/assign/view.php?id=5">Foreign (45%)</a></div>
+      <div class="assessment-item"><a class="name-content-text" href="/mod/assign/view.php?id=1">Duplicate (40%)</a></div>`, base);
+    expect(rows.map((row) => [row.weight, row.categoryWeight, row.isCategory])).toEqual([[40, null, false], [10, null, false], [0, null, false], [null, null, false]]);
+    expect(rows.every((row) => row.gradeItemId === null && row.categoryId === null)).toBe(true);
+  });
+
   it.each([["", 60], ["35%", 35], ["0%", 0]])("uses title weights only when the category cell omits one: %s", (cell, expected) => {
     const rows = parseAssessmentStructure(`<div class="assessment-item summary-view-dropdown-header">
       <span class="dropdown-name-text" data-section="9">Exam (60%)</span><span class="weight-content">${cell}</span></div>

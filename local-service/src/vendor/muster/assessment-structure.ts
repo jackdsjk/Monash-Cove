@@ -22,13 +22,15 @@ function text(value: string): string { return value.trim().replace(/\s+/g, " ");
 
 export function parseAssessmentWeight(value: string): number | null {
   const match = /weight(?:ing)?\s*:\s*([\d.]+)\s*%/i.exec(value) ??
-    /\(([\d.]+)\s*%\)/.exec(value) ?? /^([\d.]+)\s*%$/.exec(value.trim());
+    /\(([\d.]+)\s*%\)/.exec(value) ??
+    // Flat widgets also use titles such as "Module (Case study 1 - 10%)".
+    /\([^()%]*\s[-–—]\s*([\d.]+)\s*%\)/.exec(value) ?? /^([\d.]+)\s*%$/.exec(value.trim());
   const weight = match ? Number(match[1]) : NaN;
   return Number.isFinite(weight) && weight >= 0 ? weight : null;
 }
 
 export function discoverAssessmentsSection(html: string, courseId: number, baseUrl: string): number | null {
-  const sections = new Map<number, string>();
+  const sections = new Map<number, Set<string>>();
   for (const anchor of parse(html).querySelectorAll("a[href]")) {
     try {
       const url = new URL(anchor.getAttribute("href")!, baseUrl);
@@ -36,10 +38,19 @@ export function discoverAssessmentsSection(html: string, courseId: number, baseU
       const section = url.searchParams.get("section");
       if (!section || !/^\d+$/.test(section)) continue;
       const number = Number(section);
-      if (!sections.has(number)) sections.set(number, text(anchor.getAttribute("title") || anchor.text));
+      if (!sections.has(number)) sections.set(number, new Set());
+      for (const label of [anchor.getAttribute("title"), anchor.text]) {
+        if (label) sections.get(number)!.add(text(label));
+      }
     } catch { /* Navigation noise is not a section. */ }
   }
-  return [...sections].sort(([a], [b]) => a - b).find(([, title]) => /assess/i.test(title))?.[0] ?? null;
+  const candidates = [...sections].sort(([a], [b]) => a - b);
+  // Prefer the named unit section over weekly titles mentioning an assessment.
+  for (const pattern of [/^assessments?$/i, /^(?:(?:unit|course)\s+)?assessments?\b/i]) {
+    const match = candidates.find(([, titles]) => [...titles].some((title) => pattern.test(title)));
+    if (match) return match[0];
+  }
+  return null;
 }
 
 export function parseAssessmentStructure(html: string, baseUrl: string): AssessmentStructureRow[] {
@@ -81,6 +92,20 @@ export function parseAssessmentStructure(html: string, baseUrl: string): Assessm
       seen.add(`activity:${target.id}`);
       rows.push({ name: childName, url: target.url, isCategory: false, category, categoryId, weight, categoryWeight: weight, gradeItemId: null });
     }
+  }
+  if (rows.length) return rows;
+
+  // Local extension of the same widget selectors for courses without category
+  // headers. These are per-activity weights; never inherit them across rows.
+  for (const child of root.querySelectorAll(".assessment-item")) {
+    const link = child.querySelector("a.name-content-text[href]");
+    const name = text(link?.text ?? "");
+    const target = link ? activity(link.getAttribute("href")!) : null;
+    if (!name || !target || seen.has(`activity:${target.id}`)) continue;
+    seen.add(`activity:${target.id}`);
+    rows.push({ name, url: target.url, isCategory: false, category: null, categoryId: null,
+      weight: parseAssessmentWeight(child.querySelector(".weight-content")?.text ?? "") ?? parseAssessmentWeight(name),
+      categoryWeight: null, gradeItemId: null });
   }
   if (rows.length) return rows;
 

@@ -413,6 +413,31 @@ describe("GET /api/moodle/grades", () => {
 
 
 describe("Grades-confirmed activity enrichment", () => {
+  it("reads the named Assessments section and matches flat SCORM weights only to current-course Grades", async () => {
+    const sections: string[] = [];
+    const fetcher = (async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/lib/ajax/service.php") return Response.json([{ error: false, data: { courses: [{ id: 1, shortname: "TEST1001", fullname: "Fixture" }] } }]);
+      if (url.pathname === "/grade/report/user/index.php") return new Response(`<table class="user-grade"><tr><th>Grade item</th><th>Grade</th><th>Range</th></tr>
+        <tr><td><a class="gradeitemheader" href="/mod/scorm/view.php?id=7">Module</a></td><td>8</td><td>0–10</td></tr></table>`);
+      if (url.pathname === "/course/view.php") {
+        const section = url.searchParams.get("section");
+        if (section) {
+          sections.push(section);
+          return new Response(section === "56" ? `<div class="assessment-item"><a class="name-content-text" href="/mod/scorm/view.php?id=7">Module (Case study 1 - 10%)</a></div>
+            <div class="assessment-item"><a class="name-content-text" href="/mod/hvp/view.php?id=8">Interactive (90%)</a></div>` : "<p>Weekly material</p>");
+        }
+        return new Response('<a href="/course/view.php?id=1&amp;section=52">Week 12 - Assignment in-class assessment</a><a href="/course/view.php?id=1&amp;section=56">ASSESSMENTS</a>');
+      }
+      return new Response('<script>{"sesskey":"fixture"}</script>');
+    }) as typeof fetch;
+    const [course] = await new MoodleGradesClient("https://moodle.example.invalid", "fixture", fetcher).pull();
+    expect(sections).toEqual(["56"]);
+    expect(course.assessmentWarning).toBeNull();
+    expect(course.assessmentStructure.map((row) => [row.weight, row.gradeItemId])).toEqual([[10, course.items[0].id], [90, null]]);
+    expect(course.items).toHaveLength(1);
+  });
+
   it("reuses recent unchanged graded details but rechecks pending rows and changed scores", async () => {
     let grade = 8;
     const reads = new Map<string, number>();
