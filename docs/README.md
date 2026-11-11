@@ -18,6 +18,7 @@
 | [always-ontrack-reuse-2026-11-11.md](always-ontrack-reuse-2026-11-11.md) | OnTrack 定义优先任务、可访问历史回填、只读下载的参考来源与接入边界 | **代码已接入；集成验证结果见文内记录** |
 | [moodle-session-reliability-2026-11-11.md](moodle-session-reliability-2026-11-11.md) | 参照 Muster 的 Cookie 轮换、UA、会话维护和离线判定修复 | **277 后端 / 87 前端测试、两端构建及隔离 E2E 通过；未复验真实账号** |
 | [learning-pages-and-grades-2026-11-11.md](learning-pages-and-grades-2026-11-11.md) | 资料页筛选／布局、Moodle 作业资料、OnTrack 文件与 Muster 成绩适配 | **补修 Grades 评分项识别、作业关联及支持门户排除；299 后端 / 122 前端测试、构建及隔离浏览器回归通过；真实成绩未逐项复核** |
+| [muster-grading-rules-2026-11-11.md](muster-grading-rules-2026-11-11.md) | Muster 规则逐项对照、复用来源及本地接入边界 | **除学习建议外已接入；368 后端／152 前端测试、构建及隔离浏览器回归通过，未复核真实成绩** |
 | [plan/real-path/plan.md](plan/real-path/plan.md) | Agent 执行计划：S1–S8、连续执行规则、阶段验收和阻塞处理 | **执行指针为 done；历史真实账号记录见 next.md / execution-log.md** |
 | [plan/release-signing.md](plan/release-signing.md) | 发布产物的签名、完整性校验、更新通道与 CI 断言方案（参照 Muster，含 macOS/Windows 差异） | **草案；S0 未实施** |
 | [information-triage-labeling-guide.md](information-triage-labeling-guide.md) | 真实样本的匿名化、人工标注口径与第一版评测指标 | **当前评测规范** |
@@ -31,8 +32,6 @@
 | [productization-and-resume-plan-draft.md](productization-and-resume-plan-draft.md) | 产品化与求职项目建设的完整分析和备选项 | 背景分析，可继续修改 |
 | [ecosystem.md](ecosystem.md) | GitHub 竞品、开源生态与许可证调查 | 调研依据 |
 | [stack.md](stack.md) | 已安装工具、真实接入状态和技术约束 | 技术事实记录 |
-
-成绩规则专项核对：[Muster 成绩规则与漏接权重排查](muster-grading-rules-2026-11-11.md)，含已复用算法、仍未接入的读取／状态／展示链路及优先级；待办不代表已实现。
 
 ## 历史与参考材料
 

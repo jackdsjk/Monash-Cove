@@ -173,7 +173,7 @@ Development mode uses the Vite dev server at <http://127.0.0.1:5174/>; `local-se
 
 Courses, grades, Ed lessons and OnTrack data use shared page queries and account-scoped SQLite snapshots. Cached data stays visible during refresh or network failure. Materials includes semester, hidden-course and pinned-course preferences for bulk material and grade reads; details and verification limits are in the [cache implementation report](docs/muster-reuse-and-cache-2026-11-10.md).
 
-Grades reuse Muster's calculation helper with a single local adapter. Category weights are converted only when their parentage is known; unknown weights are not replaced with equal weights. Moodle's published course total is separate from the estimate. [Learning-page and grade fixes](docs/learning-pages-and-grades-2026-11-11.md).
+Grades reuse Muster's calculator and assessment structure, with confirmed activity details, hidden-grade states and independent Overview text. Category breakdowns, local semester filters, private structure diagnostics, in-app change notices and a shared home summary are available. Sync updates the same account-scoped snapshot; failed weight reads retain the last structure with a warning. Study advice is deferred. [Grading rules and verification](docs/muster-grading-rules-2026-11-11.md).
 
 ### First run
 

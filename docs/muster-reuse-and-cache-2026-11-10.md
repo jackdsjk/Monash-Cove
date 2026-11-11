@@ -107,14 +107,14 @@ rtk proxy local-service/node_modules/.bin/tsx '/Users/Admin/Desktop/Monash Agent
 | 改进 | 已实施 | 边界与后续优化 |
 |---|---|---|
 | 共享查询与持久化快照 | [query-cache.ts](../webapp/src/data/query-cache.ts)、[resource-cache.ts](../local-service/src/resource-cache.ts)、SQLite `resource_snapshots`；四个页面接入缓存状态与手动刷新 | 前端缓存随进程结束；重启由后端快照承接。单项 8 MiB、每源最多 1000 项 / 96 MiB；清本地数据覆盖快照 |
-| 同资源请求合并 | 同身份、资源、代次共用刷新任务；OnTrack overview/tasks 共用快照，项目读取并发最多 4 | 尚未实现跨 API 的单轮 HTML 页面缓存，仍可能重复读取认证页 |
+| 同资源请求合并 | 同身份、资源、代次共用刷新任务；OnTrack overview/tasks 共用快照，项目读取并发最多 4 | 成绩读取已接单轮成功 HTML 缓存（800 条／96 MiB、单页 8 MiB、20 秒）及 transport 共享冷却；尚未跨整个资料／论坛／认证读取链路共享同一 reader |
 | 分批展示与部分覆盖 | Ed 先展示索引、详情最多并发 4、逐批补齐；成绩失败课程保留旧数据及覆盖时间；资料沿用单课同步 | 成绩首次冷启动仍等待本轮结果，未做逐课程流式响应；未做课程主页 fingerprint |
 | 学期与课程偏好 | Materials 同步范围面板、`GET/PATCH /api/moodle/course-preferences`，成绩快照键包含范围 hash | 默认全部学期；只识别显式学期标记，未知学期保留；隐藏优先于置顶。仅约束批量资料与成绩，单课资料可手动刷新，不删除旧资料，不改变简报抓取范围 |
-| 提交与完成一致 | Drawer、Brief、Deadlines 读取后端 `completedAt`，写入失败保留原状态；后端区分提交、评分与人工覆盖 | 30 天内已提交未评分继续复查；`Not yet graded` 不当作已评分。适配状态语义，没有机械接入未使用的前端 helper |
+| 提交与完成一致 | Drawer、Brief、Deadlines 读取后端 `completedAt`，写入失败保留原状态；后端区分提交、评分与人工覆盖 | 基础提交复核覆盖近 30 天 assign；成绩同步另复核 Grades 已确认的旧／无 due assign/quiz，将确定状态写入同一完成事实。未知不擦除，用户决定优先 |
 
 OnTrack 另已修复账号 token 缓存隔离与主动断开后的 CLI 回退；凭据变化拒绝迟到结果，出站请求使用超时。显式凭据替换推进缓存代次，无法证明同账号时保守作为新连接处理。2026-11-11 后续 [Moodle 会话修复](moodle-session-reliability-2026-11-11.md) 增加稳定连接标识：内部 Cookie 轮换保留快照及课程偏好，主动重连则生成新标识；旧凭据迁移保留原 SHA-256 隔离范围。
 
-以下为采纳时的设计要求；具体响应字段、容量与维护契约以 [local-service/README.md](../local-service/README.md) 为准。设计中 HTML 单轮缓存、fingerprint、同账号续期保留和成绩流式展示尚未落地，不能视为已完成。
+以下为采纳时的设计要求；具体响应字段、容量与维护契约以 [local-service/README.md](../local-service/README.md) 为准。HTML 单轮缓存已在成绩读取内落地；同账号 Cookie 续期保留已在会话模块落地。课程主页 fingerprint、成绩流式展示及跨整个同步的 reader 共享仍未实施。详细成绩扩展见 [Muster 成绩规则](muster-grading-rules-2026-11-11.md)。
 
 ### 数据边界与查询流程
 
@@ -172,4 +172,4 @@ OnTrack 另已修复账号 token 缓存隔离与主动断开后的 CLI 回退；
 - 成绩强刷 503 后旧值与最后成功时间保留；详情标完成后截止页与重载一致；完成状态 PATCH 503 保留原值并显示重试提示；课程隐藏、恢复和保存失败草稿均验证。浏览器 `pageErrors=[]`，实际外网调用为 0。
 - 本机材料：`build/audit/2026-11-10/cache-browser-regression.json` 及同目录匿名截图。临时服务和浏览器均已关闭；没有访问真实账号、提交考勤、发送消息或部署。
 
-缓存批次处理了原审计 05、09、11、13。2026-11-11 后续修复其余 10 项，并处理附加 UI 观察；最终 178 项后端、83 项前端测试、构建和扩展浏览器回归通过，详见 [审计处理状态](audit-2026-11-10.md)。这不等于真实账号或所有产品流程已验收；本报告第 5 节列出的进一步缓存优化仍未实施。
+缓存批次处理了原审计 05、09、11、13。2026-11-11 后续修复其余 10 项，并处理附加 UI 观察；最终 178 项后端、83 项前端测试、构建和扩展浏览器回归通过，详见 [审计处理状态](audit-2026-11-10.md)。这不等于真实账号或所有产品流程已验收；后续已实施的成绩页缓存／共享冷却及仍未覆盖范围以本报告第 5 节和成绩规则报告为准。

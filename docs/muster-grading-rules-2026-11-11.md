@@ -37,45 +37,43 @@
 
 真实接口仅检查匿名计数：七门课中三门读到分类结构，其中一门可计算已发布部分均分，另一门因存在不可换算成绩而不提供完整均分；另有一门没有已发布分数。其余四门中一门无评分项，三门尚未读到可用结构。所有真实项目仍保留原始成绩；未逐项核对教师评分与课程 hurdle，不保存成绩、反馈或凭据。
 
-## 逐项差异复核：仍未使用的部分
+## 差异复核与实施状态
 
-本次比较本项目 `b814117` 与上述 Muster v0.5.1 本地版本，范围覆盖抓取、状态、计算、同步、展示、提醒和诊断。只读取源码并运行匿名内存样例，不改变业务代码，不读取新账号数据。以下为复核结论，不表示功能已实现。
+对照本地 Muster v0.5.1 的抓取、状态、计算、同步、展示、提醒和诊断后，用户授权实施除学习建议之外的成绩改进。以下为当前状态；前文真实接口计数来自前一轮，只是历史证据，本轮没有重新读取真实账号。
 
-### 计算器和基础规则已接入
+`gradeBreakdown.ts` 和上游测试继续保持原样（仅类型 import 路径不同），不另写一套计算器。Node/Fastify 与 Rust/Tauri 的边界不同：纯 TypeScript 逻辑直接适配，HTML 解析规则和请求调度移植，系统通知改用应用内横幅；不引入 Tauri、Redis 或新的持久数据源。
 
-逐文件 diff 确认 `gradeBreakdown.ts` 及对应上游测试只有类型 import 路径不同。分类 ID、分类权重分摊、明确子项比例、空考试、重复空结构去除、0 分、字母不可换算、已评／待评／隐藏拆分、50 分普通及格线等核心算法均已复制。Grades 标记门槛、活动 ID 优先匹配、同名去歧义、支持门户排除也已接入；这些不是待办。
+| 规则／能力 | 采用的 Muster 证据 | 本地实现与边界 |
+|---|---|---|
+| 分类标题权重回退 | `scraper.rs:1023–1027` post-processing | `assessment-structure.ts` 在权重栏缺失时读分类标题，显式栏值及 0 优先；子项份额仍交原计算器 |
+| 详情补全及隐藏评分状态 | `enrich_assessment_statuses:1249`、submission parser:1645、feedback cleanup:1844 | `vendor/muster/grade-details.ts`；只为同课程 Grades 已确认的同源 assign/quiz 补分数、反馈和状态。未变的公开成绩详情复用既有快照 30 分钟，过期或分数变化重读；待评分／隐藏分数仍每轮复核。Grades 已有分数优先；0、字母与未知满分保留，日期原文不猜时区 |
+| 测验完成与成绩 | quiz parsers:5258、5296 | Finished／final grade／attempts；排除日期形似分数和 rubric/navigation。无截止日期或较旧的 Grades 项也复核，不将普通练习加入成绩 |
+| 独立 Overview | fetch/parse_grade_overview:2766、2785 | `/grade/report/overview/index.php` 原文进入 `overviewGrade`，不猜裸分满分 100；明细表为空但有 Overview 的课程仍展示。真实 HTTP 404 仍是失败 |
+| 增量同步成绩复核 | `recheck_assignment_statuses:1135` | 普通、定时和全量 Moodle 同步都更新既有账号／范围成绩快照；内容未变也复核。成功后前端非 force 重读本地快照，不再发一轮上游抓取。确定 submitted/graded 才更新本地完成事实；未知不擦除，显式用户决定优先 |
+| Assessments 局部失败 | 参考失败保留与按项目合并机制，本地适配 | `moodle-grade-refresh.ts` 保留同范围旧结构及成功时间并标 stale；对当前 Grades 重新匹配，不复用旧 gradeItemId。分区失败而主页有结构时回退主页；未知详情不擦除此前成功的活动结果 |
+| 分类明细、风险与读屏 | `GradeBreakdown.tsx` CategoryBlock/useOutlook/GradeBar | 每类已得／总权重、子项份额、hidden 与空考试占位；进度图文字语义及图例。风险只在完整权重且分数可读时显示，不套用原组件对部分权重的过强结论 |
+| 学期、隐藏与置顶 | Dashboard displayCourses:1282、1315 | 成绩页本地筛选，复用服务端短名及既有范围设置；未知学期保留，隐藏优先、置顶优先排序。切视图不访问上游 |
+| 首页入口 | Dashboard course-grade summary | Brief 与 Grades 共用 query，首页最多展示三课摘要；断开来源时不请求成绩，也不展示旧账号摘要 |
+| 成绩变化提醒 | Dashboard Overview diff:770 | 已有同课程／同项目基线后比较发布值；首次读取、课程／范围首次发现不提醒。事件 UUID 不含分数，随快照最多保留 30 天／20 条；关闭标记只存内存 ID、最多 500 条，浏览器重启后重置，不产生系统通知 |
+| 结构诊断 | `diagnostics.ts:33,42` | 查看及复制匿名结构计数、权重、格式和 warning 布尔值；不包含课程名、ID、URL、分数、反馈、outcome 或原始错误 |
+| 页面共享缓存与冷却 | `moodle/http.rs` PageFetcher:46、79；throttle | `moodle-page-reader.ts` 单轮成功 HTML 复用及请求合并；800 条／96 MiB 留存、单页 8 MiB、20 秒。每轮重置，取消独立，连接变化拒绝旧页。transport 的 429/503 共享 Retry-After 冷却，默认 5 秒、最多 60 秒，可延长和中断，不自动重试 |
+| 学习建议成绩事实 | `studyGuide/facts.ts`、StudyGuidePanel | **按用户要求暂不实施**，未新增学习建议入口或模型成绩上下文 |
 
-### 直接影响成绩完整性的缺口
+成绩与作业资料继续共用 `grades:v7:<range>`，刷新身份、范围、代次校验保持不变。整课失败保留旧课及原 coverage，结构／详情失败在课程字段单独提示；不把错误或登录页写成成功结果。首次无旧结构时不能宣称保留了旧权重。
 
-| 缺口 | Muster 的实现与证据 | 本项目现状与影响 | 建议 |
-|---|---|---|---|
-| 分类标题补权重 | `scraper.rs:1023–1027` 在 Widget 权重缺失时对每行名称调用 `parse_weight_percent` | `assessment-structure.ts` 的 Type A 分类只读取 `.weight-content`，未回退标题。子项标题比例已由原计算器处理，遗漏的是分类头 | 最先补齐；可直接移植该回退 |
-| 作业详情补分数和反馈 | `enrich_assessment_statuses`（1249）、`parse_submission_status_from_html`（1645）；详情和 Grades 相互补足；反馈实体解码并去残留标签（1844） | 成绩页仅用 Grades 的分数、反馈和满分；另一路 `MoodleClient.submissionStatus` 仅返回状态枚举，不将详情分数／反馈送入成绩模型 | 仅为同课程 Grades 已确认项目按需补全；不能拿普通活动扩充评分项 |
-| 已批改但分数隐藏 | 详情解析独立保留 `graded`，识别 Grading status 和 `td.submissiongraded`；`submissionState.ts:5` 给已评分证据最高优先级 | Grades 页只根据数字或非空 gradeText 判断；没有状态证据字段。另一同步路径即使识别 graded，也没有与成绩行关联 | 保留“已评分、分数未公开”，不当成待评分或 0；字母成绩本身已支持 |
-| 测验专用完成和成绩解析 | `parse_quiz_submission_from_html`（5258）、`parse_quiz_grade_from_html`（5296），处理 Finished／final grade／attempts，排除日期形似分数 | Grades 中的 quiz 已能显示和关联，但提交复核仅处理 `/mod/assign/`，没有 quiz 详情解析及补分数链路 | 移植判断与反例测试；已完成测验不再误判为待完成 |
-| 跨课程总评 Overview | `fetch_grade_overview`（2766）读取 `/grade/report/overview/index.php`；`parse_grade_overview` 保留课程 ID、字母和原文 | 目前只有单课程 user report 的 total；没有独立 Overview 来源 | 增加独立原文来源，不能把裸总评臆定成满分 100，也不能用它补分类权重 |
-| 增量同步复核成绩 | `recheck_assignment_statuses`（1135）即便课程指纹没变化仍复核未评分项目详情，再读一次 Grades，并仅返回差异 | `reconcileSubmissions` 只查最近 30 天有 due 的 assign 状态；成绩快照独立按 5 分钟 TTL／进入页面／手动刷新读取。一般 Moodle 同步没有同样的成绩差异合并链路 | 补 Grades 已确认项目的状态／分数复核；复用现有缓存，不用整页反复全量读取 |
+### API 增量字段
 
-匿名反例已执行：分类标题 `Exam (60%)`、`.weight-content` 为空时，本地解析 weight/categoryWeight 均为 null，计算 totalWeight 为 0；按上游补标题 weight 后 totalWeight 为 60。这个缺口可以复现，但未确认仍缺权重的真实课程是否采用该格式。
+`GET /api/moodle/grades[?refresh=1]` 仍返回 `{ courses, cache }`：
 
-### 已算出但未充分展示，以及尚未接入的功能
+- item 增加 `gradingState`（graded/submitted/pending/unknown）、`gradeSource`（gradebook/activity）及详情成功时间 `detailFetchedAt`。
+- course 增加 `courseShortName`、`overviewGrade`、`overviewWarning`、`detailWarning`、`assessmentFetchedAt`、`assessmentStale`、`gradeChanges`。
+- 变化事件为 `{id,kind:released|changed,itemName,detectedAt}`；不包含前后分数。源响应中的成绩与反馈仍仅存在已有本地数据边界内。
+- `POST /api/sync` 的 Moodle 成功响应可能有 `gradeWarning`：表示内容同步完成但成绩复核有局部问题，成绩页用快照错误显示原因。全量任务对应来源 message 保留此提示。
 
-| 模块 | Muster 已有 | 本项目差异 | 复用方式／优先级 |
-|---|---|---|---|
-| 分类明细 | `GradeBreakdown.tsx:116` 每类显示已得／权重、分类进度、子项状态 | 我们目前只显示分类名称／百分比标签，评分项仍是平铺列表 | 可复制 TypeScript 组件逻辑，适配现有样式和文案；优先完善可解释性 |
-| 风险结论 | `useOutlook` 和 `CourseGradeRow` 展示 passed/on-track/at-risk/unreachable 等 | 计算器已返回 outcome，但页面没消费；只展示距 50 还差和剩余均分要求 | 复用状态映射，保留本地完整权重与可读分数门槛；不能直接照抄不完整结构下的风险措辞 |
-| 首页与读屏 | Dashboard 显示课程成绩入口；GradeBar 有 role/aria-label，图例语义化 | 成绩集中在独立页面，进度条缺同等文字可访问描述 | 展示增强，优先级低于数据准确性 |
-| 成绩学期切换 | Dashboard 默认 current，课程成绩跟随 displayCourses 的学期、隐藏及置顶排序（1282、1315） | 后端已遵循课程同步范围，但默认 activeSemester=null；成绩页没有独立学期快捷切换或置顶排序 | 属于部分接入；可参考展示层筛选，不应为切换视图强制重新读取上游 |
-| 成绩发布提醒 | `Dashboard.tsx:770` 对比 Overview，首次同步不提醒，后续有新值时显示应用横幅／系统通知 | 没有成绩快照差异驱动的专用提醒；一般消息分诊不是同一功能 | 可移植 diff 和首次同步保护，通知方式适配本项目，避免重复提示 |
-| 成绩结构诊断 | `diagnostics.ts:33,42` 输出 gradeShape、带满分数量、分类／活动链接数量、权重和及 outcome，不含分数或反馈 | 本次能用临时脚本输出匿名计数，但产品内没有可复用的成绩诊断入口 | 可直接复制纯 TypeScript 诊断逻辑；便于定位缺权重、缺满分、匹配失败 |
-| 同步内页面缓存和节流 | `http.rs:46,79` 对同 URL 合并请求并在一次同步内缓存；`scraper.rs:192` 共享作用域；429/503 延长共享 gate 冷却 | 已有结果级 SQLite 缓存、请求合并和前端共享查询，不缺基本 cache；Moodle transport 没有同等 URL 级页面共享和全局 Retry-After 节流 | 参考 Rust 思路适配 Node；用于资料和成绩共享页面、避免并发重复读，不能替代结果快照 |
-| 学习建议中的成绩事实 | `studyGuide/facts.ts:10,56` 保留已验证分数，分类权重标 estimated；单独的 buildGuideScore 对不明确规则返回 unknown。`StudyGuidePanel.tsx:73` 实际使用；Overview 还进入 priorities 上下文 | 本地分诊模型处理单条消息，不消费成绩快照或提供同等成绩事实／学习建议链路 | 后续学习规划功能再考虑；纯 TS 可复用。`aiContext.ts` 的可选 gradeEntries 字段不是独立抓取器，不应把声明当成完整已接入链路 |
+### 验证和限制
 
-### 本地额外薄弱点与不宜直接复制的部分
+2026-11-11 最终检查：后端 `rtk npm run check` 35 文件／368 项测试及构建通过；前端 check、22 文件／152 项 Vitest 通过。既有 Vite 大于 500 kB chunk 提示保留。
 
-- Assessments 请求失败时返回空结构并提示，单课 Grades 成功仍会覆盖旧课程快照；现有整课失败回退不能保证旧权重继续保留。这是本地缓存粒度缺口，不能说 Muster 已有一份能直接复制的“保留旧 Assessments 结构”实现。可参考其失败保留状态、按课程／项目合并的思想，单独标记旧结构时间和来源。
-- Muster `useOutlook` 使用原 outcome；原计算器在已知权重仅 20 时也可能给出 unreachable。我们当前对及格推断有更严格的门槛，应保留，不能把部分权重误当全部。
-- Muster 也没有通用 hurdle 判定或正式 WAM/GPA 算法，不能列成“漏搬的成熟模块”。其 LinksPage 只是引导至 WES 查看正式学籍成绩。
-- Rust 抓取、Tauri WebView 和系统通知不能逐字搬入 Node/Web App；可移植解析规则与测试。无需为了成绩功能引入 Tauri。参考仓库会保存部分 HTML 调试材料，不应照搬为真实学生页面自动落盘。
+隔离浏览器 smoke 覆盖 Overview 原文、隐藏评分、分类与空考试、结构诊断无敏感内容、学期切换请求数不增加、首页与成绩页共享查询、提醒关闭及路由去重、全断开首次运行不读成绩。服务使用随机端口、临时 SQLite、MemorySecretStore、临时 OnTrack 目录和阻断／mock 网络；匿名截图放在忽略的 `build/audit/browser-smoke/`。不代表真实课程的分数／教师规则已逐项核对，也未测真实延迟或长期会话。
 
-建议顺序：标题权重回退 → Grades 确认后的详情补全与隐藏评分状态 → quiz 解析及增量复核 → Overview 原文 → 分类明细／诊断 → 成绩提醒与页面共享缓存 → 学习建议集成。以上需要后续实施和各自回归，本轮未将待办表述为已修复。
+仍不支持通用 hurdle、正式 WAM/GPA、成绩流式响应或课程主页 fingerprint；这些也不是此次可直接搬用的成熟计算规则。详情按需补全仍会增加冷启动页面请求，页缓存和并发边界用于减少重复，不宣称固定提速倍数。全部改动按完成批次本地 commit，未 push。

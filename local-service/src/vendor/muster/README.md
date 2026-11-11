@@ -19,8 +19,10 @@ remain available. The upstream revision also contains this classification's test
 `assessment-structure.ts` ports `parse_assessments_from_html`, assessment-section
 discovery and `parse_weight_percent` from the same revision. Widget categories
 retain IDs, category weights, linked children and empty exam categories. The
-older activity-list template retains explicit item weights. Grades remains the
-only source of released scores; unmatched assessment links stay pending metadata.
+older activity-list template retains explicit item weights. Missing widget weights
+fall back to category titles, preserving explicit zero. Grades controls scored-item
+eligibility and primary scores; confirmed activity details may fill missing values.
+Unmatched assessment links stay pending metadata.
 The frontend uses the unchanged upstream calculator to split category weights.
 
 `grade-details.ts` adapts assignment feedback/grading status, quiz attempt/grade
@@ -31,6 +33,12 @@ adaptation restricts assignment inspection to Moodle status/feedback tables,
 keeps quiz reads within activity content, rejects date-shaped scores, and omits
 empty overview placeholders and foreign-origin course links. Grading timestamps
 remain the source's display text; this module does not guess a timezone.
+
+`../../moodle-page-reader.ts` adapts `src-tauri/src/moodle/http.rs::PageFetcher`
+from the same revision: successful HTML only, single-flight per logical grade read,
+800 entries / 96 MiB retained, 8 MiB per page and 20-second timeout. Credential
+checks and independent cancellation are Node adaptations. `moodle-transport.ts`
+shares bounded 429/503 Retry-After cooldown, without automatically retrying.
 
 Preserve [LICENSE](LICENSE) and [NOTICE](NOTICE), Copyright 2026 Poetrynan,
 PolyForm Noncommercial 1.0.0. This port does not change the upstream license.
