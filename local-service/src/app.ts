@@ -20,7 +20,8 @@ import { syncEd, syncMoodle, syncMoodleForum } from "./sync/sources.js";
 import { syncAllMoodleContent } from "./sync/moodle-content.js";
 import { FullSyncJobs, type SyncSource } from "./sync/jobs.js";
 import { MoodleClient } from "./sources/moodle.js";
-import { MoodleGradesClient, MoodleGradesError } from "./sources/moodle-grades.js";
+import { MoodleGradesClient, MoodleGradesError, type MoodleGradeCourse } from "./sources/moodle-grades.js";
+import { matchGradebookItem } from "./vendor/muster/assessment-match.js";
 import { EdClient } from "./sources/ed.js";
 import { syncMoodleContent } from "./sync/moodle-content.js";
 import { downloadMoodleResource, MoodleDownloadError, moodleCookieHeader, safeDownloadName } from "./moodle-download.js";
@@ -29,7 +30,7 @@ import { captureMoodlePage } from "./moodle-snapshot.js";
 import { MoodleSessionTransport } from "./moodle-transport.js";
 import { AssetFetchError, fetchAsset } from "./safe-download.js";
 import { withTimeout } from "./http.js";
-import { ResourceCache, RESOURCE_TTL, CacheIdentityChangedError } from "./resource-cache.js";
+import { ResourceCache, RESOURCE_TTL, CacheIdentityChangedError, type CacheMetadata } from "./resource-cache.js";
 import { coursePreferencesSchema, getMoodleCoursePreferences, saveMoodleCoursePreferences } from "./course-preferences.js";
 import { attendanceScanKey } from "./attendance/scan-key.js";
 import type { ApiError, ChangesResponse, ItemChange, Source } from "./domain.js";
@@ -1271,9 +1272,34 @@ export function buildApp(options: AppOptions): FastifyInstance {
     return { courseId, items: db.listMoodleContent(courseId) };
   });
 
+  /** Grades and assignment materials share one account/range snapshot and refresh. */
+  async function readMoodleGrades(raw: string, force = false): Promise<{ data: MoodleGradeCourse[]; cache: CacheMetadata }> {
+    const credentials = moodleCredentials.parse(JSON.parse(raw));
+    const identity = moodleCredentialIdentity(raw);
+    const preferences = getMoodleCoursePreferences(db, identity);
+    // A range change selects a different snapshot without discarding the course
+    // directory or allowing a refresh for the previous range to overwrite it.
+    const range = createHash("sha256").update(JSON.stringify(preferences)).digest("hex").slice(0, 16);
+    return resourceCache.read({ source: "moodle", identity, resource: `grades:v4:${range}`, ttlMs: RESOURCE_TTL.grades,
+      currentIdentity: () => credentialIdentity("moodle"), force }, async (previous: Awaited<ReturnType<MoodleGradesClient["pull"]>> | undefined, snapshot) => {
+      const pulled = await new MoodleGradesClient(credentials.baseUrl, moodleCookieHeader(credentials), moodleTransport.forCredentials(raw)).pullDetailed(preferences);
+      const failed = new Set(pulled.failedCourseIds);
+      const at = new Date().toISOString();
+      const coverage = Object.fromEntries([
+        ...Object.entries(snapshot?.coverage ?? {}).filter(([id]) => failed.has(id)),
+        ...pulled.courses.map((course) => [course.courseId, at]),
+      ]);
+      return {
+        data: [...pulled.courses, ...(previous ?? []).filter((course) => failed.has(course.courseId))],
+        error: failed.size ? `部分课程成绩刷新失败，保留上次成功数据（课程 ${[...failed].join("、")}）。` : null,
+        coverage, failedIds: [...failed],
+      };
+    });
+  }
+
   /**
-   * Read-only Moodle assignment materials and their Moodle changes. All data
-   * comes from the local database, even when the Moodle session has expired.
+   * Only Grades-confirmed assessment content and its Moodle changes.
+   * Existing account-scoped grade snapshots remain usable when Moodle is offline.
    */
   app.get<{ Querystring: { courseId?: string } }>("/api/pack", async (request) => {
     const courseId = request.query.courseId?.trim() || null;
@@ -1281,8 +1307,37 @@ export function buildApp(options: AppOptions): FastifyInstance {
     const courseCode = (course: string) => /^[A-Za-z]{2,5}\d{3,4}/.exec(course.trim())?.[0].toUpperCase() ?? course.trim();
     const assignments = db
       .listAllMoodleContent()
-      .filter((row) => row.module === "assign")
+      .filter((row) => row.module === "assign" || row.module === "quiz")
       .filter((row) => !courseId || row.courseId === courseId);
+
+    const raw = await secrets.get("moodle-credentials");
+    let grades: MoodleGradeCourse[] = [];
+    let baseUrl = "";
+    let verificationWarning: string | null = null;
+    if (assignments.length > 0) {
+      if (!raw) verificationWarning = "尚未连接 Moodle，无法通过 Grades 确认评分作业。请先连接 Moodle。";
+      else {
+        try {
+          baseUrl = moodleCredentials.parse(JSON.parse(raw)).baseUrl;
+          const result = await readMoodleGrades(raw);
+          grades = result.data;
+          if (result.cache.error) verificationWarning = "Grades 更新失败，当前仅显示上次成绩册已确认的作业。请到「成绩」重新读取。";
+          if (assignments.some((row) => !grades.some((course) => course.courseId === row.courseId))) {
+            verificationWarning ??= "部分课程尚无可用的 Grades 成绩册或不在同步范围，暂不列出其作业。请到「成绩」读取，或在「每周资料」调整同步范围。";
+          }
+        } catch (error) {
+          if (error instanceof CacheIdentityChangedError) throw error;
+          verificationWarning = "暂时无法读取 Grades 确认评分作业，未确认的内容暂不列出。请到「成绩」检查连接并重新读取。";
+        }
+      }
+    }
+    const byCourse = new Map(grades.map((course) => [course.courseId, course.items]));
+    const matched = assignments.flatMap((row) => {
+      const peers = assignments.filter((candidate) => candidate.courseId === row.courseId)
+        .map((candidate) => ({ name: candidate.title, url: candidate.url }));
+      const gradeItem = matchGradebookItem({ name: row.title, url: row.url }, byCourse.get(row.courseId) ?? [], peers, baseUrl);
+      return gradeItem ? [{ row, gradeItem }] : [];
+    });
 
     // Due dates and completion live on the normalized brief item, not on the content row.
     const briefByUrl = new Map(
@@ -1298,10 +1353,12 @@ export function buildApp(options: AppOptions): FastifyInstance {
 
     return {
       rubric: null,
-      assignments: assignments.map((row) => {
+      verificationWarning,
+      assignments: matched.map(({ row, gradeItem }) => {
         const brief = briefByUrl.get(row.url);
         return {
           id: row.id,
+          gradeItemId: gradeItem.id,
           courseId: row.courseId,
           course: courseCode(row.courseName),
           courseName: row.courseName,
@@ -1326,28 +1383,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.get("/api/moodle/grades", async (request, reply) => {
     const raw = await secrets.get("moodle-credentials");
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
-    const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const identity = moodleCredentialIdentity(raw);
-      const preferences = getMoodleCoursePreferences(db, identity);
-      // A range change selects a different snapshot without discarding the course
-      // directory or allowing a refresh for the previous range to overwrite it.
-      const range = createHash("sha256").update(JSON.stringify(preferences)).digest("hex").slice(0, 16);
-      const result = await resourceCache.read({ source: "moodle", identity, resource: `grades:v4:${range}`, ttlMs: RESOURCE_TTL.grades,
-        currentIdentity: () => credentialIdentity("moodle"), force: forcedRefresh(request.url) }, async (previous: Awaited<ReturnType<MoodleGradesClient["pull"]>> | undefined, snapshot) => {
-        const pulled = await new MoodleGradesClient(credentials.baseUrl, moodleCookieHeader(credentials), moodleTransport.forCredentials(raw)).pullDetailed(preferences);
-        const failed = new Set(pulled.failedCourseIds);
-        const at = new Date().toISOString();
-        const coverage = Object.fromEntries([
-          ...Object.entries(snapshot?.coverage ?? {}).filter(([id]) => failed.has(id)),
-          ...pulled.courses.map((course) => [course.courseId, at]),
-        ]);
-        return {
-          data: [...pulled.courses, ...(previous ?? []).filter((course) => failed.has(course.courseId))],
-          error: failed.size ? `部分课程成绩刷新失败，保留上次成功数据（课程 ${[...failed].join("、")}）。` : null,
-          coverage, failedIds: [...failed],
-        };
-      });
+      const result = await readMoodleGrades(raw, forcedRefresh(request.url));
       reply.header("cache-control", "no-store");
       return { courses: result.data, cache: result.cache };
     } catch (error) {

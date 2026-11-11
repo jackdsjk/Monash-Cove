@@ -80,7 +80,7 @@ Combines Moodle and OnTrack deadlines, grouped into **Overdue / Within 24 hours 
 
 ### 3.4 Weekly materials
 
-Materials grouped by course and section, with week/section, type and text filters, batch selection and download. Long course names use a separate selector so the heading stays readable. **Moodle assignment materials** has its own searchable course/status list and exports Moodle instructions and changes; OnTrack files stay on OnTrack.
+Materials grouped by course and section, with week/section, type and text filters, batch selection and download. Long course names use a separate selector so the heading stays readable. **Moodle assignment materials** has its own searchable course/status list and exports instructions and changes only for assignments or quizzes confirmed by Moodle Grades; OnTrack files stay on OnTrack.
 
 ### 3.5 OnTrack
 

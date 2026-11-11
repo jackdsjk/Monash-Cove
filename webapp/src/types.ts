@@ -470,6 +470,8 @@ export interface SectionGroup extends SectionMeta {
 /** 一条已同步到本机的 Moodle 作业及其 Moodle 变更。 */
 export interface PackAssignmentView {
   id: string;
+  /** Grades item that confirms this activity is an assessment. */
+  gradeItemId: string;
   courseId: string;
   /** 由课程名解析出的课程代码，如 FIT1047。 */
   course: string;
@@ -490,4 +492,5 @@ export interface PackAssignmentView {
 export interface PackResponse {
   rubric: null;
   assignments: PackAssignmentView[];
+  verificationWarning: string | null;
 }

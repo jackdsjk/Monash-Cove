@@ -17,7 +17,7 @@
 | [muster-reuse-and-cache-2026-11-10.md](muster-reuse-and-cache-2026-11-10.md) | 页面读取基线、Muster 机制适配、实施边界与验证结果 | **缓存基础版本、同步范围与状态一致性已实施；测试及隔离浏览器回归通过** |
 | [always-ontrack-reuse-2026-11-11.md](always-ontrack-reuse-2026-11-11.md) | OnTrack 定义优先任务、可访问历史回填、只读下载的参考来源与接入边界 | **代码已接入；集成验证结果见文内记录** |
 | [moodle-session-reliability-2026-11-11.md](moodle-session-reliability-2026-11-11.md) | 参照 Muster 的 Cookie 轮换、UA、会话维护和离线判定修复 | **277 后端 / 87 前端测试、两端构建及隔离 E2E 通过；未复验真实账号** |
-| [learning-pages-and-grades-2026-11-11.md](learning-pages-and-grades-2026-11-11.md) | 资料页筛选／布局、Moodle 作业资料、OnTrack 文件与 Muster 成绩适配 | **289 后端 / 118 前端测试、两端构建及隔离浏览器回归通过；真实成绩未逐项复核** |
+| [learning-pages-and-grades-2026-11-11.md](learning-pages-and-grades-2026-11-11.md) | 资料页筛选／布局、Moodle 作业资料、OnTrack 文件与 Muster 成绩适配 | **补修 Grades 评分项识别及作业关联；295 后端 / 119 前端测试、构建及隔离浏览器回归通过；真实成绩未逐项复核** |
 | [plan/real-path/plan.md](plan/real-path/plan.md) | Agent 执行计划：S1–S8、连续执行规则、阶段验收和阻塞处理 | **执行指针为 done；历史真实账号记录见 next.md / execution-log.md** |
 | [plan/release-signing.md](plan/release-signing.md) | 发布产物的签名、完整性校验、更新通道与 CI 断言方案（参照 Muster，含 macOS/Windows 差异） | **草案；S0 未实施** |
 | [information-triage-labeling-guide.md](information-triage-labeling-guide.md) | 真实样本的匿名化、人工标注口径与第一版评测指标 | **当前评测规范** |

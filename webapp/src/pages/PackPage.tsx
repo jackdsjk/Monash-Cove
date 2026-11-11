@@ -101,15 +101,22 @@ export function PackPage() {
       <span>{error}</span>
     </div>
   )
+  const verification = payload?.verificationWarning && (
+    <div role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      <p>{payload.verificationWarning}</p>
+      <Button className="mt-2" size="sm" onClick={() => navigate('/grades')}>查看成绩册</Button>
+    </div>
+  )
 
   if (packs.length === 0) {
     return (
       <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
         <PageTitle
           title="Moodle 作业资料"
-          description="按课程和状态查找 Moodle 作业，将作业原文和关联变更导出为 Markdown 或 JSON。"
+          description="仅列出 Grades 成绩册确认的 Moodle 评分作业与测验，支持按课程和状态筛选及导出。"
         />
         {banner}
+        {verification}
         <Panel>
           <EmptyLine>
             <p className="font-semibold text-slate-700">
@@ -118,8 +125,8 @@ export function PackPage() {
             {!loading && (
               <p className="mx-auto mt-1 max-w-[52ch]">
                 {error
-                  ? '资料包只读取本机已同步的数据，不会编造内容。稍后重试，或先到「来源」检查后端服务。'
-                  : '还没有同步到 Moodle 作业。先到「来源」连接 Moodle 并同步课程资料，再回来生成资料包。'}
+                  ? '稍后重试，或到「成绩」检查成绩册读取情况。'
+                  : '只显示能与 Grades 评分项关联的作业或测验。请同步课程资料并读取成绩册；普通练习和资料不会列入。'}
               </p>
             )}
             {!loading && (
@@ -142,10 +149,11 @@ export function PackPage() {
     <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
       <PageTitle
         title="Moodle 作业资料"
-        description="按课程和状态查找 Moodle 作业，将作业原文和关联变更导出为 Markdown 或 JSON。"
+        description="仅列出 Grades 成绩册确认的 Moodle 评分作业与测验，支持按课程和状态筛选及导出。"
       />
 
       {banner}
+      {verification}
 
       <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[400px_minmax(0,1fr)]">
         <div className="min-w-0 space-y-5">

@@ -45,7 +45,7 @@ export interface AssignmentPack {
   changes: PackChange[]
 }
 
-const NOTE = '仅包含本机已同步的 Moodle 作业正文与关联变更。如有差异，以 Moodle 最新原文为准。'
+const NOTE = '仅包含 Grades 成绩册已确认、本机已同步的 Moodle 评分作业与测验正文及关联变更。如有差异，以 Moodle 最新原文为准。'
 
 function parseTime(value: string | null): number | null {
   if (!value) return null
@@ -56,7 +56,8 @@ function parseTime(value: string | null): number | null {
 /** 接口数据 → 导出模型。所有时间都转成毫秒，缺失字段保持缺失。 */
 export function toAssignmentPacks(response: PackResponse): AssignmentPack[] {
   const packs = response.assignments.filter((entry) => {
-    try { return new URL(entry.url).pathname === '/mod/assign/view.php' } catch { return false }
+    if (!entry.gradeItemId) return false
+    try { return /^\/mod\/(assign|quiz)\/view\.php$/.test(new URL(entry.url).pathname) } catch { return false }
   }).map((entry) => ({
     id: entry.id,
     courseId: entry.courseId,

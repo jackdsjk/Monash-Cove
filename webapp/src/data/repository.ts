@@ -351,9 +351,9 @@ export async function fetchMoodleContent(courseId: number): Promise<MoodleConten
   return data.items;
 }
 
-/** Moodle 作业与变更：从本机读取，不依赖当前 Moodle 会话。 */
+/** Grades 确认的 Moodle 作业；首次核验与成绩页共享快照和读取超时。 */
 export async function fetchPack(courseId?: string): Promise<PackResponse> {
-  return getJson<PackResponse>(courseId ? `/pack?courseId=${encodeURIComponent(courseId)}` : "/pack");
+  return getJson<PackResponse>(courseId ? `/pack?courseId=${encodeURIComponent(courseId)}` : "/pack", 90_000);
 }
 
 /** 成绩册要逐门课程抓取，比普通接口慢，所以单独放宽超时。 */

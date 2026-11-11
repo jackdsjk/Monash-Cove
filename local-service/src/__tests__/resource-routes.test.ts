@@ -17,30 +17,83 @@ beforeEach(() => {
 });
 
 describe("single source sync HTTP results", () => {
-  it("keeps Moodle assignment exports separate from other sources and supports course filtering", async () => {
-    app = buildApp({ dbPath: ":memory:", seed: true, secretStore: new MemorySecretStore() });
+  it("exports only Grades-confirmed Moodle work, sharing the grade cache and preserving course boundaries", async () => {
+    const secrets = new MemorySecretStore();
+    let assignmentUrl = "";
+    let offline = false;
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      if (offline) throw new Error("Fixture offline");
+      const url = new URL(String(input));
+      if (url.pathname === "/my/") return new Response('<script>{"sesskey":"fixture"}</script>');
+      if (url.pathname === "/lib/ajax/service.php") return Response.json([{ error: false, data: { courses: [
+        { id: 101, shortname: "TEST101_S2_2026", fullname: "Fixture 101" },
+        { id: 102, shortname: "TEST101_S1_2026", fullname: "Fixture 102" },
+      ] } }]);
+      if (url.pathname === "/grade/report/user/index.php") return new Response(`<table class="user-grade">
+        <tr><th>Grade item</th><th>Grade</th><th>Range</th></tr>
+        ${url.searchParams.get("id") === "101" ? `<tr><td><a class="gradeitemheader" href="${assignmentUrl}">Renamed assessment</a></td><td>-</td><td>0–100</td></tr>
+          <tr><td><a class="gradeitemheader" href="/mod/quiz/view.php?id=4">Graded quiz</a></td><td>0</td><td>0–10</td></tr>` : ""}
+        <tr><td>Other semester</td><td>100</td><td>0–100</td></tr></table>`);
+      throw new Error(`Unexpected fixture URL: ${url.pathname}`);
+    });
+    app = buildApp({ dbPath: ":memory:", seed: true, secretStore: secrets, fetcher });
     const db = (app as FastifyInstance & { coveDb: CoveDatabase }).coveDb;
     const storedMoodle = db.listItems({ source: "moodle" })[0];
+    const baseUrl = "https://moodle.example.invalid";
+    assignmentUrl = `${baseUrl}/mod/assign/view.php?id=1`;
+    db.db.prepare("UPDATE items SET url = ? WHERE id = ?").run(assignmentUrl, storedMoodle.id);
+    await secrets.set("moodle-credentials", JSON.stringify({ baseUrl, session: "fixture" }));
     const base = { sectionNumber: 1, sectionTitle: "Week 1", module: "assign", text: "Fixture Moodle instructions", updatedAt: new Date().toISOString() };
     db.replaceMoodleContent("101", [
-      { ...base, id: "assignment-101", courseId: "101", courseName: "TEST101_S2_2026", title: "Moodle assignment", url: storedMoodle.url },
-      { ...base, id: "resource-101", courseId: "101", courseName: "TEST101_S2_2026", module: "resource", title: "Weekly file", url: "https://moodle.example.invalid/mod/resource/view.php?id=2" },
+      { ...base, id: "assignment-101", courseId: "101", courseName: "TEST101_S2_2026", title: "Moodle assignment", url: assignmentUrl },
+      { ...base, id: "practice", courseId: "101", courseName: "TEST101_S2_2026", title: "Practice assignment", url: `${baseUrl}/mod/assign/view.php?id=90` },
+      { ...base, id: "quiz-101", courseId: "101", courseName: "TEST101_S2_2026", module: "quiz", title: "Graded quiz", url: `${baseUrl}/mod/quiz/view.php?id=4` },
+      { ...base, id: "resource-101", courseId: "101", courseName: "TEST101_S2_2026", module: "resource", title: "Weekly file", url: `${baseUrl}/mod/resource/view.php?id=2` },
     ]);
     db.replaceMoodleContent("102", [
-      { ...base, id: "assignment-102", courseId: "102", courseName: "TEST101_S1_2026", title: "Other semester", url: "https://moodle.example.invalid/mod/assign/view.php?id=3" },
+      { ...base, id: "assignment-102", courseId: "102", courseName: "TEST101_S1_2026", title: "Other semester", url: assignmentUrl },
     ]);
-    const response = await app.inject("/api/pack");
+    const [response, gradeResponse] = await Promise.all([app.inject("/api/pack"), app.inject("/api/moodle/grades")]);
     expect(response.statusCode).toBe(200);
+    expect(gradeResponse.statusCode).toBe(200);
     const body = response.json();
-    expect(body.assignments.map((item: { id: string }) => item.id)).toEqual(["assignment-102", "assignment-101"]);
+    expect(body.assignments.map((item: { id: string }) => item.id).sort()).toEqual(["assignment-101", "quiz-101"]);
+    expect(body.verificationWarning).toBeNull();
     expect(body).not.toHaveProperty("postsPerRole");
     for (const assignment of body.assignments) {
       expect(assignment).not.toHaveProperty("posts");
+      expect(assignment.gradeItemId).toBeTruthy();
       expect(assignment.text).toBe("Fixture Moodle instructions");
     }
-    expect(body.assignments[1].dueAt).toBe(storedMoodle.dueAt);
-    expect((await app.inject("/api/pack?courseId=101")).json().assignments.map((item: { id: string }) => item.id)).toEqual(["assignment-101"]);
+    expect(body.assignments.find((item: { id: string }) => item.id === "assignment-101").dueAt).toBe(storedMoodle.dueAt);
+    expect(fetcher.mock.calls.filter(([input]) => String(input).includes("/grade/report/user/")).length).toBe(2);
+    const reads = fetcher.mock.calls.length;
+    expect((await app.inject("/api/pack?courseId=101")).json().assignments).toHaveLength(2);
+    expect((await app.inject("/api/pack?courseId=102")).json().assignments).toEqual([]);
     expect((await app.inject("/api/pack?courseId=unknown")).json().assignments).toEqual([]);
+    expect(fetcher).toHaveBeenCalledTimes(reads);
+    offline = true;
+    const stale = await app.inject("/api/moodle/grades?refresh=1");
+    expect(stale.json().cache.error).toBeTruthy();
+    const cached = (await app.inject("/api/pack")).json();
+    expect(cached.assignments).toHaveLength(2);
+    expect(cached.verificationWarning).toContain("上次成绩册");
+    // A different account must not reuse the previous account's confirmation.
+    await secrets.set("moodle-credentials", JSON.stringify({ baseUrl, session: "different-fixture-account" }));
+    const changed = (await app.inject("/api/pack")).json();
+    expect(changed.assignments).toEqual([]);
+    expect(changed.verificationWarning).toContain("暂时无法读取 Grades");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not infer assessment eligibility from local content when Moodle is disconnected", async () => {
+    app = buildApp({ dbPath: ":memory:", secretStore: new MemorySecretStore() });
+    const db = (app as FastifyInstance & { coveDb: CoveDatabase }).coveDb;
+    db.replaceMoodleContent("101", [{ id: "practice", courseId: "101", courseName: "Fixture", sectionNumber: 1,
+      sectionTitle: "Week 1", module: "assign", text: "Practice instructions", title: "Assignment 1", url: "https://moodle.example.invalid/mod/assign/view.php?id=1", updatedAt: new Date().toISOString() }]);
+    const response = (await app.inject("/api/pack")).json();
+    expect(response.assignments).toEqual([]);
+    expect(response.verificationWarning).toContain("尚未连接 Moodle");
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 

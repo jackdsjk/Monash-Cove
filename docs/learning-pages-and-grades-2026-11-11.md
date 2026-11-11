@@ -12,7 +12,7 @@
 | Ed 周次逆序且无法筛选 | 沿用上游返回顺序，缺本地筛选 | 复用平台数字排序及显式周识别，Week 1、2、10 升序；支持周、类型和标题／正文搜索，未知周和成功空 lesson 保留 |
 | 作业选择列表只放下两项 | 高度使用 `calc(100vh - 700px)` | 改为 420–760px 范围，长标题换行；加入课程 ID、状态与搜索筛选，选择和导出遵循可见集合 |
 | OnTrack 资料与 Moodle 作业资料归属不清 | OnTrack 下载 API 已存在但页面没有入口；原作业包还混入同课程 Ed 帖子 | OnTrack 任务行直接提供 Worksheet、任务资料和已有提交文件；原页面更名「Moodle 作业资料」，API 和导出仅保留 Moodle 作业及关联变更 |
-| 成绩计算有误 | 原 Muster helper 已复制，但 adapter 和页面另算等权平均；后端存在百分比尺度、缩进列、分类相对权重及总分重复处理问题 | 沿用 Muster helper 并统一适配，修正 gradebook 解析；无法证明的权重保留未知，Moodle 公布总评单列；快照升为 `grades:v3:<range>` |
+| 成绩计算有误 | 原 Muster helper 已复制，但 adapter 和页面另算等权平均；后端存在百分比尺度、缩进列、分类相对权重及总分重复处理问题 | 沿用 Muster helper 并统一适配，修正 gradebook 解析；无法证明的权重保留未知，Moodle 公布总评单列；快照随后升为 `grades:v4:<range>` |
 
 本地服务重启保留原数据库与连接。运行命令改为现有 `rtk npm run dev`，后续源码编辑由 tsx watch 重新加载；没有部署或清空数据。接口 200 只证明路由可用，不代表已经用真实课程核对所有计算结果。
 
@@ -34,9 +34,13 @@ Muster 参考的是用户目录 `/Users/Admin/Documents/Workspace/muster`，而�
 
 用户随后明确：只有 Moodle Grades 中的实际评分项才能作为成绩依据。后端现按 Muster `parse_gradebook_from_html` 的 `.gradeitemheader` 正向条件接纳项目，并按链接／名称去重；普通数值行、练习入口、分类小计都不成为评分项，未出分和手工录入项目仍保留。可读取但没有项目的成绩表是空集合，不是读取失败。快照升级到 `grades:v4:<range>`，避免复用旧的宽松解析结果。
 
-`local-service/src/vendor/muster/assessment-match.ts` 将上游 `apply_gradebook` 的活动 ID 优先、去权重文字后名称回退移植到 TypeScript，并保留 LICENSE/NOTICE。调用方必须按课程隔离；本地额外拒绝冲突 ID、外站链接及重复名称。成绩册／资源路由专项 33 项测试与后端构建通过；作业资料与 Grades 的路由接线和验证结果在完成后补记。
+`local-service/src/vendor/muster/assessment-match.ts` 将上游 `apply_gradebook` 的活动 ID 优先、去权重文字后名称回退移植到 TypeScript，并保留 LICENSE/NOTICE。调用方必须按课程隔离；本地额外拒绝冲突 ID、外站链接及重复名称。首批成绩册／资源路由专项 33 项测试与后端构建通过，提交 `1740352`。
 
-- `/api/pack?courseId=` 仍为只读本地端点，返回 `{ rubric:null, assignments }`，不再返回 `postsPerRole` 或 assignment `posts`。评分标准和附件没有源数据时明确显示缺失；不生成替代内容。课程筛选使用真实 courseId，避免同代码不同学期混合，作业 ID 不截断。
+作业资料现在仅包含同课程、当前账号 Grades 已确认的本地作业／测验，返回对应 `gradeItemId`；仅有 `/mod/assign/` 提交入口不够。前端也拒绝缺少该关联的旧数据。两个页面共用已有快照、同步范围和单次刷新，不再重复抓取；首次无快照才等待 Grades。读取失败仅保留同账号已确认的数据，无快照／未连接／课程无报告时不凭空判定，提供 `verificationWarning` 与「查看成绩册」入口。普通资料仍保留在每周资料中，没有删除源内容。
+
+完成验证：后端 31 文件／295 测试、前端 18 文件／119 测试、两端 check 与浏览器 smoke 全通过。HTTP 回归覆盖同时读取共享请求、未出分 assignment 与零分 quiz、未评分练习排除、跨课程隔离、离线旧快照和换账号隔离；浏览器覆盖未确认条目排除及核验失败提示。仍为匿名 fixture，未读取真实账号成绩。
+
+- `/api/pack?courseId=` 仍为只读本地端点，返回 `{ rubric:null, assignments, verificationWarning }`，每项带 Grades 的 `gradeItemId`，不再返回 `postsPerRole` 或 assignment `posts`。评分标准和附件没有源数据时明确显示缺失；不生成替代内容。课程筛选使用真实 courseId，避免同代码不同学期混合，作业 ID 不截断。
 - 周／板块与类型筛选影响可见资料和选择下载；Ed 的「下载整门课」仍明确导出完整课程，并按升序组织 Markdown，不因筛选悄悄改变其语义。
 - OnTrack `kind=task|resources|submission` 对应任务书、任务资料和已有提交文件。未实例化任务保留任务书／资料按钮，禁用提交下载；失败就地显示，切换连接取消旧请求。
 - 成绩零分合法，未评分不视为零分；百分比成绩使用 100 分尺度，分类小计不重复计入评分项。仅在可追溯到分类祖先时折算相对权重；未知权重／满分不等权补齐，不把部分权重拉伸为整门课 100%。WAM/GPA 缺历史学期与学分时仍为未知。

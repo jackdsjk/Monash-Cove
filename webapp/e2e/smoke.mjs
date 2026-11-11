@@ -133,9 +133,9 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
   }));
   const now = Date.now();
   const assignments = Array.from({ length: 12 }, (_, index) => ({
-    id: `moodle:fixture-assignment-${index + 1}`, courseId: index < 6 ? "101" : "102", course: "TEST1001",
+    id: `moodle:fixture-assignment-${index + 1}`, gradeItemId: `grade-${index + 1}`, courseId: index < 6 ? "101" : "102", course: "TEST1001",
     courseName: courses[index < 6 ? 0 : 1].shortname, title: `Fixture Assignment ${String(index + 1).padStart(2, "0")}`,
-    url: `https://moodle.example.invalid/mod/assign/view.php?id=${index + 1}`, text: `Moodle-only content ${index + 1}`,
+    url: `https://moodle.example.invalid/mod/${index === 0 ? "quiz" : "assign"}/view.php?id=${index + 1}`, text: `Moodle-only content ${index + 1}`,
     dueAt: index % 4 === 0 ? null : new Date(now + (index % 3 === 0 ? -1 : 1) * 86400_000).toISOString(),
     completedAt: index === 1 ? new Date(now - 3600_000).toISOString() : null, changes: [],
   }));
@@ -146,6 +146,7 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
   const tasks = [task, { ...task, id: 502, isInstantiated: true, taskDefinitionId: 402, abbreviation: "2.1P", name: "Submitted fixture worksheet", status: "complete" }];
   let preferences = { activeSemester: null, hiddenCourseIds: [], pinnedCourseIds: [] };
   let oldPreferencesService = false;
+  let packVerificationUnavailable = false;
   const batchRequests = [];
   const artifacts = [];
   await page.route("**/api/**", (route) => {
@@ -177,8 +178,10 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     if (pathname === "/api/ed/courses") return route.fulfill({ json: { courses: [{ id: 201, code: "TEST1001", name: "Fixture Ed course" }] } });
     if (pathname === "/api/ed/lessons") return route.fulfill({ json: { lessons: summaries } });
     if (pathname === "/api/ed/lesson") return route.fulfill({ json: details.find((detail) => detail.id === Number(url.searchParams.get("lessonId"))) });
-    if (pathname === "/api/pack") return route.fulfill({ json: { rubric: null, assignments: [...assignments,
-      { ...assignments[0], id: "ontrack:sentinel", title: "Excluded OnTrack task", url: "https://ontrack.example.invalid/tasks/1" }],
+    if (pathname === "/api/pack" && packVerificationUnavailable) return route.fulfill({ json: { rubric: null, assignments: [], verificationWarning: "暂时无法读取 Grades 确认评分作业，未确认的内容暂不列出。" } });
+    if (pathname === "/api/pack") return route.fulfill({ json: { rubric: null, verificationWarning: null, assignments: [...assignments,
+      { ...assignments[0], id: "ontrack:sentinel", title: "Excluded OnTrack task", url: "https://ontrack.example.invalid/tasks/1" },
+      { ...assignments[0], id: "practice:sentinel", title: "Excluded practice portal", gradeItemId: "" }],
       posts: [{ title: "Excluded Ed sentinel", text: "This must not appear in Moodle exports" }],
     } });
     if (pathname === "/api/ontrack/overview") return route.fulfill({ json: { connected: true, account: null, projects: [] } });
@@ -288,7 +291,13 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     const exportResult = JSON.parse(exported);
     assert.equal(exportResult.assignments.length, 1);
     assert.equal(exportResult.assignments[0].title, "Fixture Assignment 12");
-    assert.ok(!exported.includes("Excluded Ed sentinel") && !exported.includes("Excluded OnTrack task"), "Moodle export must not mix other sources");
+    assert.ok(!exported.includes("Excluded Ed sentinel") && !exported.includes("Excluded OnTrack task") && !exported.includes("Excluded practice portal"), "Moodle export requires Grades confirmation and must not mix other sources");
+    packVerificationUnavailable = true;
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.getByRole("status").filter({ hasText: "暂时无法读取 Grades" }).waitFor();
+    assert.equal(await page.getByRole("list", { name: "Moodle 作业列表", exact: true }).count(), 0);
+    await page.getByRole("button", { name: "查看成绩册", exact: true }).click();
+    await page.getByRole("heading", { name: "成绩", exact: true }).waitFor();
 
     await page.goto(`${base}/#/ontrack`, { waitUntil: "domcontentloaded" });
     const unstarted = page.getByRole("listitem").filter({ hasText: "Unstarted fixture worksheet" });

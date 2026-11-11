@@ -27,7 +27,7 @@ function pack(over: Partial<AssignmentPack> = {}): AssignmentPack {
 
 function assignment(over: Partial<PackAssignmentView> = {}): PackAssignmentView {
   return {
-    id: 'moodle:assignment:123', courseId: '24', course: 'FIT2004', courseName: 'FIT2004_S2_2026',
+    id: 'moodle:assignment:123', gradeItemId: 'grade-123', courseId: '24', course: 'FIT2004', courseName: 'FIT2004_S2_2026',
     sectionTitle: 'Assessment', title: 'Assignment 2',
     url: 'https://moodle.example.invalid/mod/assign/view.php?id=123', text: 'Moodle fixture specification',
     dueAt: new Date(NOW + HOUR).toISOString(), completedAt: null, updatedAt: new Date(NOW).toISOString(),
@@ -35,9 +35,16 @@ function assignment(over: Partial<PackAssignmentView> = {}): PackAssignmentView 
   }
 }
 
-function payload(assignments: PackAssignmentView[]): PackResponse { return { rubric: null, assignments } }
+function payload(assignments: PackAssignmentView[]): PackResponse { return { rubric: null, assignments, verificationWarning: null } }
 
 describe('Moodle-only assignment packs', () => {
+  it('retains Grades-confirmed quizzes and rejects unverified submission portals', () => {
+    const packs = toAssignmentPacks(payload([
+      assignment({ id: 'quiz', url: 'https://moodle.example.invalid/mod/quiz/view.php?id=4' }),
+      assignment({ id: 'practice', gradeItemId: '' }),
+    ]))
+    expect(packs.map((entry) => entry.id)).toEqual(['quiz'])
+  })
   it('keeps full source IDs distinct and rejects task pages from other workflows', () => {
     const packs = toAssignmentPacks(payload([
       assignment({ id: 'moodle:assignment:123' }),

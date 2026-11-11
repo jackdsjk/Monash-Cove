@@ -56,7 +56,7 @@ npm run retriage
 - `GET /api/items/:id/detail`（来源原文、作者、老师/学生回复）
 - `GET /api/moodle/courses` / `POST /api/moodle/content-sync` / `GET /api/moodle/content?courseId=`
 - `GET/PATCH /api/moodle/course-preferences`（完整对象 `{activeSemester:null|"2026-S2",hiddenCourseIds:[],pinnedCourseIds:[]}`；课程 ID 为数字字符串）
-- `GET /api/pack?courseId=`（Moodle 作业资料：本机已同步的 Moodle 作业与关联变更，只读；不返回 Ed 帖子或 OnTrack 文件）
+- `GET /api/pack?courseId=`（Moodle 作业资料：只导出与 Grades 评分项关联的本地 Moodle 作业／测验及变更，只读；每项带 gradeItemId，未能核验时返回 verificationWarning；不返回 Ed 帖子或 OnTrack 文件）
 - `GET /api/moodle/download?url=`（仅 `mod/resource`，服务端用本机 session 代理文件）
 - `POST /api/moodle/download-batch`（1–100 个 resource，返回 ZIP）
 - `POST /api/sync/full` / `GET /api/sync/status`（Gmail/Ed/Moodle/OnTrack 全量后台任务与进度；未配置来源跳过，OnTrack 范围为账号当前可访问的项目及历史反馈）
@@ -91,6 +91,8 @@ Moodle 课程、成绩，Ed 课程/lesson，以及 OnTrack 概览/任务的 GET 
 每周资料页的“同步范围”按当前 Moodle 连接隔离保存：默认全部学期，支持显式学期、隐藏与置顶。未知学期保留，隐藏优先，置顶覆盖学期筛选。范围只影响批量资料同步和成绩抓取，不过滤已保存的资料浏览，也不改变简报 assessment/forum 拉取；单课手动同步可绕过范围。成绩快照包含范围版本，设置变更不会误用旧范围的缓存或删除课程目录。内部 Cookie 轮换保留范围；显式重连后需重新设置。
 
 成绩快照现为 `grades:v4:<range>`，避免沿用旧解析结果。按 Muster 的 `.gradeitemheader` 条件识别实际评分项并去重，保留未出分和手工录入项目；普通数值行和分类小计不计入。成绩列优先按 Moodle 类名读取，忽略缩进和操作菜单；支持百分比及分数范围，分类相对权重仅在祖先归属可确认时折算。未公布课程总分时保留 null；网络/503 与明确登录失效分别报告。参考和测试边界见 [资料页与成绩修复记录](../docs/learning-pages-and-grades-2026-11-11.md)。
+
+作业资料与成绩页共用当前账号／同步范围的 `grades:v4` 快照和单次刷新；首次无缓存时读取 Grades，后续复用。按课程隔离后，优先匹配活动 ID，再对去权重文字后的唯一名称匹配；冲突 ID、外站和歧义名称不通过。Grades 读取失败时保留同账号旧快照已确认的资料并提示；无可用快照或未连接则不列出未确认作业。仅有提交入口不代表参与评分，未出分的 Grades 项仍可关联。
 
 ## OnTrack 读取范围
 
