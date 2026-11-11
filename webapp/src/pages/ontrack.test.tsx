@@ -58,6 +58,22 @@ describe('OnTrack definition-first display', () => {
       .toContain('Awaiting review')
   })
 
+  it('shows worksheets and task resources on the OnTrack task, with no invented submission', () => {
+    const html = showTasks([{ ...task, description: 'Fixture worksheet instructions' }])
+    expect(html).toContain('任务书 / Worksheet')
+    expect(html).toContain('任务资料')
+    expect(html).toContain('Fixture worksheet instructions')
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>已提交文件<\/button>/)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('allows submission downloads for a real task instance', () => {
+    const html = showTasks([{ ...task, id: 42, isInstantiated: true }])
+    expect(html).toContain('已提交文件')
+    expect(html).not.toContain('此任务还没有个人实例')
+    expect(html).not.toContain('disabled=""')
+  })
+
   it('describes the accessible OnTrack history scope in settings', () => {
     const html = renderToStaticMarkup(<SettingsPage />)
     expect(html).toContain('Gmail、Ed、Moodle 和 OnTrack')

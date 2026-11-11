@@ -1,9 +1,11 @@
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { onTrackOverviewQuery, onTrackTasksQuery } from '../data/repository'
 import type { OnTrackTaskView } from '../types'
 import { useResourceQuery } from '../lib/use-resource-query'
 import { CacheStatus } from '../components/CacheStatus'
 import { fmtCountdown } from '../lib/time'
+import { fetchOnTrackMaterial, type OnTrackMaterialKind } from '../lib/ontrack-materials'
 import { Button, PageTitle, Panel, Tag } from '../components/ui'
 
 type OnTrackStatus =
@@ -76,6 +78,56 @@ function humanize(status: string): string {
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : '—'
 }
 
+const MATERIALS: Array<{ kind: OnTrackMaterialKind; label: string }> = [
+  { kind: 'task', label: '任务书 / Worksheet' },
+  { kind: 'resources', label: '任务资料' },
+  { kind: 'submission', label: '已提交文件' },
+]
+
+function TaskMaterials({ task, identity }: { task: OnTrackTaskView; identity: string | undefined }) {
+  const [pending, setPending] = useState<OnTrackMaterialKind | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const active = useRef<AbortController | null>(null)
+  useEffect(() => {
+    setPending(null)
+    setError(null)
+    return () => { active.current?.abort(); active.current = null }
+  }, [identity, task.projectId, task.taskDefinitionId])
+
+  const download = async (kind: OnTrackMaterialKind): Promise<void> => {
+    if (active.current) return
+    const controller = new AbortController()
+    active.current = controller
+    setPending(kind)
+    setError(null)
+    try {
+      const file = await fetchOnTrackMaterial(task.projectId, task.taskDefinitionId, kind, controller.signal)
+      if (controller.signal.aborted || active.current !== controller) return
+      const href = URL.createObjectURL(file.blob)
+      const link = document.createElement('a')
+      link.href = href
+      link.download = file.filename
+      link.click()
+      window.setTimeout(() => URL.revokeObjectURL(href), 1000)
+    } catch (cause) {
+      if (!controller.signal.aborted && active.current === controller) {
+        setError(cause instanceof Error ? cause.message : 'OnTrack 文件读取失败')
+      }
+    } finally {
+      if (active.current === controller) { active.current = null; setPending(null) }
+    }
+  }
+
+  return <div className="mt-2 space-y-1.5">
+    <div className="flex flex-wrap gap-1.5" aria-label={`${task.abbreviation || task.name} 资料`}>
+      {MATERIALS.map(({ kind, label }) => <Button key={kind} size="sm" disabled={pending !== null || kind === 'submission' && task.id === null}
+        title={kind === 'submission' && task.id === null ? '此任务还没有个人实例，暂无提交文件' : undefined}
+        onClick={() => void download(kind)}>{pending === kind ? '正在读取…' : label}</Button>)}
+    </div>
+    {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
+  </div>
+}
+
 export function OnTrackPage() {
   const { now } = useStore()
   const overviewQuery = useResourceQuery(onTrackOverviewQuery)
@@ -90,7 +142,7 @@ export function OnTrackPage() {
 
   return (
     <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
-      <PageTitle title="OnTrack 任务" description="从 OnTrack 只读同步的任务状态与日期。在 OnTrack 中修改后，下次同步会更新到这里。"
+      <PageTitle title="OnTrack 任务" description="查看任务状态、日期、Worksheet 和任务资料，下载已有提交文件。在 OnTrack 中修改后，下次同步会更新到这里。"
         actions={<Button disabled={overviewQuery.loading || taskQuery.loading} onClick={refresh}>刷新任务</Button>} />
       <CacheStatus cache={overviewQuery.cache ?? taskQuery.cache} loading={overviewQuery.loading || taskQuery.loading} error={error ?? null} />
       {loading ? (
@@ -122,10 +174,12 @@ export function OnTrackPage() {
                   return (
                     <li key={`${t.projectId}:${t.taskDefinitionId}`} className={`grid ${COLS} items-center gap-3 px-5 py-3 text-sm`}>
                       <span className="font-medium text-slate-800">{t.abbreviation || '—'}</span>
-                      <span className="min-w-0 text-slate-800">
-                        <span className="block truncate">{t.name || '未命名任务'}</span>
+                      <div className="min-w-0 text-slate-800">
+                        <span className="block break-words">{t.name || '未命名任务'}</span>
                         {t.visibility === 'unknown' && <span className="block text-[11px] text-amber-700">适用性待确认，请在 OnTrack 核对</span>}
-                      </span>
+                        {t.description && <details className="mt-1 text-xs text-slate-600"><summary className="cursor-pointer">任务说明</summary><p className="mt-1 whitespace-pre-wrap break-words">{t.description}</p></details>}
+                        <TaskMaterials task={t} identity={overviewQuery.cache?.identity ?? taskQuery.cache?.identity} />
+                      </div>
                       <span className="text-slate-600">{gradeOf(t)}</span>
                       <span>
                         <Tag tone={status ? TONE[status] : 'slate'}>{status ?? humanize(t.status)}</Tag>
