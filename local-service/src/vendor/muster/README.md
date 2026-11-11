@@ -23,6 +23,15 @@ older activity-list template retains explicit item weights. Grades remains the
 only source of released scores; unmatched assessment links stay pending metadata.
 The frontend uses the unchanged upstream calculator to split category weights.
 
+`grade-details.ts` adapts assignment feedback/grading status, quiz attempt/grade
+parsing and the official grade overview from `scraper.rs` in the same revision.
+It preserves zero/letter/denominator-less scores and explicit graded-but-hidden
+states. Only Grades-confirmed items may be enriched with activity detail. The
+adaptation restricts assignment inspection to Moodle status/feedback tables,
+keeps quiz reads within activity content, rejects date-shaped scores, and omits
+empty overview placeholders and foreign-origin course links. Grading timestamps
+remain the source's display text; this module does not guess a timezone.
+
 Preserve [LICENSE](LICENSE) and [NOTICE](NOTICE), Copyright 2026 Poetrynan,
 PolyForm Noncommercial 1.0.0. This port does not change the upstream license.
 Run the backend gradebook and resource-route tests plus `npm run check` after edits.
