@@ -82,6 +82,14 @@ Cove 是面向 Monash 学生的跨来源信息分诊产品：把 Gmail、Ed 和 
 
 ## 二、开发日志
 
+### 2026-11-11：修复 Moodle 会话容易失效
+
+- 参考用户提供 Muster 的 `ad2372683e0fbc4efb148af8b81840ae8dee5f39`（PolyForm Noncommercial 1.0.0），借鉴共享 Cookie jar、实际 UA 与离线判定；未复制其 Rust 代码。采用 fetch-cookie 3.2.0（MIT）和 tough-cookie 6.1.0（BSD-3-Clause）适配 Node。
+- 登录捕获完整 Cookie 范围与实际 UA；HTTP 统一消费并保存 Set-Cookie，截图按范围注入 Cookie，OCR 使用统一传输层。内部轮换保持缓存及课程偏好标识，重连/断开拒绝旧请求写回，取消登录不会复活旧连接。
+- 维护间隔从 6 小时改为 10 分钟，生产入口与批量同步独立启用；并发验证合并。网络、限流及服务故障保留最后成功状态，明确登录证据才提示重登。
+- 后端 31 文件 / 277 项测试与构建、前端 check 与 87 项 Vitest、隔离浏览器 E2E 通过。新增模拟覆盖重启恢复、站内续期、取消与换账号竞态，以及 30 分钟 idle lease 在维护 40 分钟后仍有效；均为 fixture，不是实际学校会话有效期或真实账号复验。
+- 代码本地提交 `64341df`，未 push；参考取舍、验证及服务关闭/强制到期限制见 [修复记录](moodle-session-reliability-2026-11-11.md)。
+
 ### 2026-11-11：接入 Always-Ontrack 只读能力
 
 - 固定参考 `MarkChu-git/Always-Ontrack` 的 `4e038b4af7f030cd4cdf07832c7e472184a2f519`（2.5.0、Apache-2.0、Copyright 2026 Mark），完成本地索引；裁剪复制学生任务投影、相关类型与有界并发 mapper，保留许可证和修改说明。

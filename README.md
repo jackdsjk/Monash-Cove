@@ -104,7 +104,7 @@ Manages the four source connections and shows each one's **credential lifetime**
 |---|---|
 | Gmail | Renews automatically before it expires |
 | Ed | No published expiry; prompts to reconnect when it lapses |
-| Moodle | No published expiry; prompts to reconnect when it lapses |
+| Moodle | Cookies rotate automatically; maintenance runs every 10 minutes while the service is running; school-enforced expiry still requires login |
 | OnTrack | Exchanges a refresh credential for short-lived tokens |
 
 ### 3.9 Local MCP (optional)

@@ -112,7 +112,7 @@ rtk proxy local-service/node_modules/.bin/tsx '/Users/Admin/Desktop/Monash Agent
 | 学期与课程偏好 | Materials 同步范围面板、`GET/PATCH /api/moodle/course-preferences`，成绩快照键包含范围 hash | 默认全部学期；只识别显式学期标记，未知学期保留；隐藏优先于置顶。仅约束批量资料与成绩，单课资料可手动刷新，不删除旧资料，不改变简报抓取范围 |
 | 提交与完成一致 | Drawer、Brief、Deadlines 读取后端 `completedAt`，写入失败保留原状态；后端区分提交、评分与人工覆盖 | 30 天内已提交未评分继续复查；`Not yet graded` 不当作已评分。适配状态语义，没有机械接入未使用的前端 helper |
 
-OnTrack 另已修复账号 token 缓存隔离与主动断开后的 CLI 回退；凭据变化拒绝迟到结果，出站请求使用超时。所有凭据写入路径均推进缓存代次。当前以源、凭据 SHA-256 指纹、资源与版本隔离；无法证明同账号的凭据更新保守作为新连接处理，不跨新指纹沿用快照或课程偏好。
+OnTrack 另已修复账号 token 缓存隔离与主动断开后的 CLI 回退；凭据变化拒绝迟到结果，出站请求使用超时。显式凭据替换推进缓存代次，无法证明同账号时保守作为新连接处理。2026-11-11 后续 [Moodle 会话修复](moodle-session-reliability-2026-11-11.md) 增加稳定连接标识：内部 Cookie 轮换保留快照及课程偏好，主动重连则生成新标识；旧凭据迁移保留原 SHA-256 隔离范围。
 
 以下为采纳时的设计要求；具体响应字段、容量与维护契约以 [local-service/README.md](../local-service/README.md) 为准。设计中 HTML 单轮缓存、fingerprint、同账号续期保留和成绩流式展示尚未落地，不能视为已完成。
 
