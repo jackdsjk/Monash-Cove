@@ -84,12 +84,9 @@ Materials grouped by course and week: slides, recordings, assignment instruction
 
 ### 3.5 OnTrack
 
-A dedicated OnTrack page with four parts:
+The active OnTrack page shows a read-only task table grouped by course: code, name, grade band, status, target date, effective due date and unread comment count. It includes task definitions that have no student instance yet, and labels uncertain applicability for checking in OnTrack. Known tasks outside the student's target grade or tutorial stream are excluded from the ordinary list.
 
-- **Task table** — code, name, status, due date and weighting, filterable by P / C / D / HD grade band;
-- **Task conversation** — click any task to open a side panel with your full thread with the tutor in chronological order; status transitions and plan changes appear as system lines;
-- **Tutor feedback** — comments and automated assessment results, filterable by task and readable in full;
-- **Downloads** — task resource bundles and submitted PDFs.
+The local service also exposes read-only comments and artifact download APIs; the active page does not currently provide the conversation drawer or download controls from the legacy workspace. Full sync includes tasks and historical feedback from projects the account can still access, including existing tasks that no longer match the current target or stream. It cannot restore content hidden or deleted by the server. [Reuse details and limits](docs/always-ontrack-reuse-2026-11-11.md).
 
 ### 3.6 Ed learning
 
@@ -179,7 +176,7 @@ Courses, grades, Ed lessons and OnTrack data use shared page queries and account
 ### First run
 
 1. Connect the sources you use in setup or **Sources**, or explicitly skip setup and connect later;
-2. Run a full sync from **Settings** for configured Gmail, Ed and Moodle sources; use source sync for current OnTrack tasks;
+2. Run a full sync from **Settings** for configured Gmail, Ed, Moodle and OnTrack sources; OnTrack reads currently accessible projects and historical feedback;
 3. Return to **Brief** and use **Sync** when needed. Opening the app reads local data; the local service has its own background sync schedule.
 
 New databases start empty. Anonymous demo data requires explicitly setting `COVE_SEED_FIXTURE=1` on an unused database; it is never reinserted because a source disconnected or failed.

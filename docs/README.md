@@ -15,6 +15,7 @@
 | [ui-component-audit-2026-10-30.md](ui-component-audit-2026-10-30.md) | 前端组件现状、第三方 UI 仓库索引、替换表和本次小幅改造 | **Command palette 已落地** |
 | [audit-2026-11-10.md](audit-2026-11-10.md) | 当前 Web App / 本地服务的接口、逻辑、页面排查、修复及验证边界 | **截至 2026-11-11，14 项均已按复现条件处理；178 后端 / 83 前端测试及隔离浏览器回归通过** |
 | [muster-reuse-and-cache-2026-11-10.md](muster-reuse-and-cache-2026-11-10.md) | 页面读取基线、Muster 机制适配、实施边界与验证结果 | **缓存基础版本、同步范围与状态一致性已实施；测试及隔离浏览器回归通过** |
+| [always-ontrack-reuse-2026-11-11.md](always-ontrack-reuse-2026-11-11.md) | OnTrack 定义优先任务、可访问历史回填、只读下载的参考来源与接入边界 | **代码已接入；集成验证结果见文内记录** |
 | [plan/real-path/plan.md](plan/real-path/plan.md) | Agent 执行计划：S1–S8、连续执行规则、阶段验收和阻塞处理 | **执行指针为 done；历史真实账号记录见 next.md / execution-log.md** |
 | [plan/release-signing.md](plan/release-signing.md) | 发布产物的签名、完整性校验、更新通道与 CI 断言方案（参照 Muster，含 macOS/Windows 差异） | **草案；S0 未实施** |
 | [information-triage-labeling-guide.md](information-triage-labeling-guide.md) | 真实样本的匿名化、人工标注口径与第一版评测指标 | **当前评测规范** |

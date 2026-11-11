@@ -59,16 +59,19 @@ npm run retriage
 - `GET /api/pack?courseId=`（作业资料包：本机已同步的作业、变更与同课程 Ed 帖子，只读）
 - `GET /api/moodle/download?url=`（仅 `mod/resource`，服务端用本机 session 代理文件）
 - `POST /api/moodle/download-batch`（1–100 个 resource，返回 ZIP）
-- `POST /api/sync/full` / `GET /api/sync/status`（Gmail/Ed/Moodle 全量后台任务与进度；未配置来源跳过，OnTrack 不支持全量历史）
+- `POST /api/sync/full` / `GET /api/sync/status`（Gmail/Ed/Moodle/OnTrack 全量后台任务与进度；未配置来源跳过，OnTrack 范围为账号当前可访问的项目及历史反馈）
 - `GET /api/attendance/status` / `GET /api/attendance/codes` / `POST /api/attendance/fill`
 - `POST /api/attendance/submit`（真正提交；1–50 条串行、整批 90 秒、逐条结果、失败不重试）
 - `POST /api/attendance/connect/start` / `GET /api/attendance/connect/status`
+- `GET /api/ontrack/account` / `GET /api/ontrack/overview` / `GET /api/ontrack/tasks`（只读账号与任务目录；任务 `id` 是真实实例 ID 或 `null`，`taskDefinitionId` 始终为定义 ID）
+- `GET /api/ontrack/comments?project=&task=`（`task` 为任务定义 ID）
+- `GET /api/ontrack/artifact?project=&task=&kind=task|resources|submission`（只读下载；项目/定义 ID 必须为正整数）
 - `GET /api/runtime/status`（Node/Chrome/OAuth/凭据存储检查）
 - `GET /api/setup/status` / `POST /api/setup/moodle/start` / `GET /api/setup/moodle/status`（首次设置与 Moodle 登录助手）
 - `GET /api/sources`
 - `POST /api/check`
 - `PATCH /api/items/:id/correction`
-- `POST /api/sync`（`{source:"gmail"|"ed"|"moodle"}`）
+- `POST /api/sync`（`{source:"gmail"|"ed"|"moodle"|"ontrack"}`）
 - `POST /api/sources/:source/credentials`
 - `POST /api/sources/:source/disconnect`
 - `GET /api/oauth/google/start`
@@ -87,11 +90,21 @@ Moodle 课程、成绩，Ed 课程/lesson，以及 OnTrack 概览/任务的 GET 
 
 每周资料页的“同步范围”按当前 Moodle 凭据隔离保存：默认全部学期，支持显式学期、隐藏与置顶。未知学期保留，隐藏优先，置顶覆盖学期筛选。范围只影响批量资料同步和成绩抓取，不过滤已保存的资料浏览，也不改变简报 assessment/forum 拉取；单课手动同步可绕过范围。成绩快照包含范围版本，设置变更不会误用旧范围的缓存或删除课程目录。无法确认同账号的凭据更新后需重新设置范围。
 
+## OnTrack 读取范围
+
+任务目录采用 Always-Ontrack 的定义优先投影：合并课程定义与个人实例，兼容 camelCase/snake_case 元数据；未实例化任务使用 `id:null` / `isInstantiated:false` / `status:"not_instantiated"`，不会伪造实例 ID。截止日期优先使用个人实例日期，目标日期单独保留。普通目录排除已知高于目标等级或不匹配班级的任务；适用性未知时保留并提示核对，不据此断言必须完成。
+
+全量反馈扫描按主机、用户、项目与任务定义隔离；断开或换账号后的迟到结果不得写回。普通同步保留 90 天反馈窗口，全量同步重新扫描服务器仍返回的历史反馈；任务、反馈仍通过既有本地条目幂等入库。概览和任务列表继续共用账号隔离快照，目录结构版本为 `overview:v2`，新鲜期仍为 2 分钟。OnTrack 全量同步成功后使相应快照失效，避免继续显示全量前的旧值。
+
+下载拒绝服务器返回的 `FileNotFound.pdf` / `AwaitingProcessing.pdf` 占位文件；任务书与提交文件校验 PDF 签名，资源校验 ZIP 或保留上游声明的原文件扩展，返回安全生成的本地文件名。单文件最多 25 MiB，部分响应（206）报错，尚不实现分段合并。以上能力通过本地只读 API 提供，当前 OnTrack 页面仍以任务表为主；不自动归档全部附件，也不上传、改状态或发表评论。
+
+参考版本、Apache-2.0 许可证及裁剪范围见 [复用记录](../docs/always-ontrack-reuse-2026-11-11.md)。
+
 ## 数据与安全
 
 - 默认首次启动没有示例内容、来源均未连接。仅显式示例模式初始化数据；已有内容、来源错误、账号或成功时间的数据库不会重新灌入示例。清理数据保留示例初始化标记，避免重启后再次灌入。
 - Gmail 增量会完整消费 history 分页并去重；在同步前记录检查点，全部消息处理成功才保存，避免跳过同步期间到达的邮件。过期游标 HTTP 404 执行完整恢复；其他失败保留旧游标并允许幂等重试。失败前写入的部分消息保留，保守检查点可能重放少量消息。协议依据：[同步规范](https://developers.google.com/workspace/gmail/api/guides/sync)、[history.list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list)。
-- 全量任务逐来源报告 `pending/running/done/error/skipped`；仅执行配置了凭据的来源，失败不阻止其他来源，且保留该来源的最后成功时间。总体任务支持 `running/done/error/skipped` 与 `message`；全部跳过不写全量完成时间。OnTrack 明确跳过全量历史，仍可在来源页同步当前任务。首次连接不强制三源齐备。
+- 全量任务逐来源报告 `pending/running/done/error/skipped`；仅执行配置了凭据的来源，失败不阻止其他来源，且保留该来源的最后成功时间。总体任务支持 `running/done/error/skipped` 与 `message`；全部跳过不写全量完成时间。OnTrack 重新扫描当前可访问项目的任务与历史反馈，不受普通同步的 90 天反馈窗口或已扫描标记限制；当前已不适用的旧实例仍读取反馈，但不生成待办截止提醒。无法恢复服务器已隐藏或删除的内容。首次连接不强制四源齐备。
 - SQLite 表：`sources/items/item_content/sync_cursors/corrections/reads/settings`；
 - 凭据在 macOS Keychain；真实正文和纠错只在本机；
 - Moodle 会话在服务启动时、以及之后每 6 小时用一次 `/my/` 轻量请求校验：会话失效只把来源标成 `degraded`（`lastError` 写明「会话已过期」，凭据保留，Web UI 显示「重新登录」）；凭据 JSON 损坏、缺字段或 Cookie 为空则删除凭据并把来源标成 `disconnected`；
