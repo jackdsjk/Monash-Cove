@@ -1,12 +1,18 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { ChevronRight, Info } from 'lucide-react'
 import { Button, EmptyLine, PageTitle, Panel, SectionHeader, Tag } from '../components/ui'
-import { moodleGradesQuery } from '../data/repository'
+import { moodleCoursePreferencesQuery, moodleGradesQuery } from '../data/repository'
 import { useResourceQuery } from '../lib/use-resource-query'
 import { CacheStatus } from '../components/CacheStatus'
 import type { MoodleGradeCourse, MoodleGradeItem } from '../types'
-import { BAND_LABEL, band, courseSummary, gradeBreakdown, gradeItemWeights, isGradeReleased, parseMoodleDate, percentage, splitCourseName, type CourseSummary, type GradeBand } from '../lib/grades'
+import { BAND_LABEL, band, courseSummary, gradeBreakdown, gradeCoursesInView, gradeItemWeights, gradeOutlook, gradeStatus, isGradeMarked, isGradeReleased, parseMoodleDate, percentage, splitCourseName, type CourseSummary, type GradeBand } from '../lib/grades'
 import { useTime } from '../lib/time'
+import { availableSemesters } from '../lib/course-sync-preferences'
+import { buildGradeDiagnosticReport } from '../lib/grade-diagnostics'
+import { fmtPoints, type CategoryScore } from '../lib/muster/gradeBreakdown'
+
+// Opaque event IDs only, kept in memory across route changes. Never store grade values.
+const dismissedGradeChanges = new Set<string>()
 
 const BAND_TONE: Record<GradeBand, string> = {
   HD: 'bg-brand-50 text-brand-800 ring-brand-200',
@@ -32,7 +38,9 @@ function BandBadge({ band, size = 'md' }: { band: GradeBand; size?: 'md' | 'lg' 
 function ProgressBar({ s }: { s: CourseSummary }) {
   const pct = (value: number) => `${s.total > 0 ? Math.max(0, Math.min(100, (value / s.total) * 100)) : 0}%`
   return (
-    <div className="relative h-2.5 w-full overflow-visible">
+    <div role="img" aria-label={s.hasWeights
+      ? `已得 ${s.earned.toFixed(1)} 分，已扣 ${s.lost.toFixed(1)} 分，待评分 ${s.ungraded.toFixed(1)}%，分数未公开或无法换算 ${s.hidden.toFixed(1)}%，及格线 50 分。${s.weightsComplete ? '' : '权重不完整。'}`
+      : '权重未知，暂不推算成绩。'} className="relative h-2.5 w-full overflow-visible">
       <div className="flex h-full w-full overflow-hidden rounded-full bg-slate-100">
         <span className="h-full bg-brand-500" style={{ width: pct(s.earned) }} />
         <span className="h-full bg-slate-300" style={{ width: pct(s.lost) }} />
@@ -50,22 +58,22 @@ function Legend({ hasWeights }: { hasWeights: boolean }) {
         ['bg-brand-500', '已得分'],
         ['bg-slate-300', '已扣分'],
         ['bg-amber-300', '尚未评分'],
-        ['bg-violet-300', '已发布但无法换算'],
+        ['bg-violet-300', '分数未公开或无法换算'],
       ]
     : [['bg-slate-100', '权重未知，暂不推算']]
   return (
-    <div className="flex flex-wrap items-center gap-4 text-[13px] text-slate-600">
+    <ul aria-label="成绩进度图例" className="flex flex-wrap items-center gap-4 text-[13px] text-slate-600">
       {items.map(([color, label]) => (
-        <span key={label} className="flex items-center gap-1.5">
+        <li key={label} className="flex items-center gap-1.5">
           <span aria-hidden className={`h-2 w-5 rounded-full ${color}`} />
           {label}
-        </span>
+        </li>
       ))}
-      <span className="flex items-center gap-1.5">
+      <li className="flex items-center gap-1.5">
         <span aria-hidden className="h-3.5 w-0.5 rounded-full bg-slate-700" />
         及格线 50%
-      </span>
-    </div>
+      </li>
+    </ul>
   )
 }
 
@@ -93,15 +101,57 @@ function scoreLabel(item: MoodleGradeItem) {
   return item.gradeMax === null ? String(item.grade) : `${item.grade} / ${item.gradeMax}`
 }
 
+/** Adapted from Muster src/components/GradeBreakdown.tsx at ad2372683e0fbc4efb148af8b81840ae8dee5f39.
+ * Copyright 2026 Poetrynan; see lib/muster/LICENSE and NOTICE. */
+function CategoryBlock({ category }: { category: CategoryScore }) {
+  const marked = category.items.filter((entry) => entry.state !== 'pending').length
+  return <section aria-label={`${category.name} ${fmtPoints(category.weight)}%`} className="min-w-0 rounded-xl border border-line bg-white p-4">
+    <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <h4 className="min-w-0 break-words text-sm font-semibold text-slate-900">{category.name}</h4>
+      <p className="text-sm tabular-nums text-slate-700">已得 {fmtPoints(category.earned)} / {fmtPoints(category.weight)} 个总评分</p>
+    </div>
+    <div role="img" aria-label={`${category.name}已得 ${fmtPoints(category.earned)}，总权重 ${fmtPoints(category.weight)}%。`} className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+      <div className="h-full bg-brand-500" style={{ width: `${category.weight > 0 ? Math.min(100, category.earned / category.weight * 100) : 0}%` }} />
+    </div>
+    <p className="mt-2 text-xs text-slate-500">已评分 {marked} / {category.items.filter((entry) => !entry.placeholder).length} 项</p>
+    <ul className="mt-3 space-y-2 text-xs">
+      {category.items.map((entry) => <li key={entry.id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <span className="min-w-0 break-words text-slate-600">{entry.name}</span>
+        <span className="text-slate-700">{fmtPoints(entry.share)}% · {entry.state === 'graded' ? `${fmtPoints(entry.percent!)}%` : entry.state === 'hidden' ? '分数未公开或无法换算' : entry.placeholder ? '评分项目尚未发布' : '待评分'}</span>
+      </li>)}
+    </ul>
+  </section>
+}
+
 export function GradesPage() {
   const { fmtWhen } = useTime()
   const query = useResourceQuery(moodleGradesQuery)
-  const courses = query.data ?? null
+  const preferences = useResourceQuery(moodleCoursePreferencesQuery)
+  const [semester, setSemester] = useState<string>('scope')
+  const selectedSemester = semester === 'scope' ? preferences.data?.activeSemester ?? null : semester || null
+  const courses = useMemo(() => query.data ? gradeCoursesInView(query.data, selectedSemester, preferences.data) : null,
+    [query.data, selectedSemester, preferences.data])
   const error = query.error
   const load = query.refresh
   const [courseId, setCourseId] = useState<string | null>(null)
   const [itemId, setItemId] = useState<string | null>(null)
   const [showMethod, setShowMethod] = useState(false)
+  const [showDiagnostic, setShowDiagnostic] = useState(false)
+  const [copyStatus, setCopyStatus] = useState<string | null>(null)
+  const [dismissedChanges, setDismissedChanges] = useState(() => new Set(dismissedGradeChanges))
+  const changes = (query.data ?? []).flatMap((entry) => (entry.gradeChanges ?? []).map((change) => ({ ...change, course: entry })))
+    .filter((change) => !dismissedChanges.has(change.id))
+  const dismissChanges = () => {
+    changes.forEach((change) => dismissedGradeChanges.add(change.id))
+    while (dismissedGradeChanges.size > 500) dismissedGradeChanges.delete(dismissedGradeChanges.values().next().value!)
+    setDismissedChanges(new Set(dismissedGradeChanges))
+  }
+  const copyDiagnostic = async () => {
+    try {
+      await navigator.clipboard.writeText(buildGradeDiagnosticReport(query.data ?? []))
+      setCopyStatus('结构诊断已复制')
+    } catch { setCopyStatus('复制失败，请选择下方文本手动复制。') }
+  }
 
   const summaries = useMemo(() => new Map((courses ?? []).map((course) => [course.courseId, courseSummary(course)])), [courses])
   const entries = useMemo(
@@ -110,8 +160,9 @@ export function GradesPage() {
   )
   const gradedEntries = useMemo(() => entries.filter(({ item }) => isGradeReleased(item)), [entries])
   const gradedItems = gradedEntries.length
+  const markedItems = entries.filter(({ item }) => isGradeMarked(item)).length
   const totalItems = entries.length
-  const progressPct = totalItems === 0 ? 0 : Math.round((gradedItems / totalItems) * 100)
+  const progressPct = totalItems === 0 ? 0 : Math.round((markedItems / totalItems) * 100)
   const latest = useMemo(
     () =>
       [...gradedEntries].sort((a, b) => (parseMoodleDate(b.item.gradedAt) ?? 0) - (parseMoodleDate(a.item.gradedAt) ?? 0))[0] ?? null,
@@ -136,6 +187,25 @@ export function GradesPage() {
         actions={<Button disabled={query.loading} onClick={load}>刷新成绩</Button>}
       />
       <CacheStatus cache={query.cache} loading={query.loading} error={error} />
+      {query.data && <div className="mb-5 flex flex-wrap items-center gap-3 text-sm">
+        <label className="flex items-center gap-2 text-slate-700">查看学期
+          <select aria-label="成绩学期" value={semester} onChange={(event) => { setSemester(event.target.value); setCourseId(null); setItemId(null) }} className="rounded-lg border border-line bg-white px-3 py-2">
+            <option value="scope">按同步设置{preferences.data?.activeSemester ? `（${preferences.data.activeSemester}）` : ''}</option>
+            <option value="">全部已缓存学期</option>
+            {availableSemesters(query.data.map((entry) => ({ id: Number(entry.courseId), shortname: entry.courseShortName || entry.courseName })), selectedSemester).map((term) => <option key={term} value={term}>{term}</option>)}
+          </select>
+        </label>
+        <span className="text-xs text-slate-500">只筛选已读取成绩；学期未知的课程保留，置顶课程优先显示。</span>
+        {preferences.error && <span role="status" className="text-xs text-amber-800">同步设置未能读取，暂按全部课程显示。</span>}
+      </div>}
+      {changes.length > 0 && <aside role="status" aria-label="成绩变化提醒" className="mb-5 rounded-xl border border-brand-200 bg-brand-50 p-4">
+        <div className="flex items-center justify-between gap-3"><p className="text-sm font-semibold text-brand-900">发现 {changes.length} 项成绩变化</p><Button size="sm" onClick={dismissChanges}>关闭成绩提醒</Button></div>
+        <ul className="mt-2 space-y-1 text-sm text-slate-700">{changes.map((change) => <li key={change.id}>{courseLabel(change.course)} · {change.itemName || '评分项'}：{change.kind === 'released' ? '成绩已发布' : '成绩已更新'}</li>)}</ul>
+      </aside>}
+      {query.data && <details className="mb-5 rounded-xl border border-line bg-white p-4" open={showDiagnostic} onToggle={(event) => setShowDiagnostic(event.currentTarget.open)}>
+        <summary className="cursor-pointer text-sm font-medium text-slate-700">成绩结构诊断</summary>
+        {showDiagnostic && <div className="mt-3 space-y-3"><p className="text-xs text-slate-500">只包含结构计数、权重和格式，不含分数、课程名、个人信息或反馈。复制后可用于排查。</p><Button size="sm" onClick={() => { void copyDiagnostic() }}>复制结构诊断</Button>{copyStatus && <p role="status" className="text-xs text-slate-600">{copyStatus}</p>}<pre aria-label="成绩结构诊断内容" className="max-h-64 overflow-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-700">{buildGradeDiagnosticReport(query.data)}</pre></div>}
+      </details>}
     </>
   )
 
@@ -173,7 +243,7 @@ export function GradesPage() {
         {header}
         <Panel className="p-8 text-center">
           <p className="text-sm font-semibold text-slate-900">Moodle 成绩册里还没有可显示的成绩</p>
-          <p className="mt-1.5 text-sm text-slate-600">读取成功，但已选课程的评分表里没有评分项，或成绩尚未发布。</p>
+          <p className="mt-1.5 text-sm text-slate-600">{query.data?.length ? '当前学期或隐藏设置下没有课程，请切换查看学期或调整来源中的同步设置。' : '读取成功，但已选课程的评分表里没有评分项，或成绩尚未发布。'}</p>
           <Button className="mt-4" onClick={load}>
             重新读取
           </Button>
@@ -206,7 +276,7 @@ export function GradesPage() {
           <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
             <div className="h-full rounded-full bg-brand-500" style={{ width: `${progressPct}%` }} />
           </div>
-          已评分 {gradedItems} / {totalItems} 项
+          已评分 {markedItems} / {totalItems} 项（含未公开分数）
         </StatCard>
         <StatCard label="已发布成绩" value={String(gradedItems)} unit="项">
           {latest ? (
@@ -293,6 +363,8 @@ export function GradesPage() {
                   )}
                 </p>
                 {s.reported !== null && <p className="mt-1 text-xs text-slate-500">Moodle 公布总评：{s.reported.toFixed(1)}%（以原成绩册为准）</p>}
+                {entry.overviewGrade && <p className="mt-1 break-words text-xs text-slate-500">Moodle Overview 原文：{entry.overviewGrade}</p>}
+                {gradeOutlook(entry) && <p className="mt-2 text-xs text-slate-700">{gradeOutlook(entry)} 课程 hurdle 以原要求为准。</p>}
               </button>
             )
           })}
@@ -308,9 +380,11 @@ export function GradesPage() {
             : summary.hasWeights ? '权重来自 Moodle 成绩册。' : '尚未取得可用权重，无法推算总评；下方仍显示 Moodle 已发布的原始成绩。'}
         </p>
         {course.assessmentWarning && <p role="status" className="mb-3 text-[13px] text-amber-800">{course.assessmentWarning}</p>}
+        {course.detailWarning && <p role="status" className="mb-3 text-[13px] text-amber-800">{course.detailWarning}</p>}
+        {course.assessmentStale && <p role="status" className="mb-3 text-xs text-amber-800">Assessments 权重结构沿用上次成功读取的数据{course.assessmentFetchedAt ? `（${fmtWhen(Date.parse(course.assessmentFetchedAt), Date.now())}）` : ''}。</p>}
         <Panel className="grid grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_400px]">
           <div className="min-w-0 overflow-x-auto border-r border-line">
-            <div className="grid min-w-[600px] grid-cols-[minmax(0,1fr)_56px_120px_96px_20px] gap-3 border-b border-line bg-slate-50/70 px-5 py-2.5 text-xs font-medium text-slate-500">
+            <div className="grid min-w-[640px] grid-cols-[minmax(0,1fr)_56px_160px_96px_20px] gap-3 border-b border-line bg-slate-50/70 px-5 py-2.5 text-xs font-medium text-slate-500">
               <span>项目</span>
               <span className="text-right">权重</span>
               <span>评分状态</span>
@@ -330,7 +404,7 @@ export function GradesPage() {
                       <button
                         onClick={() => setItemId(row.id)}
                         aria-current={on ? 'true' : undefined}
-                        className={`grid min-w-[600px] w-full grid-cols-[minmax(0,1fr)_56px_120px_96px_20px] items-center gap-3 px-5 py-3 text-left text-sm transition-colors ${
+                        className={`grid min-w-[640px] w-full grid-cols-[minmax(0,1fr)_56px_160px_96px_20px] items-center gap-3 px-5 py-3 text-left text-sm transition-colors ${
                           on ? 'bg-brand-50/70' : 'hover:bg-slate-50'
                         }`}
                       >
@@ -340,7 +414,7 @@ export function GradesPage() {
                         </span>
                         <span className="text-right text-slate-600">{weight === null ? '—' : `${Number(weight.toFixed(2))}%`}</span>
                         <span>
-                          <Tag tone={isGradeReleased(row) ? 'green' : 'slate'}>{isGradeReleased(row) ? '已评分' : '未评分'}</Tag>
+                          <Tag tone={isGradeMarked(row) ? 'green' : 'slate'}>{gradeStatus(row)}</Tag>
                         </span>
                         <span className="text-right font-semibold text-slate-900">
                           {score === null ? <span className="font-normal text-slate-400">—</span> : score}
@@ -352,7 +426,7 @@ export function GradesPage() {
                 })}
               </ul>
             )}
-            <div className="flex items-center justify-between border-t border-line bg-slate-50/50 px-5 py-3 text-[13px] text-slate-600">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-slate-50/50 px-5 py-3 text-[13px] text-slate-600">
               <span>
                 本课程已得 <strong className="font-semibold text-slate-900">{earnedKnown ? `${breakdown.earned.toFixed(1)} / 100` : '—'}</strong>
                 {earnedKnown && !summary.weightsComplete && <span>（已知权重 {breakdown.totalWeight.toFixed(1)}%）</span>}
@@ -376,12 +450,10 @@ export function GradesPage() {
             </div>
           )}
         </Panel>
-        {summary.hasWeights && <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
-          {breakdown.categories.map((category) => <span key={category.key} className="rounded-lg border border-line px-3 py-2">
-            {category.name} · {Number(category.weight.toFixed(2))}%
-            {category.items.some((entry) => entry.placeholder) && ' · 评分项目尚未发布'}
-          </span>)}
-          {breakdown.hiddenWeight > 0 && <span>紫色：成绩已发布但无法换算，共 {Number(breakdown.hiddenWeight.toFixed(2))}% 权重。</span>}
+        {summary.hasWeights && <div className="mt-5 space-y-3">
+          <h3 className="text-sm font-semibold text-slate-900">分类成绩明细</h3>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">{breakdown.categories.map((category) => <CategoryBlock key={category.key} category={category} />)}</div>
+          {breakdown.hiddenWeight > 0 && <p className="text-xs text-slate-600">紫色：已评分但分数未公开或无法换算，共 {Number(breakdown.hiddenWeight.toFixed(2))}% 权重。</p>}
         </div>}
       </section>
     </div>
@@ -431,8 +503,8 @@ function ItemDetail({ item, course, weight, band, code, name }: { item: MoodleGr
         </>
       ) : (
         <div className="mt-4 rounded-xl bg-slate-50 px-4 py-4 text-[13px] text-slate-600">
-          <p className="font-medium text-slate-800">未评分</p>
-          <p className="mt-1.5 text-slate-500">成绩发布后会出现在这里。</p>
+          <p className="font-medium text-slate-800">{gradeStatus(item)}</p>
+          <p className="mt-1.5 text-slate-500">{isGradeMarked(item) ? 'Moodle 已标记评分完成，尚未提供可显示的分数。' : '成绩发布后会出现在这里。'}</p>
         </div>
       )}
 

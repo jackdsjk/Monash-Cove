@@ -157,7 +157,10 @@ export function courseSummary(course: MoodleGradeCourse): CourseSummary {
   }
 }
 
-/** Adapt Muster useOutlook, guarded against partial weights and unreadable scores. */
+/**
+ * Adapted from Muster src/components/GradeBreakdown.tsx useOutlook at ad2372683e0fbc4efb148af8b81840ae8dee5f39.
+ * Copyright 2026 Poetrynan; see muster/LICENSE and NOTICE. Guard partial weights/unreadable scores.
+ */
 export function gradeOutlook(course: MoodleGradeCourse): string | null {
   const summary = courseSummary(course)
   const grade = gradeBreakdown(course)
@@ -176,7 +179,7 @@ export function gradeOutlook(course: MoodleGradeCourse): string | null {
 export function gradeCoursesInView(courses: MoodleGradeCourse[], semester: string | null, preferences?: MoodleCoursePreferences | null): MoodleGradeCourse[] {
   return courses.filter((course) => {
     if (preferences?.hiddenCourseIds.includes(course.courseId)) return false
-    const term = courseSemester(course.courseName)
+    const term = courseSemester(course.courseShortName || course.courseName)
     return !semester || !term || term === semester
   }).sort((a, b) => Number(preferences?.pinnedCourseIds.includes(b.courseId) ?? false) - Number(preferences?.pinnedCourseIds.includes(a.courseId) ?? false))
 }

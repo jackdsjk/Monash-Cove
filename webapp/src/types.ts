@@ -291,6 +291,7 @@ export interface MoodleAssessmentStructureRow {
 export interface MoodleGradeCourse {
   courseId: string;
   courseName: string;
+  courseShortName?: string;
   items: MoodleGradeItem[];
   /** 课程总分行；Moodle 没印总分行时两项都是 null */
   total: { earned: number | null; max: number | null };
