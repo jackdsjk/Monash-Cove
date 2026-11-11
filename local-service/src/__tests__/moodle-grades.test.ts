@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import { MemorySecretStore } from "../secrets.js";
 import { MoodleGradesClient, parseGradeReport } from "../sources/moodle-grades.js";
+import { matchGradebookItem } from "../vendor/muster/assessment-match.js";
 
 /** A Moodle user-report table, written to the shape Moodle 4 renders. */
 const moodleGradeTable = `
@@ -34,7 +35,7 @@ const moodleGradeTable = `
       <td class="cell c7">-</td>
     </tr>
     <tr class="item">
-      <td class="cell c0"><a href="/mod/assign/view.php?id=1">Assignment 1</a></td>
+      <td class="cell c0"><a class="gradeitemheader" href="/mod/assign/view.php?id=1">Assignment 1</a></td>
       <td class="cell c1">20.00 %</td>
       <td class="cell c2">17.00</td>
       <td class="cell c3">0–20</td>
@@ -44,7 +45,7 @@ const moodleGradeTable = `
       <td class="cell c7">Monday, 3 March 2025, 10:21 AM</td>
     </tr>
     <tr class="item">
-      <td class="cell c0">Quiz 1</td>
+      <td class="cell c0"><span class="gradeitemheader">Quiz 1</span></td>
       <td class="cell c1">10.00 %</td>
       <td class="cell c2">-</td>
       <td class="cell c3">0–10</td>
@@ -54,7 +55,7 @@ const moodleGradeTable = `
       <td class="cell c7">-</td>
     </tr>
     <tr class="item">
-      <td class="cell c0">Case study</td>
+      <td class="cell c0"><span class="gradeitemheader">Case study</span></td>
       <td class="cell c1">30.00 %</td>
       <td class="cell c2">43.50</td>
       <td class="cell c3">0–50</td>
@@ -86,10 +87,10 @@ const chineseGradeTable = `
       <th>反馈</th><th>项目</th><th>成绩</th><th>权重</th>
     </tr>
     <tr>
-      <td>值得肯定</td><td>课堂参与</td><td>8.5</td><td>10 %</td>
+      <td>值得肯定</td><td><span class="gradeitemheader">课堂参与</span></td><td>8.5</td><td>10 %</td>
     </tr>
     <tr>
-      <td></td><td>期末考试</td><td>-</td><td></td>
+      <td></td><td><span class="gradeitemheader">期末考试</span></td><td>-</td><td></td>
     </tr>
   </tbody>
 </table>
@@ -98,6 +99,36 @@ const chineseGradeTable = `
 const noGradesPage = `<html><body><p class="alert">No grades available yet.</p></body></html>`;
 
 describe("Moodle grade report parsing", () => {
+  it("accepts only Muster grade-item headers, retaining pending quizzes and manual grades", () => {
+    const report = parseGradeReport(`<a class="gradeitemheader" href="/mod/assign/view.php?id=99">Outside table</a>
+      <table class="user-grade"><tr><th>Grade item</th><th>Grade</th><th>Range</th></tr>
+      <tr><td><a href="/mod/assign/view.php?id=90">Practice assignment</a></td><td>100</td><td>0–100</td></tr>
+      <tr><td>Weekly worksheet</td><td>10</td><td>0–10</td></tr>
+      <tr><td><a class="gradeitemheader" href="/mod/quiz/view.php?id=1">Quiz</a></td><td>-</td><td>0–10</td></tr>
+      <tr><td><span class="gradeitemheader">Participation</span></td><td>0</td><td>0–5</td></tr>
+      <tr class="categoryitem"><td><span class="gradeitemheader">Category</span></td><td>50</td><td>0–100</td></tr>
+      <tr class="courseitem"><td>Course total</td><td>50</td><td>0–100</td></tr></table>`, "101");
+    expect(report?.items.map(({ name, url, grade }) => ({ name, url, grade }))).toEqual([
+      { name: "Quiz", url: "/mod/quiz/view.php?id=1", grade: null },
+      { name: "Participation", url: null, grade: 0 },
+    ]);
+    expect(report?.total).toEqual({ earned: 50, max: 100 });
+  });
+
+  it("deduplicates the same grade link while retaining distinct activities with identical names", () => {
+    const report = parseGradeReport(`<table class="user-grade"><tr><th>Grade item</th><th>Grade</th></tr>
+      <tr><td><a class="gradeitemheader" href="/mod/assign/view.php?id=1">Essay</a></td><td>8</td></tr>
+      <tr><td><a class="gradeitemheader" href="/mod/assign/view.php?id=1">Essay</a></td><td>8</td></tr>
+      <tr><td><a class="gradeitemheader" href="/mod/assign/view.php?id=2">Essay</a></td><td>-</td></tr></table>`, "101");
+    expect(report?.items).toHaveLength(2);
+    expect(new Set(report?.items.map((item) => item.id)).size).toBe(2);
+  });
+
+  it("keeps an empty readable Grades table distinct from an unavailable report", () => {
+    const table = '<table class="user-grade"><tr><th>Grade item</th><th>Grade</th></tr><tr><td>Practice</td><td>100</td></tr></table>';
+    expect(parseGradeReport(table, "101")).toEqual({ items: [], total: { earned: null, max: null } });
+    expect(parseGradeReport(table.replace(' class="user-grade"', ''), "101")).toBeNull();
+  });
   it("reads every column by header text and skips category rows", () => {
     const report = parseGradeReport(moodleGradeTable, "101");
     expect(report).not.toBeNull();
@@ -145,9 +176,9 @@ describe("Moodle grade report parsing", () => {
 
   it("reads Moodle column classes despite category leader cells and excludes action-menu text", () => {
     const report = parseGradeReport(`<table><tr><th>Grade item</th><th>Weight</th><th>Grade</th><th>Range</th></tr>
-      <tr><td class="leader" rowspan="2"></td><th class="column-itemname">Quiz</th><td class="column-weight">20%</td>
+      <tr><td class="leader" rowspan="2"></td><th class="column-itemname"><span class="gradeitemheader">Quiz</span></th><td class="column-weight">20%</td>
         <td class="column-grade"><div><div>8</div><div>Actions 99 Grade analysis</div></div></td><td class="column-range">0–10</td></tr>
-      <tr><th class="column-itemname">Essay</th><td class="column-weight">80%</td><td class="column-grade">-</td><td class="column-range">0–100</td></tr></table>`, "1");
+      <tr><th class="column-itemname"><span class="gradeitemheader">Essay</span></th><td class="column-weight">80%</td><td class="column-grade">-</td><td class="column-range">0–100</td></tr></table>`, "1");
     expect(report?.items.map(({ name, grade, gradeMax, weight }) => ({ name, grade, gradeMax, weight }))).toEqual([
       { name: "Quiz", grade: 8, gradeMax: 10, weight: 20 }, { name: "Essay", grade: null, gradeMax: 100, weight: 80 },
     ]);
@@ -161,17 +192,17 @@ describe("Moodle grade report parsing", () => {
     ["0", "0 - 20", "0%", 0, 20],
   ])("keeps the score scale for %s", (grade, range, percent, expectedGrade, expectedMax) => {
     const report = parseGradeReport(`<table><tr><th>Grade item</th><th>Grade</th><th>Range</th><th>Percentage</th></tr>
-      <tr><td>Quiz</td><td>${grade}</td><td>${range}</td><td>${percent}</td></tr></table>`, "1");
+      <tr><td><span class="gradeitemheader">Quiz</span></td><td>${grade}</td><td>${range}</td><td>${percent}</td></tr></table>`, "1");
     expect(report?.items[0]).toMatchObject({ grade: expectedGrade, gradeMax: expectedMax });
   });
 
   it("scales relative child weights by explicit category ancestry without counting subtotal rows", () => {
     const report = parseGradeReport(`<table><tr><th>Grade item</th><th>Weight</th><th>Grade</th><th>Range</th></tr>
       <tr class="categoryitem"><th id="cat_quiz" class="column-itemname">Quiz total</th><td>40%</td><td>8</td><td>0–10</td></tr>
-      <tr><th class="column-itemname" headers="cat_quiz">Quiz A</th><td>50%</td><td>8</td><td>0–10</td></tr>
-      <tr><th class="column-itemname" headers="cat_quiz">Quiz B</th><td>50%</td><td>-</td><td>0–10</td></tr>
+      <tr><th class="column-itemname" headers="cat_quiz"><span class="gradeitemheader">Quiz A</span></th><td>50%</td><td>8</td><td>0–10</td></tr>
+      <tr><th class="column-itemname" headers="cat_quiz"><span class="gradeitemheader">Quiz B</span></th><td>50%</td><td>-</td><td>0–10</td></tr>
       <tr class="categoryitem"><th id="cat_exam">Exam total</th><td>60%</td><td>-</td><td>0–100</td></tr>
-      <tr><th headers="cat_exam">Exam</th><td>100%</td><td>-</td><td>0–100</td></tr></table>`, "1");
+      <tr><th headers="cat_exam"><span class="gradeitemheader">Exam</span></th><td>100%</td><td>-</td><td>0–100</td></tr></table>`, "1");
     expect(report?.items.map((item) => item.weight)).toEqual([20, 20, 60]);
     expect(report?.items).toHaveLength(3);
     expect(report?.total).toEqual({ earned: null, max: null });
@@ -180,13 +211,13 @@ describe("Moodle grade report parsing", () => {
   it("leaves relative weights unknown when category ownership is absent", () => {
     const report = parseGradeReport(`<table><tr><th>Grade item</th><th>Weight</th><th>Grade</th><th>Range</th></tr>
       <tr class="categoryitem"><td>Category</td><td>40%</td><td>8</td><td>0–10</td></tr>
-      <tr><td>Quiz</td><td>100%</td><td>8</td><td>0–10</td></tr></table>`, "1");
+      <tr><td><span class="gradeitemheader">Quiz</span></td><td>100%</td><td>8</td><td>0–10</td></tr></table>`, "1");
     expect(report?.items[0].weight).toBeNull();
   });
 
   it("keeps total percentage on a 100-point scale even when range is a raw maximum", () => {
     const report = parseGradeReport(`<table><tr><th>Grade item</th><th>Weight</th><th>Grade</th><th>Range</th></tr>
-      <tr><td>Quiz</td><td>100%</td><td>17</td><td>0–20</td></tr>
+      <tr><td><span class="gradeitemheader">Quiz</span></td><td>100%</td><td>17</td><td>0–20</td></tr>
       <tr class="courseitem"><td>Course total</td><td>-</td><td>85%</td><td>0–20</td></tr></table>`, "1");
     expect(report?.total).toEqual({ earned: 85, max: 100 });
   });
@@ -195,6 +226,27 @@ describe("Moodle grade report parsing", () => {
     const report = parseGradeReport(`<table><tr><th>Grade item</th><th>Grade</th><th>Range</th></tr>
       <tr class="courseitem categoryitem"><td>Course total</td><td>75</td><td>0–100</td></tr></table>`, "1");
     expect(report).toEqual({ items: [], total: { earned: 75, max: 100 } });
+  });
+});
+
+describe("Muster assessment-to-Grade matching", () => {
+  const baseUrl = "https://moodle.example.invalid";
+  const activity = { name: "  Essay (35%)  ", url: `${baseUrl}/mod/assign/view.php?id=1` };
+
+  it("prefers the activity ID over a changed name and matches a unique manual grade name", () => {
+    const linked = { name: "Renamed assessment", url: "/mod/assign/view.php?id=1" };
+    expect(matchGradebookItem(activity, [linked], [activity], baseUrl)).toBe(linked);
+    const manual = { name: "essay", url: null };
+    expect(matchGradebookItem(activity, [manual], [activity], baseUrl)).toBe(manual);
+  });
+
+  it("rejects conflicting IDs, duplicate names and foreign origins", () => {
+    const other = { name: "essay", url: "/mod/assign/view.php?id=2" };
+    expect(matchGradebookItem(activity, [other], [activity], baseUrl)).toBeNull();
+    const manual = { name: "essay", url: null };
+    expect(matchGradebookItem(activity, [manual], [activity, { ...activity, url: other.url }], baseUrl)).toBeNull();
+    expect(matchGradebookItem(activity, [manual, manual], [activity], baseUrl)).toBeNull();
+    expect(matchGradebookItem(activity, [{ name: "essay", url: "https://foreign.example.invalid/mod/assign/view.php?id=1" }], [activity], baseUrl)).toBeNull();
   });
 });
 

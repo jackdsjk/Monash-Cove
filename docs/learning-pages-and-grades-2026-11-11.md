@@ -30,6 +30,12 @@ Muster 参考的是用户目录 `/Users/Admin/Documents/Workspace/muster`，而�
 
 ## 接口与行为边界
 
+### Grades 评分项资格补修
+
+用户随后明确：只有 Moodle Grades 中的实际评分项才能作为成绩依据。后端现按 Muster `parse_gradebook_from_html` 的 `.gradeitemheader` 正向条件接纳项目，并按链接／名称去重；普通数值行、练习入口、分类小计都不成为评分项，未出分和手工录入项目仍保留。可读取但没有项目的成绩表是空集合，不是读取失败。快照升级到 `grades:v4:<range>`，避免复用旧的宽松解析结果。
+
+`local-service/src/vendor/muster/assessment-match.ts` 将上游 `apply_gradebook` 的活动 ID 优先、去权重文字后名称回退移植到 TypeScript，并保留 LICENSE/NOTICE。调用方必须按课程隔离；本地额外拒绝冲突 ID、外站链接及重复名称。成绩册／资源路由专项 33 项测试与后端构建通过；作业资料与 Grades 的路由接线和验证结果在完成后补记。
+
 - `/api/pack?courseId=` 仍为只读本地端点，返回 `{ rubric:null, assignments }`，不再返回 `postsPerRole` 或 assignment `posts`。评分标准和附件没有源数据时明确显示缺失；不生成替代内容。课程筛选使用真实 courseId，避免同代码不同学期混合，作业 ID 不截断。
 - 周／板块与类型筛选影响可见资料和选择下载；Ed 的「下载整门课」仍明确导出完整课程，并按升序组织 Markdown，不因筛选悄悄改变其语义。
 - OnTrack `kind=task|resources|submission` 对应任务书、任务资料和已有提交文件。未实例化任务保留任务书／资料按钮，禁用提交下载；失败就地显示，切换连接取消旧请求。

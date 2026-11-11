@@ -218,7 +218,7 @@ describe("cached resource HTTP routes", () => {
       ] } }]);
       if (failCourse && url.searchParams.get("id") === "2") return new Response("fixture error", { status: 500 });
       if (url.pathname === "/grade/report/user/index.php") return new Response(`<table class="user-grade"><tbody>
-        <tr><th>Grade item</th><th>Grade</th><th>Range</th></tr><tr class="item"><td>Fixture</td><td>${grade}</td><td>0–10</td></tr></tbody></table>`);
+        <tr><th>Grade item</th><th>Grade</th><th>Range</th></tr><tr class="item"><td><span class="gradeitemheader">Fixture</span></td><td>${grade}</td><td>0–10</td></tr></tbody></table>`);
       throw new Error("Unexpected fixture URL");
     }) as unknown as typeof fetch;
     app = buildApp({ dbPath: ":memory:", seed: false, secretStore: secrets, fetcher });

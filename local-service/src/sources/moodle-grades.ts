@@ -7,6 +7,8 @@ import { selectMoodleCourses, type CoursePreferences } from "../course-preferenc
 export interface MoodleGradeItem {
   id: string;
   name: string;
+  /** Activity link from Grades; manual grade items can have no link. */
+  url: string | null;
   /** The mark Moodle prints; `null` when nothing has been released yet. */
   grade: number | null;
   /** Upper bound of the item's range; `null` when the report omits the range. */
@@ -269,7 +271,8 @@ export function parseGradeReport(html: string, courseId: string): ParsedGradeRep
       const classes = (row.getAttribute("class") ?? "").toLowerCase();
       const nameIndex = columns.name;
       if (nameIndex === undefined) continue;
-      const name = cleanName(fieldText(row, cells, columns, "name"));
+      const header = row.querySelector(".gradeitemheader");
+      const name = cleanName(header ? cellText(header) : fieldText(row, cells, columns, "name"));
       if (!name) continue;
 
       const gradeText = fieldText(row, cells, columns, "grade");
@@ -284,17 +287,24 @@ export function parseGradeReport(html: string, courseId: string): ParsedGradeRep
       // still retained even in themes that give it both class names.
       if (/categoryitem/.test(classes) || row.querySelector(".categoryitem")) continue;
 
+      // Muster's parse_gradebook_from_html only accepts actual grade-item
+      // headers. A row with numbers, or an activity elsewhere on the page, is
+      // not evidence of an assessment. Keep ungraded and manual grade items.
+      if (!header) continue;
+      const url = header.getAttribute("href") ?? header.querySelector("a[href]")?.getAttribute("href") ?? null;
+      const key = url || name;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
       const feedback = withoutPlaceholder(fieldText(row, cells, columns, "feedback"));
       const gradedAt = withoutPlaceholder(fieldText(row, cells, columns, "lastModified")) || withoutPlaceholder(fieldText(row, cells, columns, "gradedOn"));
       const score = mark(gradeText, percentage, range);
       const weight = parseNumber(fieldText(row, cells, columns, "weight"));
-      let id = itemId(courseId, name);
-      // Two activities can share a display name; keep both rows addressable.
-      if (seen.has(id)) id = itemId(courseId, `${name}:${items.length}`);
-      seen.add(id);
+      const id = itemId(courseId, key);
       items.push({
         id,
         name,
+        url,
         ...score,
         weight,
         feedback,
@@ -303,7 +313,7 @@ export function parseGradeReport(html: string, courseId: string): ParsedGradeRep
       itemRows.set(items[items.length - 1], row);
     }
 
-    if (items.length > 0 || total !== null) {
+    if (items.length > 0 || total !== null || columns && /(?:^|\s)user-grade(?:\s|$)/.test(table.getAttribute("class") ?? "")) {
       courseWeights(table, columns!, itemRows);
       return { items, total: total ?? { earned: null, max: null } };
     }
