@@ -54,6 +54,9 @@ npm run retriage
 - `GET /api/brief?since=&source=&q=`（条目包含独立的 `firstSeenAt` 首次入库时间；Moodle 条目含 `dueAt` / `deadlineKind`）
 - `GET /api/items/:id`
 - `GET /api/items/:id/detail`（来源原文、作者、老师/学生回复）
+- `GET /api/ed/courses` / `GET /api/ed/lessons?courseId=` / `GET /api/ed/lesson?lessonId=`（lesson:v2，独立 outline `files` 与 `slides[].files`，保留原生 PDF、混合附件及正文 fallback）
+- `GET /api/ed/download?url=&name=`（静态附件匿名读取，实际流 100 MiB 上限、PDF 文件头和连接守卫）
+- `POST /api/ed/download-batch`（最多 100 附件、附件总量 100 MiB；真实附件数 `x-cove-batch-count` 与 `x-cove-batch-skipped`，部分失败附 `下载说明.txt`；全部附件失败不以 Markdown 充当成功）
 - `GET /api/moodle/grades[?refresh=1]`（`{courses,cache}`，课程明细、独立 Overview 原文、结构新鲜度及变化事件；字段与边界见下文）
 - `GET /api/moodle/courses` / `POST /api/moodle/content-sync` / `GET /api/moodle/content?courseId=`
 - `GET/PATCH /api/moodle/course-preferences`（完整对象 `{activeSemester:null|"2026-S2",hiddenCourseIds:[],pinnedCourseIds:[]}`；课程 ID 为数字字符串）
@@ -65,7 +68,7 @@ npm run retriage
 - `POST /api/attendance/submit`（真正提交；1–50 条串行、整批 90 秒、逐条结果、失败不重试）
 - `POST /api/attendance/connect/start` / `GET /api/attendance/connect/status`
 - `GET /api/ontrack/account` / `GET /api/ontrack/overview` / `GET /api/ontrack/tasks`（只读账号与任务目录；任务 `id` 是真实实例 ID 或 `null`，`taskDefinitionId` 始终为定义 ID）
-- `GET /api/ontrack/comments?project=&task=`（`task` 为任务定义 ID）
+- `GET /api/ontrack/comments?project=&task=`（正整数目标，`task` 为任务定义 ID；`{comments,viewerId}`，同账号守卫、no-store、安全错误）
 - `GET /api/ontrack/artifact?project=&task=&kind=task|resources|submission`（只读下载；项目/定义 ID 必须为正整数）
 - `GET /api/runtime/status`（Node/Chrome/OAuth/凭据存储检查）
 - `GET /api/setup/status` / `POST /api/setup/moodle/start` / `GET /api/setup/moodle/status`（首次设置与 Moodle 登录助手）
@@ -78,6 +81,8 @@ npm run retriage
 - `GET /api/oauth/google/start`
 - `GET /oauth/google/callback`
 - `DELETE /api/data`
+
+MCP 保留原有只读工具，并增加 `cove_changes`、`cove_ed_lessons`、`cove_ed_lesson`、`cove_ontrack_tasks`、`cove_ontrack_comments`。`cove_courses` 默认 Moodle，可显式选 `source:"ed"`。`cove_deadlines` 包含 Moodle/OnTrack 未完成任务，支持来源、课程完整名称和最近 90 天逾期筛选。变更接口是有界时间窗口，沿用本地 90 天保留策略，不是永久 cursor feed；错误返回安全的 code/message/hint。完整来源与差异见 [Unicorn 功能复用记录](../docs/unicorn-feature-reuse-2026-11-11.md)。
 
 ## 读取缓存
 

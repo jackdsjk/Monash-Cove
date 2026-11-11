@@ -108,7 +108,9 @@ Muster 参考的是用户目录 `/Users/Admin/Documents/Workspace/muster`，而�
 其余课程／支持入口没有当前可测的已同步文件资源，因此未验证其 PDF；本次覆盖不包含未同步材料、页面内嵌附件、文件夹内部文件或关闭／隐藏的历史内容。本轮只更新验证记录，无运行时代码变更；文档空白及链接校验通过。
 
 
-## Ed 学习 PDF 排查：已定位，尚未修改运行逻辑
+## Ed 学习 PDF 排查：修复前诊断记录
+
+> 以下是修复前的诊断快照，保留当时的证据与未完成状态。后续已按该方案实施：详见 [Unicorn 功能对照与移植记录](unicorn-feature-reuse-2026-11-11.md)。新解析真实复验 3 门课程、101 个 lesson、410 个 slide，识别 75 个 PDF，失败 0；453 后端／164 前端测试、构建及隔离 E2E 通过。未逐个下载全部真实 PDF。
 
 本次按用户要求对照 unicorn，区分 Worker 的记忆同步和配套实时读取。下载目录的 unicorn `src/plugins/campus/ed-plugin.ts` 只读取课程与论坛，不实现 lesson PDF 抓取；该归档无 Git，文件 SHA-256 为 `d44ccfedaf02d6e74fcf0f1ec43a18a66e63d0831ea70720e504aa2f9e8a5862`，Apache-2.0。项目 `stack/unicorn` 在 `a8f1564f6f025ec573da35117466b07b7e280aae` 的 `docs/setup/ed.md`、`docs/ARCHITECTURE.md` 明确将完整实时读取交给 edstem-cli／Ed MCP。本次没有修改该嵌套仓库。
 
