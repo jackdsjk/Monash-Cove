@@ -322,6 +322,7 @@ export async function fetchSyncStatus(): Promise<SyncStatus> {
 }
 
 export async function syncSource(source: SourceStatus['id']): Promise<void> {
+  const gradeGeneration = moodleGradesQuery.getGeneration();
   const response = await request('/sync', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -332,6 +333,13 @@ export async function syncSource(source: SourceStatus['id']): Promise<void> {
     const body = await response.json().catch(() => null) as { error?: { message?: string } } | null;
     throw new Error(body?.error?.message ?? `同步失败（HTTP ${response.status}）`);
   }
+  if (source === 'moodle') await revalidateMoodleGrades(gradeGeneration);
+}
+
+/** A grade-read failure is visible on the resource, not a failed content sync. */
+export async function revalidateMoodleGrades(expectedGeneration: number): Promise<void> {
+  if (moodleGradesQuery.getGeneration() !== expectedGeneration) return;
+  await moodleGradesQuery.revalidate().catch(() => undefined);
 }
 
 export async function startFullSync(): Promise<SyncStatus["job"]> {

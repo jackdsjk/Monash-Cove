@@ -57,4 +57,42 @@ describe('shared resource cache', () => {
     expect(loader.mock.calls).toEqual([[false], [false]]);
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it('revalidates local data immediately while keeping the last snapshot and rejecting older reads', async () => {
+    let finishOld: ((value: { data: string[] }) => void) | undefined;
+    let finishNew: ((value: { data: string[] }) => void) | undefined;
+    const loader = vi.fn()
+      .mockImplementationOnce(() => new Promise<{ data: string[] }>((resolve) => { finishOld = resolve; }))
+      .mockImplementationOnce(() => new Promise<{ data: string[] }>((resolve) => { finishNew = resolve; }));
+    const query = new ResourceQuery<string[]>('moodle', loader, 5000);
+    query.replace(['cached']);
+    const old = query.load(true);
+    await Promise.resolve();
+    const current = query.revalidate();
+    expect(query.getSnapshot()).toMatchObject({ data: ['cached'], loading: true });
+    await Promise.resolve();
+    finishOld?.({ data: ['outdated'] });
+    await old;
+    expect(query.getSnapshot()).toMatchObject({ data: ['cached'], loading: true });
+    finishNew?.({ data: ['updated'] });
+    await current;
+    expect(query.getSnapshot()).toMatchObject({ data: ['updated'], loading: false });
+    expect(loader.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('retains the old snapshot after revalidation failure and drops results after a connection change', async () => {
+    let finish: ((value: { data: string[] }) => void) | undefined;
+    const loader = vi.fn().mockRejectedValueOnce(new Error('local offline'))
+      .mockImplementationOnce(() => new Promise<{ data: string[] }>((resolve) => { finish = resolve; }));
+    const query = new ResourceQuery<string[]>('moodle', loader, 5000);
+    query.replace(['cached']);
+    await expect(query.revalidate()).rejects.toThrow('local offline');
+    expect(query.getSnapshot()).toMatchObject({ data: ['cached'], error: 'local offline' });
+    const pending = query.revalidate();
+    await Promise.resolve();
+    query.clear();
+    finish?.({ data: ['old account'] });
+    await pending;
+    expect(query.getSnapshot().data).toBeUndefined();
+  });
 });

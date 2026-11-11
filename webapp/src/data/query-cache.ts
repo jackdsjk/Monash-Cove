@@ -76,6 +76,15 @@ export class ResourceQuery<T> {
     this.publish({ data: undefined, loading: false, error: null });
   }
 
+  /** Read an updated local snapshot without forcing another upstream refresh. */
+  revalidate(): Promise<void> {
+    this.generation++;
+    this.inflight = null;
+    this.polls = 0;
+    clearTimeout(this.timer);
+    return this.load(false, true);
+  }
+
   load(force = false, poll = false): Promise<void> {
     if (this.inflight) return this.inflight;
     if (!force && !poll && this.snapshot.data !== undefined && !this.snapshot.cache?.stale && Date.now() - this.receivedAt < this.freshForMs) {

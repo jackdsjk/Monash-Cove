@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { fetchBrief, fetchChanges, fetchSources, fetchSyncStatus, setItemCompleted, startFullSync, syncSource as requestSourceSync } from "./data/repository";
+import { fetchBrief, fetchChanges, fetchSources, fetchSyncStatus, moodleGradesQuery, revalidateMoodleGrades, setItemCompleted, startFullSync, syncSource as requestSourceSync } from "./data/repository";
 import { invalidateQueryCache, invalidateSourceQueries } from "./data/query-cache";
 import { coursesOf, toChange, toItem, toSource } from "./data/adapter";
 import type { Course, Item, ItemChange, SourceId, SourceState, UserMark } from "./data/model";
@@ -221,6 +221,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const syncFull = () => {
     if (fullSyncFlight.current) return;
+    const gradeGeneration = moodleGradesQuery.getGeneration();
     const connected = sources.filter((source) => source.connected);
     const tokens = new Map(connected.map((source) => [source.id, Symbol(source.id)]));
     for (const source of connected) {
@@ -246,6 +247,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             syncFailures.current.set(source.id, message);
             patchSource(source.id, { state: 'error', error: message });
           }
+        }
+        if (status.job.sources.moodle?.status === 'done' &&
+            tokens.has('moodle') && syncFlights.current.get('moodle') === tokens.get('moodle')) {
+          await revalidateMoodleGrades(gradeGeneration);
         }
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : '全量同步失败';

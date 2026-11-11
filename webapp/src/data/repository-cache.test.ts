@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { moodleCoursePreferencesQuery, moodleGradesQuery, saveMoodleCoursePreferences } from './repository';
+import { moodleCoursePreferencesQuery, moodleGradesQuery, revalidateMoodleGrades, saveMoodleCoursePreferences, syncSource } from './repository';
 import { invalidateQueryCache, invalidateSourceQueries } from './query-cache';
 
 const cache = { fetchedAt: '2026-11-10T00:00:00Z', checkedAt: '2026-11-10T00:00:00Z', identity: 'fixture-owner', stale: false, refreshing: false, error: null };
@@ -8,6 +8,76 @@ const courses = [{ courseId: '101', courseName: 'Fixture course', items: [], tot
 afterEach(() => { invalidateQueryCache(); vi.unstubAllGlobals(); });
 
 describe('page resource requests', () => {
+  it('re-reads the local grade snapshot after a successful Moodle sync without forcing upstream', async () => {
+    moodleGradesQuery.replace(courses);
+    let finishRead: ((response: Response) => void) | undefined;
+    const fetcher = vi.fn(async (url: RequestInfo | URL) => {
+      if (url === '/api/sync') return Response.json({ ok: true });
+      return new Promise<Response>((resolve) => { finishRead = resolve; });
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const pending = syncSource('moodle');
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+    expect(moodleGradesQuery.getSnapshot()).toMatchObject({ data: courses, loading: true });
+    finishRead?.(Response.json({ courses: [], cache }));
+    await pending;
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual(['/api/sync', '/api/moodle/grades']);
+    expect(moodleGradesQuery.getSnapshot().data).toEqual([]);
+  });
+
+  it('does not refresh grades for failed Moodle sync or successful other-source sync', async () => {
+    moodleGradesQuery.replace(courses);
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ error: { message: 'sync offline' } }, { status: 500 }))
+      .mockResolvedValueOnce(Response.json({ ok: true }));
+    vi.stubGlobal('fetch', fetcher);
+    await expect(syncSource('moodle')).rejects.toThrow('sync offline');
+    await syncSource('ed');
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual(['/api/sync', '/api/sync']);
+    expect(moodleGradesQuery.getSnapshot().data).toEqual(courses);
+  });
+
+  it('does not turn successful content sync into failure when its local grade read fails', async () => {
+    moodleGradesQuery.replace(courses);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(Response.json({ ok: true }))
+      .mockResolvedValueOnce(Response.json({ error: { message: 'grade read offline' } }, { status: 503 })));
+    await expect(syncSource('moodle')).resolves.toBeUndefined();
+    expect(moodleGradesQuery.getSnapshot()).toMatchObject({ data: courses, error: 'grade read offline' });
+  });
+
+  it('exposes partial grade warnings through the snapshot while content sync remains successful', async () => {
+    const warning = '部分课程成绩刷新失败（课程 101：HTTP 503）。';
+    moodleGradesQuery.replace(courses);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(Response.json({ synced: 1, gradeWarning: warning }))
+      .mockResolvedValueOnce(Response.json({ courses, cache: { ...cache, stale: true, error: warning } })));
+    await expect(syncSource('moodle')).resolves.toBeUndefined();
+    expect(moodleGradesQuery.getSnapshot()).toMatchObject({ data: courses, error: warning });
+  });
+
+  it('ignores sync completion after credentials change and retains the new connection data', async () => {
+    let finish: ((response: Response) => void) | undefined;
+    const fetcher = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    vi.stubGlobal('fetch', fetcher);
+    const pending = syncSource('moodle');
+    invalidateSourceQueries('moodle');
+    moodleGradesQuery.replace([]);
+    finish?.(Response.json({ ok: true }));
+    await pending;
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(moodleGradesQuery.getSnapshot().data).toEqual([]);
+  });
+
+  it('revalidates through a non-forcing generation guard only once for the captured generation', async () => {
+    moodleGradesQuery.replace(courses);
+    const generation = moodleGradesQuery.getGeneration();
+    const fetcher = vi.fn(async () => Response.json({ courses: [], cache }));
+    vi.stubGlobal('fetch', fetcher);
+    await revalidateMoodleGrades(generation);
+    expect(fetcher.mock.calls).toHaveLength(1);
+    expect(fetcher).toHaveBeenCalledWith('/api/moodle/grades', expect.anything());
+    await revalidateMoodleGrades(generation);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it('shares the grade request, reads cache metadata and explicitly refreshes on demand', async () => {
     const fetcher = vi.fn(async (_url: RequestInfo | URL) => new Response(JSON.stringify({ courses, cache })));
     vi.stubGlobal('fetch', fetcher);
