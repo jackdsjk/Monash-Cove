@@ -48,6 +48,18 @@ from the same revision: successful HTML only, single-flight per logical grade re
 checks and independent cancellation are Node adaptations. `moodle-transport.ts`
 shares bounded 429/503 Retry-After cooldown, without automatically retrying.
 
+`../../moodle-download.ts` ports `scraper.rs::parse_content_disposition_filename`
+and `percent_decode` (lines 103–162), retaining plain-name precedence, RFC 5987
+and malformed-escape handling. Its download flow adapts `download_file`
+(lines 3189–3313): resource `redirect=1`, real file redirects, response-header
+filenames and streamed bytes. Upstream Rust uses reqwest's 10-redirect policy;
+the Node adapter validates up to six requests manually. Only same-origin
+pluginfile evidence can introduce a signed HTTPS CloudFront URL, which is fetched
+anonymously outside the credential transport. File/batch limits, connection guards
+and safe per-item errors are local adaptations. It returns bytes/ZIP through HTTP
+rather than copying Tauri's filesystem/progress-event code. Preserve these
+boundaries in download and resource-route tests.
+
 Preserve [LICENSE](LICENSE) and [NOTICE](NOTICE), Copyright 2026 Poetrynan,
 PolyForm Noncommercial 1.0.0. This port does not change the upstream license.
 Run the backend gradebook and resource-route tests plus `npm run check` after edits.

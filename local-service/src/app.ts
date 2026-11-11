@@ -25,7 +25,7 @@ import { matchGradebookItem } from "./vendor/muster/assessment-match.js";
 import { mergeGradeCourse, applyGradeSubmissionEvidence } from "./moodle-grade-refresh.js";
 import { EdClient } from "./sources/ed.js";
 import { syncMoodleContent } from "./sync/moodle-content.js";
-import { downloadMoodleResource, MoodleDownloadError, moodleCookieHeader, safeDownloadName } from "./moodle-download.js";
+import { downloadMoodleResource, moodleDownloadFailure, moodleCookieHeader, safeDownloadName } from "./moodle-download.js";
 import { moodleCredentialIdentity, moodleCredentials, scheduleMoodleSessionChecks, verifyMoodleSession } from "./moodle-session.js";
 import { captureMoodlePage } from "./moodle-snapshot.js";
 import { MoodleSessionTransport } from "./moodle-transport.js";
@@ -1044,15 +1044,14 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (!raw) return reply.code(409).send({ error: { code: "not_connected", message: "Moodle session is not configured.", retryable: false } } satisfies ApiError);
     const credentials = moodleCredentials.parse(JSON.parse(raw));
     try {
-      const file = await downloadMoodleResource(credentials, targetValue, request.query.name, moodleTransport.forCredentials(raw));
+      const reader = moodleTransport.forCredentials(raw);
+      const file = await downloadMoodleResource(credentials, targetValue, request.query.name, reader, { publicFetcher: fetcher, assertCurrent: reader.assertCurrent });
       reply.header("content-type", file.contentType);
       reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
       return reply.send(file.buffer);
     } catch (error) {
-      if (error instanceof MoodleDownloadError) {
-        return reply.code(error.status).send({ error: { code: error.code, message: error.message, retryable: error.status >= 500 } } satisfies ApiError);
-      }
-      return reply.code(502).send({ error: { code: "download_failed", message: "Moodle download failed.", retryable: true } } satisfies ApiError);
+      const failure = moodleDownloadFailure(error);
+      return reply.code(failure.status).send({ error: { code: failure.code, message: failure.message, retryable: failure.status >= 500 } } satisfies ApiError);
     }
   });
 
@@ -1094,11 +1093,14 @@ export function buildApp(options: AppOptions): FastifyInstance {
     let skipped = 0;
     let totalBytes = 0;
     const usedNames = new Set<string>();
+    const failures: Array<{ name: string; code: string; message: string; status: number }> = [];
+    const reader = moodleTransport.forCredentials(raw);
     for (const item of items) {
       try {
-        const file = await downloadMoodleResource(credentials, item.url, item.name, moodleTransport.forCredentials(raw));
+        const file = await downloadMoodleResource(credentials, item.url, item.name, reader, { publicFetcher: fetcher, assertCurrent: reader.assertCurrent });
         if (totalBytes + file.buffer.length > 100 * 1024 * 1024) {
           skipped += 1;
+          failures.push({ name: safeDownloadName(item.name ?? "资料"), code: "batch_too_large", message: "压缩包超过 100 MB 限制，请分批下载。", status: 413 });
           continue;
         }
         let name = file.fileName;
@@ -1112,14 +1114,26 @@ export function buildApp(options: AppOptions): FastifyInstance {
         zip.file(name, file.buffer);
         totalBytes += file.buffer.length;
         added += 1;
-      } catch {
+      } catch (error) {
+        const failure = moodleDownloadFailure(error);
+        if (failure.code === "connection_changed") return reply.code(409).send({ error: { code: failure.code, message: failure.message, retryable: false } } satisfies ApiError);
+        failures.push({ name: safeDownloadName(item.name ?? "资料"), code: failure.code, message: failure.message, status: failure.status });
         skipped += 1;
       }
     }
     if (added === 0) {
-      return reply.code(404).send({ error: { code: "no_files", message: "None of the selected resources could be downloaded.", retryable: false } } satisfies ApiError);
+      const failure = failures.find((item) => item.code === "session_expired") ?? failures[0];
+      const reason = [...new Set(failures.map((item) => item.message))].slice(0, 3).join("；");
+      return reply.code(failure?.status ?? 404).send({ error: { code: failure?.code ?? "no_files", message: `所选资料未能下载：${reason || "未找到可下载文件，请重新同步资料。"}`, retryable: (failure?.status ?? 404) >= 500 } } satisfies ApiError);
+    }
+    if (failures.length) {
+      let reportName = "下载说明.txt";
+      while (usedNames.has(reportName.toLowerCase())) reportName = `_${reportName}`;
+      zip.file(reportName, "以下资料未下载（不包含链接或登录信息）：\n" + failures.map((item) => `${item.name}：${item.message}`).join("\n"));
     }
     const archive = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+    try { await reader.assertCurrent(); }
+    catch (error) { const failure = moodleDownloadFailure(error); return reply.code(failure.status).send({ error: { code: failure.code, message: failure.message, retryable: false } } satisfies ApiError); }
     reply.header("content-type", "application/zip");
     const requestedArchive = safeDownloadName(request.body?.archiveName ?? "moodle-materials") || "moodle-materials";
     const archiveName = requestedArchive.toLowerCase().endsWith(".zip") ? requestedArchive : `${requestedArchive}.zip`;

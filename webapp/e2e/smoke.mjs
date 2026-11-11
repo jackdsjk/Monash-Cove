@@ -156,6 +156,7 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
   let packVerificationUnavailable = false;
   let gradeRequests = 0;
   const batchRequests = [];
+  let batchMode = "ok";
   const artifacts = [];
   await page.route("**/api/**", (route) => {
     const url = new URL(route.request().url());
@@ -208,7 +209,8 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     }
     if (pathname === "/api/moodle/download-batch") {
       batchRequests.push(route.request().postDataJSON());
-      return route.fulfill({ contentType: "application/zip", body: Buffer.from("PK fixture archive"), headers: { "x-cove-batch-count": "1", "x-cove-batch-skipped": "0" } });
+      if (batchMode === "error") return route.fulfill({ status: 422, json: { error: { code: "external_link", message: "所选资料未能下载：该资源是外部网页链接，无法打包为文件；请在 Moodle 中打开。" } } });
+      return route.fulfill({ contentType: "application/zip", body: Buffer.from("PK fixture archive"), headers: { "x-cove-batch-count": "1", "x-cove-batch-skipped": batchMode === "partial" ? "1" : "0" } });
     }
     if (pathname === "/api/ed/courses") return route.fulfill({ json: { courses: [{ id: 201, code: "TEST1001", name: "Fixture Ed course" }] } });
     if (pathname === "/api/ed/lessons") return route.fulfill({ json: { lessons: summaries } });
@@ -289,6 +291,17 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     await page.getByRole("button", { name: "下载所选", exact: true }).click();
     await (await materialDownload).path();
     assert.deepEqual(batchRequests.at(-1).items.map((item) => item.name), ["Reading Two"], "download must contain only current visible selection");
+
+    batchMode = "error";
+    await page.getByRole("checkbox", { name: "选择 Reading Two", exact: true }).check();
+    await page.getByRole("button", { name: "下载所选", exact: true }).click();
+    await page.getByText("所选资料未能下载：该资源是外部网页链接，无法打包为文件；请在 Moodle 中打开。", { exact: true }).waitFor();
+    batchMode = "partial";
+    const partialDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "下载所选", exact: true }).click();
+    await (await partialDownload).path();
+    await page.getByText("已打包 1 个文件，跳过 1 个；未下载原因见压缩包内的下载说明", { exact: true }).waitFor();
+    batchMode = "ok";
 
     await page.getByText("同步范围", { exact: true }).click();
     await page.getByRole("combobox", { name: "学期", exact: true }).selectOption("2026-S2");

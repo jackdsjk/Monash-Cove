@@ -58,8 +58,8 @@ npm run retriage
 - `GET /api/moodle/courses` / `POST /api/moodle/content-sync` / `GET /api/moodle/content?courseId=`
 - `GET/PATCH /api/moodle/course-preferences`（完整对象 `{activeSemester:null|"2026-S2",hiddenCourseIds:[],pinnedCourseIds:[]}`；课程 ID 为数字字符串）
 - `GET /api/pack?courseId=`（Moodle 作业资料：只导出与 Grades 评分项关联的本地 Moodle 作业／测验及变更，只读；每项带 gradeItemId，未能核验时返回 verificationWarning；不返回 Ed 帖子或 OnTrack 文件）
-- `GET /api/moodle/download?url=`（仅 `mod/resource`，服务端用本机 session 代理文件）
-- `POST /api/moodle/download-batch`（1–100 个 resource，返回 ZIP）
+- `GET /api/moodle/download?url=`（同源 `mod/resource` / `mod/url` 入口，服务端读取真实文件）
+- `POST /api/moodle/download-batch`（1–100 个资源入口，返回 ZIP；部分失败附 `下载说明.txt`）
 - `POST /api/sync/full` / `GET /api/sync/status`（Gmail/Ed/Moodle/OnTrack 全量后台任务与进度；未配置来源跳过，OnTrack 范围为账号当前可访问的项目及历史反馈）
 - `GET /api/attendance/status` / `GET /api/attendance/codes` / `POST /api/attendance/fill`
 - `POST /api/attendance/submit`（真正提交；1–50 条串行、整批 90 秒、逐条结果、失败不重试）
@@ -131,3 +131,6 @@ Moodle 课程、成绩，Ed 课程/lesson，以及 OnTrack 概览/任务的 GET 
 ## 当前状态
 
 S1–S8 完成；Gmail 20、Ed 91、Moodle 6 均已真实同步，重启后仍 connected。Moodle 当前课程无 forum 链接，论坛同步返回 0。
+
+
+Moodle 文件下载复用固定版本 Muster 的 `redirect=1`、Content-Disposition 文件名解析和流式读取规则，来源见 [vendor/muster](src/vendor/muster/README.md)。同源 pluginfile 可跳转到签名 HTTPS CloudFront 文件；该请求匿名执行，不携带 Moodle Cookie 或 Authorization，也不放宽通用认证 transport。外部网页不会伪装成文件；CDN 拒绝访问不等于 Moodle 登录失效。逐跳验证、单文件 50 MiB／整包 100 MiB、30 秒请求超时和连接变更 guard 继续生效。全部失败返回安全具体原因；部分成功在 ZIP 附失败说明。回归覆盖 `moodle-download.test.ts`、`resource-routes.test.ts` 和浏览器 smoke。

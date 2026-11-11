@@ -82,3 +82,16 @@ Muster 参考的是用户目录 `/Users/Admin/Documents/Workspace/muster`，而�
 隔离浏览器 fixture 覆盖带学期后缀、含空格及连续超长字符串的课程名；在 390／768／1280／1920px 检查课程与来源的边界、单行高度、完整名称保留、页面无横向溢出和详情入口可达。截图仅包含匿名 fixture，位于忽略的 `build/audit/browser-smoke/deadlines-long-courses-*.png`。
 
 本次验证通过：前端数据／类型／生产构建、156 项前端测试、372 项后端测试及构建、完整隔离浏览器 smoke、`git diff --check`。人工查看 1280px 匿名截图确认课程与来源分列、各行高度一致；未使用真实账户页面作测试。
+
+
+## 每周资料下载失败补修
+
+用户选择每周资料后收到 `None of the selected resources could be downloaded`。只读跟踪确认，Moodle 资源入口经同源 pluginfile 返回 303，再跳转签名 CloudFront 文件；旧通用 transport 的同源保护拒绝这一跳，导致实际 PDF 全部失败。普通外部平台链接也无法作为文件打包。文件 CDN 跳转本身不是登录失效证据。
+
+直接移植用户目录 Muster `ad2372683e0fbc4efb148af8b81840ae8dee5f39` 的 `scraper.rs::parse_content_disposition_filename`／`percent_decode`，并适配 `download_file`：resource 增加 `redirect=1`、读取真实文件、从 Content-Disposition 提取文件名和流式读取。许可证为 PolyForm Noncommercial 1.0.0，Copyright 2026 Poetrynan，原 LICENSE／NOTICE 保留于服务端 vendor 目录；[来源记录](../local-service/src/vendor/muster/README.md) 写明 Rust → Node 适配边界。
+
+上游 reqwest 自动跟随最多 10 次跳转，本项目复用既有认证 transport 和逐跳验证，最多六次请求。同源 pluginfile 之后才接受签名 HTTPS CloudFront；CDN 使用独立匿名请求，不带 Moodle Cookie 或 Authorization，不放宽通用认证请求的同源限制。继续限制实际字节数（单文件 50 MiB、整包 100 MiB）、30 秒请求超时，拒绝不完整 206，下载及 ZIP 返回前核对连接归属。普通外部网页、HTTP 失败、明确登录过期分别提示；部分成功的 ZIP 加入 `下载说明.txt`，仅含安全名称及原因，不含链接、签名或登录信息。
+
+验证通过：409 项后端测试及构建、156 项前端测试、前端数据／类型／生产构建、独立随机端口的完整浏览器 smoke、`git diff --check`。新增 fixture 覆盖 CDN 跳转及匿名请求、恶意跳转、HTML 包装、真实登录证据、HTTP/CDN 失败区分、文件大小、跳转上限、连接切换／断开和部分成功说明；浏览器覆盖全部失败提示与部分成功说明入口。
+
+真实账号只读复验：目标周共 7 项，其中 5 项资源、2 项外部网页。两个单文件 API 均返回 HTTP 200、有效 PDF；整组批量 API 返回 HTTP 200，ZIP 内 5 个有效 PDF、跳过 2 项，含下载说明。文件只在内存中校验，未记录内容、真实 URL、签名或凭据。此结论限于本次文件下载，不代表其他课程或长期会话已全面验证。

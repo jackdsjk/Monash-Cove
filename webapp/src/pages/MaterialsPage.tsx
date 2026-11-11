@@ -214,7 +214,7 @@ export function MaterialsPage() {
       setStatus({
         state: 'done',
         count: Number.isFinite(packed) ? packed : count,
-        message: skipped > 0 ? `已打包 ${packed} 个文件，跳过 ${skipped} 个` : undefined,
+        message: skipped > 0 ? `已打包 ${packed} 个文件，跳过 ${skipped} 个；未下载原因见压缩包内的下载说明` : undefined,
       })
       setSelected(new Set())
     } catch (cause) {

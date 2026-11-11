@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import JSZip from "jszip";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import type { CoveDatabase } from "../db.js";
@@ -385,5 +386,84 @@ describe("cached resource HTTP routes", () => {
     expect(requests.filter((path) => path === "/api/projects/1")).toHaveLength(1);
     expect(requests.filter((path) => path.endsWith("/auth/access-token"))).toHaveLength(1);
     await app.inject("/api/ontrack/tasks"); expect(requests).toHaveLength(4);
+  });
+});
+
+
+describe("Moodle file download routes", () => {
+  const baseUrl = "https://moodle.example.invalid";
+  const url = `${baseUrl}/mod/resource/view.php?id=1`;
+  const cdn = "https://fixture.cloudfront.net/notes?Signature=private-fixture&Key-Pair-Id=fixture&Expires=2000000000";
+
+  async function setup(options: { failCdn?: boolean; changeAccount?: boolean; disconnect?: boolean } = {}) {
+    const secrets = new MemorySecretStore();
+    await secrets.set("moodle-credentials", JSON.stringify({ baseUrl, session: "fixture" }));
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      const target = new URL(String(input));
+      if (target.origin === baseUrl) {
+        expect(new Headers(init?.headers).get("cookie")).toContain("MoodleSession=fixture");
+        expect(init?.redirect).toBe("manual");
+        if (target.pathname.includes("/mod/url/")) return new Response(null, { status: 303, headers: { location: "https://eassessment.example.invalid/quiz" } });
+        if (target.pathname.includes("/mod/resource/")) {
+          expect(target.searchParams.get("redirect")).toBe("1");
+          return new Response(null, { status: 303, headers: { location: `${baseUrl}/pluginfile.php/1/notes.pdf` } });
+        }
+        if (target.pathname.includes("pluginfile.php")) return new Response(null, { status: 303, headers: { location: cdn } });
+      }
+      if (target.hostname === "fixture.cloudfront.net") {
+        expect(init?.credentials).toBe("omit");
+        expect(new Headers(init?.headers).get("cookie")).toBeNull();
+        expect(new Headers(init?.headers).get("authorization")).toBeNull();
+        if (options.failCdn) throw new Error(`Network failure: ${cdn}`);
+        if (options.changeAccount) await secrets.set("moodle-credentials", JSON.stringify({ baseUrl, session: "different-account" }));
+        if (options.disconnect) await app!.inject({ method: "POST", url: "/api/sources/moodle/disconnect" });
+        return new Response("%PDF-fixture", { headers: { "content-type": "application/pdf", "content-disposition": 'attachment; filename="Lecture.pdf"' } });
+      }
+      throw new Error("Unexpected fixture target");
+    });
+    app = buildApp({ dbPath: ":memory:", seed: false, secretStore: secrets, fetcher });
+    return { secrets, fetcher };
+  }
+
+  it("downloads through the actual cookie transport and anonymously follows signed CDN redirects", async () => {
+    const { fetcher } = await setup();
+    const response = await app!.inject(`/api/moodle/download?url=${encodeURIComponent(url)}`);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("application/pdf");
+    expect(response.headers["content-disposition"]).toContain("Lecture.pdf");
+    expect(response.body).toBe("%PDF-fixture");
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("packages available files with safe reasons for skipped external pages", async () => {
+    await setup();
+    const response = await app!.inject({ method: "POST", url: "/api/moodle/download-batch", payload: { items: [
+      { url, name: "Reading" }, { url: `${baseUrl}/mod/url/view.php?id=2`, name: "External quiz" },
+    ] } });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["x-cove-batch-count"]).toBe("1");
+    expect(response.headers["x-cove-batch-skipped"]).toBe("1");
+    const zip = await JSZip.loadAsync(response.rawPayload);
+    expect(await zip.file("Reading.pdf")!.async("string")).toBe("%PDF-fixture");
+    const report = await zip.file("下载说明.txt")!.async("string");
+    expect(report).toContain("External quiz：该资源是外部网页链接");
+    expect(report).not.toMatch(/https:|Signature|MoodleSession/);
+  });
+
+  it("returns specific all-failed reasons without leaking upstream signed URLs", async () => {
+    await setup({ failCdn: true });
+    const response = await app!.inject({ method: "POST", url: "/api/moodle/download-batch", payload: { items: [{ url }] } });
+    expect(response.statusCode).toBe(502);
+    expect(response.json().error.message).toContain("文件下载暂时失败");
+    expect(response.body).not.toMatch(/Signature|private-fixture|https:/);
+  });
+
+  it.each(["changeAccount", "disconnect"] as const)("rejects late CDN downloads after %s", async (kind) => {
+    await setup({ [kind]: true });
+    const response = await app!.inject({ method: "POST", url: "/api/moodle/download-batch", payload: { items: [{ url }] } });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe("connection_changed");
+    expect(response.body).not.toContain("%PDF");
   });
 });
