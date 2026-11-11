@@ -32,6 +32,13 @@ describe("Muster assessment structure port", () => {
       <a href="/course/view.php?id=2&amp;section=4" title="Assessments">Other course</a>`, 1, base)).toBe(9);
   });
 
+  it.each([["", 60], ["35%", 35], ["0%", 0]])("uses title weights only when the category cell omits one: %s", (cell, expected) => {
+    const rows = parseAssessmentStructure(`<div class="assessment-item summary-view-dropdown-header">
+      <span class="dropdown-name-text" data-section="9">Exam (60%)</span><span class="weight-content">${cell}</span></div>
+      <div id="assessment-section-activity-list-9"><div class="assessment-item"><a class="name-content-text" href="/mod/quiz/view.php?id=7">Exam</a></div></div>`, base);
+    expect(rows.map((row) => [row.weight, row.categoryWeight])).toEqual([[expected, expected], [expected, expected]]);
+  });
+
   it("falls back to standard activities with explicit item weights, retaining zero", () => {
     const rows = parseAssessmentStructure(`<h2>Written</h2>
       <li class="activity modtype_assign"><a href="/mod/assign/view.php?id=1"><span class="instancename">Essay (Weight: 35%)</span></a></li>

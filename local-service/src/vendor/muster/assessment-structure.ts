@@ -66,7 +66,9 @@ export function parseAssessmentStructure(html: string, baseUrl: string): Assessm
     if (key && seen.has(key)) continue;
     if (key) seen.add(key);
     const category = name.replace(/^[\d.\s]+/, "").trim() || null;
-    const weight = parseAssessmentWeight(header.querySelector(".weight-content")?.text ?? "");
+    // Muster also post-processes category titles when the weight cell is empty.
+    const weight = parseAssessmentWeight(header.querySelector(".weight-content")?.text ?? "")
+      ?? parseAssessmentWeight(name);
     rows.push({ name, url: null, isCategory: true, category, categoryId, weight, categoryWeight: weight, gradeItemId: null });
     if (categoryId === null) continue;
     const list = root.querySelector(`#assessment-section-activity-list-${categoryId}`);
