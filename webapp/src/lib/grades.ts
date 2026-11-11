@@ -1,6 +1,7 @@
 import type { MoodleGradeCourse, MoodleGradeItem } from '../types'
 import { buildCourseGrade, parseScorePercent, type CourseGrade } from './muster/gradeBreakdown'
 import type { Assignment } from './muster/types'
+import { courseSemester, type MoodleCoursePreferences } from './course-sync-preferences'
 
 export type GradeBand = 'HD' | 'D' | 'C' | 'P' | 'N'
 
@@ -32,10 +33,20 @@ export function isGradeReleased(item: MoodleGradeItem): boolean {
     !!item.gradeText?.trim() && !['-', '–', '—'].includes(item.gradeText.trim())
 }
 
+export function isGradeMarked(item: MoodleGradeItem): boolean {
+  return isGradeReleased(item) || item.gradingState === 'graded'
+}
+
+export function gradeStatus(item: MoodleGradeItem): string {
+  if (isGradeReleased(item)) return '已评分'
+  if (item.gradingState === 'graded') return '已评分，分数未公开'
+  return item.gradingState === 'submitted' ? '已提交，待评分' : '未评分'
+}
+
 function gradeFields(item: MoodleGradeItem): Pick<Assignment, 'status' | 'grade' | 'gradeMax'> {
   return {
-    status: isGradeReleased(item) ? 'graded' : 'pending',
-    grade: item.grade !== null && Number.isFinite(item.grade) ? String(item.grade) : item.gradeText ?? undefined,
+    status: isGradeMarked(item) ? 'graded' : item.gradingState === 'submitted' ? 'submitted' : 'pending',
+    grade: item.grade !== null && Number.isFinite(item.grade) ? String(item.grade) : isGradeReleased(item) ? item.gradeText ?? undefined : undefined,
     gradeMax: item.gradeMax !== null && Number.isFinite(item.gradeMax) ? item.gradeMax : undefined,
   }
 }
@@ -121,7 +132,7 @@ export function courseSummary(course: MoodleGradeCourse): CourseSummary {
   const weights = gradeItemWeights(course, breakdown)
   const releasedWeightsKnown = structured !== null ||
     items.filter(isGradeReleased).every((item) => weights.get(item.id) != null)
-  const gradedCount = items.filter(isGradeReleased).length
+  const gradedCount = items.filter(isGradeMarked).length
   const current = hasWeights && releasedWeightsKnown && breakdown.gradedWeight > 0 && breakdown.hiddenWeight === 0
     ? breakdown.earned / breakdown.gradedWeight * 100 : null
 
@@ -144,6 +155,30 @@ export function courseSummary(course: MoodleGradeCourse): CourseSummary {
       course.total.max !== null && Number.isFinite(course.total.max)
       ? parseScorePercent(String(course.total.earned), course.total.max) : null,
   }
+}
+
+/** Adapt Muster useOutlook, guarded against partial weights and unreadable scores. */
+export function gradeOutlook(course: MoodleGradeCourse): string | null {
+  const summary = courseSummary(course)
+  const grade = gradeBreakdown(course)
+  if (!summary.weightsComplete || grade.hiddenWeight > 0) return null
+  const fmt = (value: number) => Number(value.toFixed(1))
+  switch (grade.outcome) {
+    case 'passed': return `已得 ${fmt(grade.earned)} 个总评分，达到 50 分线。`
+    case 'unreachable': return `剩余 ${fmt(grade.pendingWeight)}% 权重全部得分仍无法达到 50 分线，请核对课程要求。`
+    case 'not-started': return `尚未评分，剩余 ${fmt(grade.pendingWeight)}% 权重。`
+    case 'no-data': return null
+    default: return `距 50 分线还差 ${fmt(grade.needed)} 分，剩余 ${fmt(grade.pendingWeight)}% 中需平均取得 ${fmt(grade.requiredAverage ?? 0)}%。`
+  }
+}
+
+/** View-only filter: unknown terms survive; real course IDs control hidden/pinned state. */
+export function gradeCoursesInView(courses: MoodleGradeCourse[], semester: string | null, preferences?: MoodleCoursePreferences | null): MoodleGradeCourse[] {
+  return courses.filter((course) => {
+    if (preferences?.hiddenCourseIds.includes(course.courseId)) return false
+    const term = courseSemester(course.courseName)
+    return !semester || !term || term === semester
+  }).sort((a, b) => Number(preferences?.pinnedCourseIds.includes(b.courseId) ?? false) - Number(preferences?.pinnedCourseIds.includes(a.courseId) ?? false))
 }
 
 /** Moodle 课程全名通常以单元代码开头；拆成「代码 · 名称」两段显示。 */

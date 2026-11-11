@@ -262,6 +262,8 @@ export interface MoodleGradeItem {
   url?: string | null;
   /** 原始已发布成绩，包括不可换算的字母等级。 */
   gradeText?: string | null;
+  gradingState?: "graded" | "submitted" | "pending" | "unknown";
+  gradeSource?: "gradebook" | "activity";
   /** 已发布的分数；未发布时为 null（不是 0） */
   grade: number | null;
   /** 分项满分，来自 Range 列；Moodle 没印 Range 时为 null */
@@ -294,6 +296,16 @@ export interface MoodleGradeCourse {
   total: { earned: number | null; max: number | null };
   assessmentStructure?: MoodleAssessmentStructureRow[];
   assessmentWarning?: string | null;
+  overviewGrade?: string | null;
+  assessmentFetchedAt?: string | null;
+  assessmentStale?: boolean;
+  detailWarning?: string | null;
+  gradeChanges?: Array<{
+    id: string;
+    kind: "released" | "changed";
+    itemName: string | null;
+    detectedAt: string;
+  }>;
 }
 
 /** 已连接的 OnTrack 账号，用于在界面上显示"现在是谁在用"。 */

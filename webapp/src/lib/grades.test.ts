@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MoodleGradeCourse, MoodleGradeItem } from '../types'
-import { courseSummary, gradeBreakdown, gradeItemWeights, isGradeReleased, percentage } from './grades'
+import { courseSummary, gradeBreakdown, gradeItemWeights, isGradeReleased, isGradeMarked, gradeStatus, gradeOutlook, gradeCoursesInView, percentage } from './grades'
 
 const row = (values: Partial<MoodleGradeItem> = {}): MoodleGradeItem => ({
   id: 'a', name: 'Assessment', grade: 8, gradeMax: 10, weight: 20,
@@ -11,6 +11,33 @@ const course = (items: MoodleGradeItem[], total: MoodleGradeCourse['total'] = { 
 })
 
 describe('Moodle to Muster grade adapter', () => {
+  it('keeps marked but unpublished scores hidden rather than pending or zero', () => {
+    const hidden = row({ grade: null, gradeText: '-', gradingState: 'graded', weight: 100 })
+    expect(isGradeReleased(hidden)).toBe(false)
+    expect(isGradeMarked(hidden)).toBe(true)
+    expect(gradeStatus(hidden)).toBe('已评分，分数未公开')
+    expect(courseSummary(course([hidden]))).toMatchObject({ gradedCount: 1, ungradedCount: 0, hidden: 100, ungraded: 0, earned: 0, current: null })
+    expect(gradeBreakdown(course([hidden])).categories[0].items[0].state).toBe('hidden')
+    expect(gradeOutlook(course([hidden]))).toBeNull()
+    expect(gradeStatus(row({ gradingState: 'graded' }))).toBe('已评分')
+  })
+  it('never infers failure from partial weights or unreadable scores', () => {
+    expect(gradeOutlook(course([row({ weight: 20 })]))).toBeNull()
+    expect(gradeOutlook(course([row({ gradeMax: null, weight: 100 })]))).toBeNull()
+    expect(gradeOutlook(course([row({ grade: 1, weight: 100 })]))).toContain('无法达到')
+    expect(gradeOutlook(course([row({ weight: 100 })]))).toContain('达到 50 分线')
+  })
+  it('filters local semesters, keeps unknown terms, and pins by course ID with hidden priority', () => {
+    const entries = [
+      { ...course([]), courseId: '1', courseName: 'FIT1001 S1_2026' },
+      { ...course([]), courseId: '2', courseName: 'FIT1001 S2_2026' },
+      { ...course([]), courseId: '3', courseName: 'FIT1001 Unknown' },
+      { ...course([]), courseId: '4', courseName: 'FIT1001 S2_2026' },
+    ]
+    const preferences = { activeSemester: null, hiddenCourseIds: ['4'], pinnedCourseIds: ['3', '4'] }
+    expect(gradeCoursesInView(entries, '2026-S2', preferences).map((entry) => entry.courseId)).toEqual(['3', '2'])
+    expect(gradeCoursesInView(entries, null, preferences).map((entry) => entry.courseId)).toEqual(['3', '1', '2'])
+  })
   it('uses the copied calculator for earned points and a weighted released average', () => {
     const input = course([row(), row({ id: 'b', grade: 9, weight: 30 }), row({ id: 'c', grade: null, weight: 50 })])
     const result = courseSummary(input)
