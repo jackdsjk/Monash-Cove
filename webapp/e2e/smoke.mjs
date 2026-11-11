@@ -13,7 +13,7 @@ const webDist = path.join(root, "webapp", "dist");
 const dataDir = mkdtempSync(path.join(os.tmpdir(), "cove-e2e-"));
 const port = Number(process.env.COVE_E2E_PORT ?? 0);
 const readyMarker = `COVE_E2E_READY_${randomUUID()}:`;
-const artifactsDir = process.env.COVE_E2E_ARTIFACT_DIR;
+const artifactsDir = process.env.COVE_E2E_ARTIFACT_DIR ?? path.join(root, "build", "audit", "browser-smoke");
 if (artifactsDir) mkdirSync(artifactsDir, { recursive: true });
 let base = "";
 let freshBase = "";
@@ -147,6 +147,7 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
   let preferences = { activeSemester: null, hiddenCourseIds: [], pinnedCourseIds: [] };
   let oldPreferencesService = false;
   let packVerificationUnavailable = false;
+  let gradeRequests = 0;
   const batchRequests = [];
   const artifacts = [];
   await page.route("**/api/**", (route) => {
@@ -156,16 +157,18 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     if (pathname === "/api/brief") return route.fulfill({ json: { ...brief, items: [] } });
     if (pathname === "/api/changes") return route.fulfill({ json: { changes: [] } });
     if (pathname === "/api/moodle/courses") return route.fulfill({ json: { courses } });
-    if (pathname === "/api/moodle/grades") return route.fulfill({ json: { courses: [
+    if (pathname === "/api/moodle/grades") {
+      gradeRequests += 1;
+      return route.fulfill({ json: { courses: [
       { courseId: "empty", courseName: "TEST2000 Empty gradebook", total: { earned: null, max: null }, items: [] },
-      { courseId: "known", courseName: "TEST2001 Known weights", total: { earned: null, max: null }, items: [
+      { courseId: "known", courseName: "TEST2001 Known weights", courseShortName: "TEST2001_S2_2026", total: { earned: null, max: null }, items: [
         { id: "known-graded", name: "Known weighted quiz", grade: 8, gradeMax: 10, weight: 20, feedback: "", gradedAt: null },
         { id: "known-pending", name: "Pending final", grade: null, gradeMax: 100, weight: 80, feedback: "", gradedAt: null },
       ] },
       { courseId: "unknown", courseName: "TEST2002 Unknown weights", total: { earned: 80, max: 100 }, items: [
         { id: "unknown-weight", name: "Unweighted published mark", grade: 8, gradeMax: 10, weight: null, feedback: "", gradedAt: null },
       ] },
-      { courseId: "structured", courseName: "TEST2003 Assessment categories", total: { earned: null, max: null }, items: [
+      { courseId: "structured", courseName: "TEST2003 Assessment categories", courseShortName: "TEST2003_S2_2026", total: { earned: null, max: null }, items: [
         { id: "quiz-a", name: "Widget quiz A", grade: 8, gradeMax: 10, weight: null, feedback: "", gradedAt: null },
         { id: "quiz-b", name: "Widget quiz B", grade: null, gradeMax: 10, weight: null, feedback: "", gradedAt: null },
         { id: "letter", name: "Letter grade item", grade: null, gradeText: "HD", gradeMax: null, weight: null, feedback: "", gradedAt: null },
@@ -176,7 +179,14 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
         { name: "Project", category: "Project", categoryId: 2, isCategory: true, weight: 31, categoryWeight: 31, url: null, gradeItemId: null },
         { name: "Exam", category: "Exam", categoryId: 3, isCategory: true, weight: 60, categoryWeight: 60, url: null, gradeItemId: null },
       ] },
+      { courseId: "hidden", courseName: "TEST2004 Hidden released score", courseShortName: "TEST2004_S2_2026", total: { earned: null, max: null }, overviewGrade: "P (provisional)", items: [
+        { id: "hidden-mark", name: "Hidden assessed task", grade: null, gradeText: "-", gradingState: "graded", gradeMax: 100, weight: 100, feedback: "PRIVATE_FEEDBACK_SENTINEL", gradedAt: null },
+      ], gradeChanges: [{ id: "fixture-opaque-event", kind: "released", itemName: "Hidden assessed task", detectedAt: new Date(now).toISOString() }] },
+      { courseId: "previous", courseName: "TEST2005 Previous semester", courseShortName: "TEST2005_S1_2026", total: { earned: null, max: null }, items: [
+        { id: "previous-mark", name: "Previous quiz", grade: 13.37, gradeMax: 20, weight: 100, feedback: "PRIVATE_PREVIOUS_FEEDBACK", gradedAt: null },
+      ] },
     ] } });
+    }
     if (pathname === "/api/moodle/content") return route.fulfill({ json: { items: url.searchParams.get("courseId") === "101" ? materials : [] } });
     if (pathname === "/api/moodle/course-preferences") {
       if (oldPreferencesService) return route.fulfill({ status: 404, json: { error: { message: "Not found" } } });
@@ -342,13 +352,49 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     await page.getByText("3.6 / 100", { exact: true }).waitFor();
     await page.getByRole("button", { name: /TEST2003.*Assessment categories/ }).getByText(/已评占 4\.5%/).waitFor();
     await page.getByRole("button", { name: /Widget quiz A/ }).getByText("4.5%", { exact: true }).waitFor();
-    await page.getByText("Exam · 60% · 评分项目尚未发布", { exact: true }).waitFor();
+    await page.getByRole("region", { name: "Exam 60%", exact: true }).getByText(/评分项目尚未发布/).waitFor();
     await page.getByRole("button", { name: /Letter grade item/ }).click();
     await page.getByText("已发布原始成绩，无法换算百分比", { exact: true }).waitFor();
     assert.equal(await page.getByRole("button", { name: /Letter grade item/ }).getByText("已评分", { exact: true }).count(), 1, "letter grades are released scores, never pending");
     await page.getByRole("button", { name: /TEST2000.*Empty gradebook/ }).click();
     await page.getByText("这门课的评分表里没有评分项。", { exact: true }).waitFor();
     await page.getByRole("button", { name: /TEST2003.*Assessment categories/ }).click();
+    await page.getByText("分类成绩明细", { exact: true }).waitFor();
+    await page.getByRole("region", { name: "Quiz / Test 9%", exact: true }).waitFor();
+
+    await page.getByRole("button", { name: /TEST2004.*Hidden released score/ }).click();
+    await page.getByText("Moodle Overview 原文：P (provisional)", { exact: true }).waitFor();
+    await page.getByText("已评分，分数未公开", { exact: true }).first().waitFor();
+    await page.getByRole("region", { name: "Other 100%", exact: true }).getByText("已评分 1 / 1 项", { exact: true }).waitFor();
+    assert.equal(await page.getByText(/剩余 .*中需拿到/).count(), 0, "hidden selected marks must suppress unsupported predictions");
+    const notice = page.getByRole("status", { name: "成绩变化提醒", exact: true });
+    await notice.getByText("发现 1 项成绩变化", { exact: true }).waitFor();
+    await notice.getByRole("button", { name: "关闭成绩提醒", exact: true }).click();
+    await notice.waitFor({ state: "hidden" });
+
+    await page.getByText("成绩结构诊断", { exact: true }).click();
+    const diagnostic = await page.getByLabel("成绩结构诊断内容", { exact: true }).innerText();
+    assert.ok(diagnostic.includes("courses=6"));
+    for (const sensitive of ["TEST2004", "Hidden assessed task", "PRIVATE_FEEDBACK_SENTINEL", "PRIVATE_PREVIOUS_FEEDBACK", "13.37", "P (provisional)", "fixture-opaque-event", "https://"]) {
+      assert.ok(!diagnostic.includes(sensitive), `grade diagnostics must omit ${sensitive}`);
+    }
+
+    const readsBeforeViewFilter = gradeRequests;
+    await page.getByRole("combobox", { name: "成绩学期", exact: true }).selectOption("2026-S1");
+    await page.getByRole("button", { name: /TEST2005.*Previous semester/ }).waitFor();
+    assert.equal(await page.getByRole("button", { name: /TEST2001.*Known weights/ }).count(), 0);
+    assert.equal(await page.getByRole("button", { name: /TEST2002.*Unknown weights/ }).count(), 1, "unknown semesters must remain visible");
+    await page.getByRole("combobox", { name: "成绩学期", exact: true }).selectOption("2026-S2");
+    await page.getByRole("button", { name: /TEST2001.*Known weights/ }).waitFor();
+    assert.equal(gradeRequests, readsBeforeViewFilter, "local semester filtering must not trigger another grade read");
+
+    await page.getByRole("navigation", { name: "主导航", exact: true }).getByRole("link", { name: /自上次查看/ }).click();
+    await page.getByRole("list", { name: "首页成绩摘要", exact: true }).waitFor();
+    await capture(page, "home-grades-fixture.png");
+    await page.getByRole("button", { name: "查看全部成绩", exact: true }).click();
+    await page.getByRole("heading", { name: "成绩", exact: true }).waitFor();
+    assert.equal(gradeRequests, readsBeforeViewFilter, "home and grades must reuse one shared cached read");
+    assert.equal(await notice.count(), 0, "dismissed grade events must not repeat on route revisit");
     await capture(page, "grades-fixture.png");
   } catch (error) {
     await capture(page, "learning-failure.png").catch(() => undefined);
@@ -413,6 +459,8 @@ try {
   // Test a real empty service and a fresh browser, separately from seeded data.
   const freshContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const fresh = await freshContext.newPage();
+  const freshGradeRequests = [];
+  fresh.on("request", (request) => { if (new URL(request.url()).pathname === "/api/moodle/grades") freshGradeRequests.push(request.url()); });
   fresh.on("pageerror", (error) => pageErrors.push(error.message));
   await fresh.route("**/*", (route) => new URL(route.request().url()).origin === freshBase ? route.continue() : route.abort());
   await fresh.goto(freshBase, { waitUntil: "domcontentloaded" });
@@ -426,6 +474,8 @@ try {
   await fresh.getByRole("heading", { name: "自上次查看", exact: true }).waitFor();
   await fresh.reload();
   await fresh.getByRole("heading", { name: "自上次查看", exact: true }).waitFor();
+  await fresh.getByRole("button", { name: "查看全部成绩", exact: true }).waitFor();
+  assert.deepEqual(freshGradeRequests, [], "a disconnected homepage must not trigger authenticated grade reads");
   await freshContext.close();
 
   // A newly discovered old article belongs in the current viewing window.
