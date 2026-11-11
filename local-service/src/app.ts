@@ -1215,68 +1215,142 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
   });
 
+  const edDownloadLimit = 100 * 1024 * 1024;
+  const edDownloadFailure = (error: unknown): AssetFetchError => {
+    if (error instanceof AssetFetchError) {
+      const messages: Record<string, string> = {
+        invalid_url: "Ed 文件链接无效，请重新读取学习内容。",
+        blocked_host: "该文件不是支持的 Ed 附件地址，请在 Ed 中打开。",
+        too_large: "Ed 文件超过 100 MB 下载限制。",
+        batch_too_large: "压缩包超过 100 MB 限制，请分批下载。",
+        connection_changed: "Ed 连接已更改，请重新读取学习内容后下载。",
+        incomplete_file: "Ed 文件服务仅返回部分内容，请重试。",
+        invalid_file: "Ed 文件服务未返回有效的 PDF，请在 Ed 中核对或重试。",
+        bad_redirect: "Ed 文件跳转地址缺失，请重试。",
+        too_many_redirects: "Ed 文件跳转次数过多，请在 Ed 中打开。",
+      };
+      return new AssetFetchError(error.status, error.code, messages[error.code] ?? (error.code === "ed_download_failed" && /^Ed 文件服务返回 HTTP [0-9]{3}。$/.test(error.message) ? error.message : "Ed 文件下载失败，请稍后重试。"));
+    }
+    return new AssetFetchError(502, "ed_download_failed", "Ed 文件下载暂时失败，请稍后重试。");
+  };
+  const assertEdDownloadCurrent = async (raw: string): Promise<void> => {
+    if (await secrets.get("ed-credentials") !== raw) throw new AssetFetchError(409, "connection_changed", "Ed 连接已更改。");
+  };
+  const readEdDownload = async (raw: string, url: string, name?: string): Promise<{ buffer: Buffer; contentType: string }> => {
+    await assertEdDownloadCurrent(raw);
+    const response = await fetchAsset(async (input, init) => {
+      const target = new URL(String(input));
+      if (target.username || target.password || target.port) throw new AssetFetchError(400, "invalid_url", "Invalid file address.");
+      await assertEdDownloadCurrent(raw);
+      const fetched = await fetcher(input, { ...init, credentials: "omit" });
+      try { await assertEdDownloadCurrent(raw); }
+      catch (error) { await fetched.body?.cancel(); throw error; }
+      if (Number(fetched.headers.get("content-length")) > edDownloadLimit) {
+        await fetched.body?.cancel();
+        throw new AssetFetchError(413, "too_large", "Ed file is too large.");
+      }
+      if (fetched.status >= 300 && fetched.status < 400) await fetched.body?.cancel();
+      return fetched;
+    }, url, { maxBytes: edDownloadLimit });
+    if (!response.ok || response.status === 206) {
+      await response.body?.cancel();
+      throw new AssetFetchError(502, response.status === 206 ? "incomplete_file" : "ed_download_failed", `Ed 文件服务返回 HTTP ${response.status}。`);
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new AssetFetchError(502, "ed_download_failed", "Ed file response was empty.");
+    const chunks: Uint8Array[] = [];
+    let length = 0;
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        length += value.byteLength;
+        if (length > edDownloadLimit) {
+          await reader.cancel();
+          throw new AssetFetchError(413, "too_large", "Ed file is too large.");
+        }
+        chunks.push(value);
+      }
+    } finally { reader.releaseLock(); }
+    await assertEdDownloadCurrent(raw);
+    const buffer = Buffer.concat(chunks, length);
+    if (!buffer.length) throw new AssetFetchError(502, "ed_download_failed", "Ed file response was empty.");
+    const contentType = response.headers.get("content-type") ?? "application/octet-stream";
+    if ((/\.pdf$/i.test(name ?? "") || /application\/pdf/i.test(contentType)) && !buffer.subarray(0, 1024).includes(Buffer.from("%PDF-"))) {
+      throw new AssetFetchError(502, "invalid_file", "Invalid PDF response.");
+    }
+    return { buffer, contentType };
+  };
+
   app.get<{ Querystring: { url?: string; name?: string } }>("/api/ed/download", async (request, reply) => {
     if (!request.query.url) return reply.code(400).send({ error: { code: "invalid_url", message: "url is required.", retryable: false } } satisfies ApiError);
     const raw = await secrets.get("ed-credentials");
     if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
     try {
-      const response = await fetchAsset(fetcher, request.query.url);
-      if (!response.ok) return reply.code(502).send({ error: { code: "ed_download_failed", message: `Ed file returned HTTP ${response.status}.`, retryable: true } } satisfies ApiError);
-      const buffer = Buffer.from(await response.arrayBuffer());
+      const file = await readEdDownload(raw, request.query.url, request.query.name);
       const name = safeDownloadName(request.query.name || "ed-material") || "ed-material";
-      reply.header("content-type", response.headers.get("content-type") ?? "application/octet-stream");
+      reply.header("content-type", file.contentType);
       reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
-      return reply.send(buffer);
+      return reply.send(file.buffer);
     } catch (error) {
-      if (error instanceof AssetFetchError) {
-        return reply.code(error.status).send({ error: { code: error.code, message: error.message, retryable: error.status >= 500 } } satisfies ApiError);
-      }
-      return reply.code(502).send({ error: { code: "ed_download_failed", message: error instanceof Error ? error.message : "Ed download failed.", retryable: true } } satisfies ApiError);
+      const failure = edDownloadFailure(error);
+      return reply.code(failure.status).send({ error: { code: failure.code, message: failure.message, retryable: failure.status >= 500 } } satisfies ApiError);
     }
   });
 
   app.post<{ Body: { lessonTitle?: string; markdown?: string; files?: Array<{ name?: string; url?: string }> } }>("/api/ed/download-batch", async (request, reply) => {
-    const files = (request.body?.files ?? []).filter((file): file is { name: string; url: string } => Boolean(file.url));
-    if (files.length > 100) return reply.code(400).send({ error: { code: "too_many_files", message: "Too many files.", retryable: false } } satisfies ApiError);
+    const files = (request.body?.files ?? []).filter((file): file is { name: string; url: string } => typeof file.url === "string" && Boolean(file.url));
+    if (files.length > 100) return reply.code(400).send({ error: { code: "too_many_files", message: "一次最多下载 100 个附件，请分批选择。", retryable: false } } satisfies ApiError);
     const raw = await secrets.get("ed-credentials");
     if (!raw) return reply.code(409).send({ error: { code: "ed_not_connected", message: "Ed is not connected.", retryable: false } } satisfies ApiError);
     const zip = new JSZip();
     let added = 0;
-    let blocked = 0;
     let totalBytes = 0;
-    if (request.body?.markdown) {
-      zip.file("lesson.md", request.body.markdown);
-      added += 1;
-    }
+    const failures: Array<{ name: string; failure: AssetFetchError }> = [];
+    if (request.body?.markdown) zip.file("lesson.md", request.body.markdown);
     for (const file of files) {
       try {
-        const response = await fetchAsset(fetcher, file.url);
-        if (!response.ok) continue;
-        const buffer = Buffer.from(await response.arrayBuffer());
-        if (totalBytes + buffer.length > 100 * 1024 * 1024) continue;
+        const { buffer } = await readEdDownload(raw, file.url, file.name);
+        if (totalBytes + buffer.length > edDownloadLimit) throw new AssetFetchError(413, "batch_too_large", "Batch size exceeded.");
         totalBytes += buffer.length;
-        let name = safeDownloadName(file.name || "file") || "file";
+        const originalName = safeDownloadName(file.name || "file") || "file";
+        let name = originalName;
         let suffix = 2;
         while (zip.file(name)) {
-          const dot = name.lastIndexOf(".");
-          name = dot > 0 ? `${name.slice(0, dot)} (${suffix})${name.slice(dot)}` : `${name} (${suffix})`;
+          const dot = originalName.lastIndexOf(".");
+          name = dot > 0 ? `${originalName.slice(0, dot)} (${suffix})${originalName.slice(dot)}` : `${originalName} (${suffix})`;
           suffix += 1;
         }
         zip.file(name, buffer);
         added += 1;
       } catch (error) {
-        if (error instanceof AssetFetchError && error.code === "blocked_host") blocked += 1;
-        // Best-effort archive: omit files that Ed's static host cannot serve.
+        const failure = edDownloadFailure(error);
+        if (failure.code === "connection_changed") return reply.code(409).send({ error: { code: failure.code, message: failure.message, retryable: false } } satisfies ApiError);
+        failures.push({ name: safeDownloadName(file.name ?? "附件") || "附件", failure });
       }
     }
-    if (added === 0 && blocked > 0) {
-      return reply.code(403).send({ error: { code: "blocked_host", message: "None of the selected files are hosted on Ed.", retryable: false } } satisfies ApiError);
+    if (files.length > 0 && added === 0) {
+      const failure = failures[0]?.failure ?? new AssetFetchError(404, "no_files", "未找到可下载附件。");
+      return reply.code(failure.status).send({ error: { code: failure.code, message: `所选 Ed 附件均未下载：${failure.message}`, retryable: failure.status >= 500 } } satisfies ApiError);
     }
-    if (added === 0) return reply.code(404).send({ error: { code: "no_files", message: "No Ed files could be downloaded.", retryable: false } } satisfies ApiError);
+    if (!files.length && !request.body?.markdown) return reply.code(404).send({ error: { code: "no_files", message: "未找到可下载内容。", retryable: false } } satisfies ApiError);
+    if (failures.length) {
+      let reportName = "下载说明.txt";
+      while (zip.file(reportName)) reportName = `_${reportName}`;
+      zip.file(reportName, "以下附件未下载：\n" + failures.map(({ name, failure }) => `${name}：${failure.message}`).join("\n"));
+    }
+    const archive = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+    try { await assertEdDownloadCurrent(raw); }
+    catch (error) {
+      const failure = edDownloadFailure(error);
+      return reply.code(failure.status).send({ error: { code: failure.code, message: failure.message, retryable: false } } satisfies ApiError);
+    }
     const archiveName = `${safeDownloadName(request.body?.lessonTitle || "ed-lesson") || "ed-lesson"}.zip`;
     reply.header("content-type", "application/zip");
     reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(archiveName)}`);
-    return reply.send(await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
+    reply.header("x-cove-batch-count", added);
+    reply.header("x-cove-batch-skipped", failures.length);
+    return reply.send(archive);
   });
 
   app.get<{ Querystring: { courseId?: string } }>("/api/moodle/content", async (request, reply) => {
