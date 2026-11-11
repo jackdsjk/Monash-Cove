@@ -11,6 +11,11 @@ Grades; it does not infer scoring from an activity type, title or due date.
 The grade parser's `.gradeitemheader` gate follows the same upstream file's
 `parse_gradebook_from_html` (lines 1884–1971).
 
+`isPortalCourseName` directly ports `is_portal_course_name` (lines 4773–4780):
+portal, student hub, academic success, graduate success and school of IT names
+identify support hubs. Grade reads skip these; the course directory and materials
+remain available. The upstream revision also contains this classification's tests.
+
 Preserve [LICENSE](LICENSE) and [NOTICE](NOTICE), Copyright 2026 Poetrynan,
 PolyForm Noncommercial 1.0.0. This port does not change the upstream license.
 Run the backend gradebook and resource-route tests plus `npm run check` after edits.

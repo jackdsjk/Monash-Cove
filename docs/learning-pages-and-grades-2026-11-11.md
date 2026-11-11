@@ -44,7 +44,9 @@ Muster 参考的是用户目录 `/Users/Admin/Documents/Workspace/muster`，而�
 
 后续现场核对只读取接口状态及失败元数据，确认一门学习支持入口的 Grades 返回 HTTP 404；未输出成绩或凭据。原实现仅保存失败课程 ID，丢失 HTTP／超时原因；前后端还各追加一次保留旧数据的提示。现在后端保存安全分类原因（HTTP 状态、超时、中断、网络失败），不回显任意 fetch 异常、URL 或正文。前端单独展示原因与回退说明，区分部分失败和首次失败。
 
-诊断补修的后端 298 项、前端 122 项测试及两端构建通过。学习支持入口是否应参与成绩抓取，继续对照 Muster 的门户分类规则处理。
+诊断补修的后端 298 项、前端 122 项测试及两端构建通过。本地现场识别到的学习支持入口与 Muster 已有门户测试样例一致。随后直接移植 `scraper.rs::is_portal_course_name`（4773–4780）的名称规则，在发起 Grades 请求前排除支持门户；课程列表和资料仍保留。不是把任意 HTTP 404 当成没有成绩，真实课程的读取失败仍保留并提示。
+
+缓存版本升为 `grades:v5`，防止旧门户失败状态继续出现在新结果中。集成 fixture 证明四类支持入口不触发 Grades 请求，同时普通教学课程及无课程代码的论文课程仍读取；后端 299 项、前端 122 项测试、两端构建和隔离浏览器 smoke 通过。现场重新读取成绩接口后，仅核对元数据：HTTP 200、`error:null`、`failedIds:[]`、`refreshing:false`、`stale:false`。此结果确认该次刷新不再失败，不代表逐项核对真实分数或长期可用性。
 
 - `/api/pack?courseId=` 仍为只读本地端点，返回 `{ rubric:null, assignments, verificationWarning }`，每项带 Grades 的 `gradeItemId`，不再返回 `postsPerRole` 或 assignment `posts`。评分标准和附件没有源数据时明确显示缺失；不生成替代内容。课程筛选使用真实 courseId，避免同代码不同学期混合，作业 ID 不截断。
 - 周／板块与类型筛选影响可见资料和选择下载；Ed 的「下载整门课」仍明确导出完整课程，并按升序组织 Markdown，不因筛选悄悄改变其语义。

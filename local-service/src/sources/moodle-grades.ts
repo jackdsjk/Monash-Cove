@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { parse, type HTMLElement } from "node-html-parser";
 import { MoodleClient, MoodleSessionExpiredError } from "./moodle.js";
 import { selectMoodleCourses, type CoursePreferences } from "../course-preferences.js";
+import { isPortalCourseName } from "../vendor/muster/assessment-match.js";
 
 /** One row of Moodle's own user grade report, as far as HTML exposes it. */
 export interface MoodleGradeItem {
@@ -86,7 +87,8 @@ export class MoodleGradesClient {
     }
     if (!probe.ok) throw new MoodleGradesError("grades_failed", "Moodle could not verify the gradebook session; retry later.");
     const enrolled = await this.courses.listCourses();
-    const targets = preferences ? selectMoodleCourses(enrolled, preferences) : enrolled;
+    const targets = (preferences ? selectMoodleCourses(enrolled, preferences) : enrolled)
+      .filter((course) => !isPortalCourseName(course.fullname || course.shortname));
     const results = await mapLimited(targets, COURSE_CONCURRENCY, async (course) => {
       try {
         const report = await this.scrapeCourse(course.id);

@@ -9,6 +9,13 @@ export interface AssessmentIdentity {
   url: string | null;
 }
 
+/** Port of scraper.rs::is_portal_course_name at the pinned Muster revision. */
+export function isPortalCourseName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return lower.includes("portal") || lower.includes("student hub") ||
+    lower.includes("academic success") || lower.includes("graduate success") || lower.includes("school of it");
+}
+
 function activityId(value: string | null): string | null {
   if (!value) return null;
   try {

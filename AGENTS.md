@@ -65,6 +65,8 @@ Shared page queries belong in `webapp/src/data/query-cache.ts` / `repository.ts`
 
 Partial grade failures retain safe per-course HTTP/timeout reasons; never expose raw fetch URLs or credentials. `CacheStatus` owns fallback guidance separately from the error, distinguishes partial from initial failure, and must not claim a missing old snapshot exists. Maintain its component and resource-route regressions.
 
+Grade targets also apply the pinned Muster `isPortalCourseName` rule: support hubs remain browsable but are not academic gradebooks. Never turn every HTTP 404 into an empty successful grade report; use classification before requests and retain genuine failures.
+
 `local-service/src/resource-cache.ts` owns snapshot coordination; `db.ts` owns SQLite schema and bounds. Isolate keys by source, credential identity and resource/schema version. Preserve single-flight refresh, success timestamps and per-course grade coverage; credential/data changes reject late writes. Never cache errors/login pages as success. Maintain injected-fixture tests for concurrency, restart, fallback and identity in resource-cache/resource-routes suites with global network blocked. Defaults belong in `RESOURCE_TTL`.
 
 Moodle range preferences belong in service `course-preferences.ts` and webapp `lib/course-sync-preferences.ts` / `components/CourseSyncScope.tsx`. Keep semester parsing consistent: do not guess current terms, retain unknowns, and let hiding override pinning. Only bulk materials/grades apply this range; explicit single-course and existing assessment/forum reads remain available. Narrowing must not delete stored materials. Test selection, account isolation, API saves and bulk-sync wiring in adjacent suites; run both checks and frontend Vitest.

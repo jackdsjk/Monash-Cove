@@ -251,6 +251,28 @@ describe("Muster assessment-to-Grade matching", () => {
 });
 
 describe("MoodleGradesClient", () => {
+  it("skips Muster support hubs before fetching Grades, retaining academic and thesis courses", async () => {
+    const names = ["IT Student Portal", "MUM Academic Success", "MUM Graduate Success", "MUM School of IT - General Student Hub",
+      "FIT5201 Machine learning - S2 2026", "Master and Honours Thesis - S1 2026 - S2 2026"];
+    const gradeReads: string[] = [];
+    const fetcher: typeof fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/my/") return new Response('<script>{"sesskey":"fixture"}</script>');
+      if (url.pathname === "/lib/ajax/service.php") return Response.json([{ error: false, data: {
+        courses: names.map((name, index) => ({ id: index + 101, shortname: name, fullname: name })),
+      } }]);
+      if (url.pathname === "/grade/report/user/index.php") {
+        gradeReads.push(url.searchParams.get("id")!);
+        return new Response(moodleGradeTable);
+      }
+      throw new Error("Unexpected fixture URL");
+    };
+    const result = await new MoodleGradesClient("https://moodle.example.invalid", "MoodleSession=fixture", fetcher).pullDetailed();
+    expect(gradeReads.sort()).toEqual(["105", "106"]);
+    expect(result.courses.map((course) => course.courseId)).toEqual(["105", "106"]);
+    expect(result.failedCourseIds).toEqual([]);
+  });
+
   it.each([
     [new DOMException("Read timed out", "TimeoutError"), "读取超时"],
     [new TypeError("fetch failed: https://fixture.invalid/?token=must-not-leak"), "网络请求失败"],
