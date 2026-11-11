@@ -17,6 +17,64 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("Real network blocked"); }));
 });
 
+describe('OnTrack feedback HTTP boundary', () => {
+  async function setupFeedback() {
+    const secrets = new MemorySecretStore();
+    await secrets.set('ontrack-credentials', JSON.stringify({ baseUrl: 'https://ontrack.example.invalid/api', username: 'fixture', refreshToken: 'fixture-token' }));
+    app = buildApp({ dbPath: ':memory:', secretStore: secrets, moodleSessionCheck: false });
+    return secrets;
+  }
+
+  it.each(['project=0&task=1', 'project=1&task=-1', 'project=1&task=9007199254740992', 'task=1'])(
+    'rejects invalid feedback identity before network: %s', async (query) => {
+      await setupFeedback();
+      expect((await app!.inject(`/api/ontrack/comments?${query}`)).statusCode).toBe(400);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it('reports a disconnected source without trying the network', async () => {
+    app = buildApp({ dbPath: ':memory:', secretStore: new MemorySecretStore(), moodleSessionCheck: false });
+    const response = await app.inject('/api/ontrack/comments?project=1&task=2');
+    expect(response.statusCode).toBe(409);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('returns feedback and viewer from the same account, without caching private comments', async () => {
+    await setupFeedback();
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/auth/access-token') return Response.json({ auth_token: 'fixture-access', user: { id: 7 } });
+      if (path === '/api/projects/1/task_def_id/2/comments') return Response.json([{ id: 1, type: 'comment', comment: 'Fixture feedback', author: { id: 7, first_name: 'Fixture' }, created_at: '2026-11-01T00:00:00Z' }]);
+      throw new Error('Unexpected fixture request');
+    }));
+    const response = await app!.inject('/api/ontrack/comments?project=1&task=2');
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ viewerId: 7, comments: [{ comment: 'Fixture feedback', authorId: 7 }] });
+    expect(response.headers['cache-control']).toBe('no-store');
+  });
+
+  it('never exposes a raw upstream failure in feedback errors', async () => {
+    await setupFeedback();
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('https://private.example.invalid/?token=secret-fixture'); }));
+    const response = await app!.inject('/api/ontrack/comments?project=1&task=2');
+    expect(response.statusCode).toBe(502);
+    expect(response.body).not.toMatch(/private\.example|secret-fixture|https:/);
+  });
+
+  it('rejects an account change between reading the viewer and reading feedback', async () => {
+    const secrets = await setupFeedback();
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      await secrets.set('ontrack-credentials', JSON.stringify({ baseUrl: 'https://ontrack.example.invalid/api', username: 'other-fixture', refreshToken: 'other-token' }));
+      return Response.json({ auth_token: 'old-access', user: { id: 7 } });
+    }));
+    const response = await app!.inject('/api/ontrack/comments?project=1&task=2');
+    expect(response.statusCode).not.toBe(200);
+    expect(response.body).not.toMatch(/old-access|"viewerId":7/);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("single source sync HTTP results", () => {
   it("rechecks Grades on unchanged Moodle sync and completes a no-due quiz using the shared snapshot", async () => {
     const secrets = new MemorySecretStore();

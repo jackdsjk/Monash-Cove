@@ -788,16 +788,25 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.get<{ Querystring: { project?: string; task?: string } }>("/api/ontrack/comments", async (request, reply) => {
     const projectId = Number(request.query.project);
     const taskDefinitionId = Number(request.query.task);
-    if (!Number.isInteger(projectId) || !Number.isInteger(taskDefinitionId)) {
-      return reply.code(400).send({ error: { code: "invalid_target", message: "project and task are required.", retryable: false } } satisfies ApiError);
+    if (!Number.isSafeInteger(projectId) || projectId <= 0 || !Number.isSafeInteger(taskDefinitionId) || taskDefinitionId <= 0) {
+      return reply.code(400).send({ error: { code: "invalid_target", message: "project and task must be positive integers.", retryable: false } } satisfies ApiError);
     }
     try {
+      const identity = await onTrackCacheIdentity();
+      if (!identity) return reply.code(409).send({ error: { code: "ontrack_not_connected", message: "请先连接 OnTrack 后读取反馈。", retryable: false } } satisfies ApiError);
+      const assertCurrent = async () => {
+        if (await onTrackCacheIdentity() !== identity) throw new CacheIdentityChangedError();
+      };
       const account = await fetchOnTrackAccount();
+      await assertCurrent();
       const comments = await fetchOnTrackComments(projectId, taskDefinitionId);
+      await assertCurrent();
+      reply.header("cache-control", "no-store");
       return { comments, viewerId: account?.userId ?? null };
     } catch (error) {
+      if (error instanceof CacheIdentityChangedError) throw error;
       return reply.code(502).send({
-        error: { code: "ontrack_unavailable", message: error instanceof Error ? error.message : "OnTrack is unavailable.", retryable: true },
+        error: { code: "ontrack_unavailable", message: "OnTrack 反馈读取失败，请检查来源连接后重试。", retryable: true },
       } satisfies ApiError);
     }
   });
