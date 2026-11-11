@@ -32,7 +32,7 @@
 | [ecosystem.md](ecosystem.md) | GitHub 竞品、开源生态与许可证调查 | 调研依据 |
 | [stack.md](stack.md) | 已安装工具、真实接入状态和技术约束 | 技术事实记录 |
 
-成绩规则专项核对：[Muster 成绩规则与漏接权重排查](muster-grading-rules-2026-11-11.md)。
+成绩规则专项核对：[Muster 成绩规则与漏接权重排查](muster-grading-rules-2026-11-11.md)，含已复用算法、仍未接入的读取／状态／展示链路及优先级；待办不代表已实现。
 
 ## 历史与参考材料
 
