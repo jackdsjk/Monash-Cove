@@ -8,6 +8,10 @@ import { formatChangeValue } from '../components/ItemDrawer'
 import { navigate } from '../lib/router'
 import { Button, Course, DuePill, EmptyLine, IconTile, PageTitle, Panel, Role, Row, SectionHeader, Segmented, Select, Source, Tag } from '../components/ui'
 import type { SourceId } from '../data/model'
+import { moodleCoursePreferencesQuery, moodleGradesQuery } from '../data/repository'
+import { useResourceQuery } from '../lib/use-resource-query'
+import { courseSummary, gradeCoursesInView } from '../lib/grades'
+import { CacheStatus } from '../components/CacheStatus'
 
 const CHANGE_COLS = 'grid-cols-[96px_80px_72px_minmax(0,1fr)_72px_minmax(0,320px)]'
 
@@ -39,6 +43,43 @@ function useOnline() {
     }
   }, [])
   return online
+}
+
+// Muster Dashboard's course-grade summary/entry pattern, using the same cached
+// Grades result as the full page rather than initiating another scraper path.
+export function BriefGrades({ connected, online }: { connected: boolean; online: boolean }) {
+  const grades = useResourceQuery(moodleGradesQuery, connected && online)
+  const preferences = useResourceQuery(moodleCoursePreferencesQuery, connected && online)
+  const courses = connected ? gradeCoursesInView(grades.data ?? [], preferences.data?.activeSemester ?? null, preferences.data)
+    .filter((course) => course.items.length > 0 || course.overviewGrade) : []
+  return (
+    <section aria-labelledby="brief-grades" className="mb-6">
+      <Panel>
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+          <div>
+            <h2 id="brief-grades" className="text-[15px] font-semibold text-slate-900">成绩概览</h2>
+            <p className="mt-1 text-xs text-slate-500">{connected ? '与成绩页共用数据，按已保存的课程同步范围展示。' : '连接 Moodle 后可查看课程成绩与评分进度。'}</p>
+          </div>
+          <Button onClick={() => navigate('/grades')}>查看全部成绩 <ChevronRight className="h-3.5 w-3.5" /></Button>
+        </div>
+        {connected && <div className="px-5">
+          <CacheStatus cache={grades.cache} loading={grades.loading} error={grades.error} />
+        </div>}
+        {courses.length > 0 ? (
+          <ul aria-label="首页成绩摘要" className="divide-y divide-line border-t border-line">
+            {courses.slice(0, 3).map((course) => {
+              const summary = courseSummary(course)
+              return <li key={course.courseId} className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-5 py-3 text-[13px]">
+                <span className="min-w-0 flex-1 break-words font-medium text-slate-800">{course.courseName}</span>
+                <span className="text-slate-500">已评分 {summary.gradedCount} / {summary.count} 项</span>
+                {course.overviewGrade && <span className="w-full text-xs text-slate-600">Moodle Overview 原文：{course.overviewGrade}</span>}
+              </li>
+            })}
+          </ul>
+        ) : connected && !grades.loading && !grades.error && <p className="px-5 pb-4 text-[13px] text-slate-500">当前范围暂无成绩数据，可在成绩页查看或刷新。</p>}
+      </Panel>
+    </section>
+  )
 }
 
 export function BriefPage() {
@@ -190,6 +231,8 @@ export function BriefPage() {
           </>
         }
       />
+
+      <BriefGrades connected={sources.some((source) => source.id === 'moodle' && source.connected && !source.isFixture)} online={online} />
 
       {filtersOpen && (
         <Panel className="mb-6 flex flex-wrap items-center gap-4 px-5 py-3.5">
