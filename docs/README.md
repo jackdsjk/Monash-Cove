@@ -13,6 +13,7 @@
 | [../webapp/README.md](../webapp/README.md) | 本地 Web App 的运行、范围和边界 | **S1–S8 完成；三源 live；Moodle 论坛当前无内容** |
 | [../local-service/README.md](../local-service/README.md) | 本地 Node/SQLite/API 服务、运行方式、安全边界 | **S1–S8 完成；三源 live；Moodle 论坛当前无内容** |
 | [ui-component-audit-2026-10-30.md](ui-component-audit-2026-10-30.md) | 前端组件现状、第三方 UI 仓库索引、替换表和本次小幅改造 | **Command palette 已落地** |
+| [github-showcase-2026-11-11.md](github-showcase-2026-11-11.md) | 双语 README、AI 品牌图、匿名 UI 截图及 GitHub 展示设置 | **本地提交完成；About、Topics、分享图已生效；素材来源和验证见文内** |
 | [audit-2026-11-10.md](audit-2026-11-10.md) | 当前 Web App / 本地服务的接口、逻辑、页面排查、修复及验证边界 | **截至 2026-11-11，14 项均已按复现条件处理；178 后端 / 83 前端测试及隔离浏览器回归通过** |
 | [muster-reuse-and-cache-2026-11-10.md](muster-reuse-and-cache-2026-11-10.md) | 页面读取基线、Muster 机制适配、实施边界与验证结果 | **缓存基础版本、同步范围与状态一致性已实施；测试及隔离浏览器回归通过** |
 | [unicorn-feature-reuse-2026-11-11.md](unicorn-feature-reuse-2026-11-11.md) | Unicorn 记忆层、Ed/OnTrack 配套工具全功能对照、直接移植与未采用边界 | **Ed 附件、OnTrack 反馈/筛选与只读 MCP 已接入；453 后端 / 164 前端测试、构建和隔离 E2E 通过；真实 Ed 101 lessons 识别 75 PDF** |
