@@ -261,6 +261,7 @@ describe("cached resource HTTP routes", () => {
     const secrets = new MemorySecretStore();
     await secrets.set("moodle-credentials", JSON.stringify({ baseUrl: "https://moodle.example.invalid", session: "fixture" }));
     let failCourse = false;
+    let failStructure = false;
     let grade = "8";
     const calls: string[] = [];
     const fetcher = vi.fn(async (input: string | URL | Request) => {
@@ -270,7 +271,8 @@ describe("cached resource HTTP routes", () => {
       if (url.pathname === "/lib/ajax/service.php") return Response.json([{ error: false, data: { courses: [
         { id: 1, shortname: "UNIT1", fullname: "Fixture course 1" }, { id: 2, shortname: "UNIT2", fullname: "Fixture course 2" },
       ] } }]);
-      if (url.pathname === "/course/view.php") return new Response("<html></html>");
+      if (url.pathname === "/course/view.php") return failStructure ? new Response("unavailable", { status: 500 })
+        : new Response('<li class="activity modtype_assign"><a href="/mod/assign/view.php?id=7"><span class="instancename">Fixture (Weight: 50%)</span></a></li>');
       if (failCourse && url.searchParams.get("id") === "2") return new Response("fixture error", { status: 500 });
       if (url.pathname === "/grade/report/user/index.php") return new Response(`<table class="user-grade"><tbody>
         <tr><th>Grade item</th><th>Grade</th><th>Range</th></tr><tr class="item"><td><span class="gradeitemheader">Fixture</span></td><td>${grade}</td><td>0–10</td></tr></tbody></table>`);
@@ -279,10 +281,11 @@ describe("cached resource HTTP routes", () => {
     app = buildApp({ dbPath: ":memory:", seed: false, secretStore: secrets, fetcher });
     const [first, concurrent] = await Promise.all([app.inject("/api/moodle/grades"), app.inject("/api/moodle/grades")]);
     expect(first.statusCode).toBe(200); expect(concurrent.statusCode).toBe(200);
+    expect(first.json().courses.every((course: { gradeChanges: unknown[] }) => course.gradeChanges.length === 0)).toBe(true);
     expect(calls).toHaveLength(10);
     const again = await app.inject("/api/moodle/grades");
     expect(again.json().cache.stale).toBe(false); expect(calls).toHaveLength(10);
-    grade = "9"; failCourse = true;
+    grade = "9"; failCourse = true; failStructure = true;
     const partial = await app.inject("/api/moodle/grades?refresh=1");
     const body = partial.json();
     expect(body.courses.map((course: { courseId: string; items: { grade: number }[] }) => [course.courseId, course.items[0].grade])).toEqual([["1", 9], ["2", 8]]);
@@ -292,6 +295,12 @@ describe("cached resource HTTP routes", () => {
     expect(body.cache.failedIds).toEqual(["2"]);
     expect(body.cache.coverage["2"]).toBe(first.json().cache.coverage["2"]);
     expect(body.cache.stale).toBe(true);
+    expect(body.courses[0]).toMatchObject({ assessmentStale: true, assessmentFetchedAt: first.json().courses[0].assessmentFetchedAt });
+    expect(body.courses[0].assessmentStructure[0].weight).toBe(50);
+    expect(body.courses[0].gradeChanges[0].kind).toBe("changed");
+    const unchanged = (await app.inject("/api/moodle/grades?refresh=1")).json();
+    expect(unchanged.courses[0].gradeChanges).toEqual(body.courses[0].gradeChanges);
+    failStructure = false;
     expect((await app.inject({ method: "PATCH", url: "/api/moodle/course-preferences", payload: { activeSemester: "guessed", hiddenCourseIds: [], pinnedCourseIds: [] } })).statusCode).toBe(400);
     const preferences = { activeSemester: null, hiddenCourseIds: ["2"], pinnedCourseIds: [] };
     expect((await app.inject({ method: "PATCH", url: "/api/moodle/course-preferences", payload: preferences })).json()).toEqual(preferences);
@@ -300,6 +309,7 @@ describe("cached resource HTTP routes", () => {
     // Range changes must not serve the still-fresh snapshot for the old range.
     const scoped = await app.inject("/api/moodle/grades");
     expect(scoped.json().courses.map((course: { courseId: string }) => course.courseId)).toEqual(["1"]);
+    expect(scoped.json().courses[0].gradeChanges).toEqual([]);
     expect(calls.length - beforeScopedRead).toBe(7);
     await secrets.set("moodle-credentials", JSON.stringify({ baseUrl: "https://moodle.example.invalid", session: "fixture-new-account" }));
     expect((await app.inject("/api/moodle/course-preferences")).json()).toEqual({ activeSemester: null, hiddenCourseIds: [], pinnedCourseIds: [] });

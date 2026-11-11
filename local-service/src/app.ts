@@ -22,6 +22,7 @@ import { FullSyncJobs, type SyncSource } from "./sync/jobs.js";
 import { MoodleClient } from "./sources/moodle.js";
 import { MoodleGradesClient, MoodleGradesError, type MoodleGradeCourse } from "./sources/moodle-grades.js";
 import { matchGradebookItem } from "./vendor/muster/assessment-match.js";
+import { mergeGradeCourse } from "./moodle-grade-refresh.js";
 import { EdClient } from "./sources/ed.js";
 import { syncMoodleContent } from "./sync/moodle-content.js";
 import { downloadMoodleResource, MoodleDownloadError, moodleCookieHeader, safeDownloadName } from "./moodle-download.js";
@@ -1280,7 +1281,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     // A range change selects a different snapshot without discarding the course
     // directory or allowing a refresh for the previous range to overwrite it.
     const range = createHash("sha256").update(JSON.stringify(preferences)).digest("hex").slice(0, 16);
-    return resourceCache.read({ source: "moodle", identity, resource: `grades:v6:${range}`, ttlMs: RESOURCE_TTL.grades,
+    return resourceCache.read({ source: "moodle", identity, resource: `grades:v7:${range}`, ttlMs: RESOURCE_TTL.grades,
       currentIdentity: () => credentialIdentity("moodle"), force }, async (previous: Awaited<ReturnType<MoodleGradesClient["pull"]>> | undefined, snapshot) => {
       const pulled = await new MoodleGradesClient(credentials.baseUrl, moodleCookieHeader(credentials), moodleTransport.forCredentials(raw)).pullDetailed(preferences);
       const failed = new Set(pulled.failedCourseIds);
@@ -1290,7 +1291,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
         ...pulled.courses.map((course) => [course.courseId, at]),
       ]);
       return {
-        data: [...pulled.courses, ...(previous ?? []).filter((course) => failed.has(course.courseId))],
+        data: [...pulled.courses.map((course) => mergeGradeCourse(course, previous?.find((old) => old.courseId === course.courseId), credentials.baseUrl, at)),
+          ...(previous ?? []).filter((course) => failed.has(course.courseId))],
         error: failed.size ? `部分课程成绩刷新失败（${[...failed].map((id) => `课程 ${id}：${pulled.failureReasons[id]}`).join("；")}）。` : null,
         coverage, failedIds: [...failed],
       };
