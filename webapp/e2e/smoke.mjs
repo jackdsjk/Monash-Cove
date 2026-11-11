@@ -163,6 +163,9 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     status: "not_instantiated", dueDate: null, targetDueDate: null, submissionDate: null, completionDate: null,
     weighting: null, timesAssessed: 0, numNewComments: 0 };
   const tasks = [task, { ...task, id: 502, isInstantiated: true, taskDefinitionId: 402, abbreviation: "2.1P", name: "Submitted fixture worksheet", status: "complete" }];
+  let feedbackMode = "ok";
+  let releaseFeedback;
+  let feedbackReads = 0;
   let preferences = { activeSemester: null, hiddenCourseIds: [], pinnedCourseIds: [] };
   let oldPreferencesService = false;
   let packVerificationUnavailable = false;
@@ -247,6 +250,15 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     } });
     if (pathname === "/api/ontrack/overview") return route.fulfill({ json: { connected: true, account: null, projects: [] } });
     if (pathname === "/api/ontrack/tasks") return route.fulfill({ json: { projects: [], tasks } });
+    if (pathname === "/api/ontrack/comments") {
+      feedbackReads += 1;
+      if (feedbackMode === "error") return route.fulfill({ status: 502, json: { error: { message: "Fixture feedback unavailable" } } });
+      if (feedbackMode === "pending") return new Promise((resolve) => { releaseFeedback = () => resolve(route.fulfill({ json: { comments: [{ id: "late", type: "comment", comment: "Late feedback must stay hidden", createdAt: "", authorId: null, authorName: "" }], viewerId: null } })); });
+      return route.fulfill({ json: { viewerId: 7, comments: [
+        { id: "second", type: "comment", comment: "Later fixture feedback", createdAt: "2026-11-02T00:00:00Z", authorId: 7, authorName: "Fixture viewer" },
+        { id: "first", type: "status", comment: "Earlier fixture status", createdAt: "2026-11-01T00:00:00Z", authorId: null, authorName: "" },
+      ] } });
+    }
     if (pathname === "/api/ontrack/artifact") {
       artifacts.push({ project: url.searchParams.get("project"), task: url.searchParams.get("task"), kind: url.searchParams.get("kind") });
       if (url.searchParams.get("kind") === "resources") return route.fulfill({ status: 404, json: { error: { message: "Fixture task has no resource archive" } } });
@@ -464,6 +476,33 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     assert.deepEqual(artifacts, [{ project: "301", task: "401", kind: "task" }, { project: "301", task: "401", kind: "resources" }, { project: "301", task: "402", kind: "submission" }]);
     assert.equal(new URL(page.url()).origin, base, "artifact error must not navigate to the external source");
     assert.deepEqual(externalRequests, [], "fixture interactions must never send an external request");
+    assert.equal(feedbackReads, 0, "feedback must load on demand");
+    await page.getByRole("searchbox", { name: "搜索任务", exact: true }).fill("Submitted");
+    assert.equal(await page.getByText("Unstarted fixture worksheet", { exact: true }).count(), 0);
+    await page.getByRole("searchbox", { name: "搜索任务", exact: true }).fill("");
+    await page.getByRole("combobox", { name: "任务状态", exact: true }).selectOption("complete");
+    assert.equal(await page.getByText("Unstarted fixture worksheet", { exact: true }).count(), 0);
+    await page.getByRole("combobox", { name: "任务状态", exact: true }).selectOption("");
+    await page.getByRole("combobox", { name: "任务等级", exact: true }).selectOption("P");
+    const openFeedback = page.getByRole("button", { name: "查看反馈", exact: true }).first();
+    await openFeedback.click();
+    const feedback = page.getByRole("region", { name: "1.1P 反馈", exact: true });
+    await feedback.getByText("Later fixture feedback", { exact: true }).waitFor();
+    assert.deepEqual(await feedback.locator("ol > li p").allTextContents(), ["Earlier fixture status", "Later fixture feedback"]);
+    await feedback.getByText("未知作者", { exact: true }).waitFor();
+    await feedback.getByText("我", { exact: true }).waitFor();
+    feedbackMode = "error";
+    await feedback.getByRole("button", { name: "刷新反馈", exact: true }).click();
+    await feedback.getByRole("alert").filter({ hasText: "Fixture feedback unavailable" }).waitFor();
+    assert.equal(await feedback.getByText("Later fixture feedback", { exact: true }).count(), 1, "failed refresh preserves the last successful thread");
+    feedbackMode = "pending";
+    const pendingFeedback = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/ontrack/comments");
+    await feedback.getByRole("button", { name: "刷新反馈", exact: true }).click();
+    await pendingFeedback;
+    await page.getByRole("button", { name: "收起反馈", exact: true }).click();
+    await releaseFeedback();
+    assert.equal(await page.getByText("Late feedback must stay hidden", { exact: true }).count(), 0);
+    feedbackMode = "ok";
     await capture(page, "ontrack-materials-fixture.png");
 
     await page.goto(`${base}/#/grades`, { waitUntil: "domcontentloaded" });

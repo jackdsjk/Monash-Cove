@@ -18,8 +18,9 @@ function request(path: string, init: RequestInit = {}): Promise<Response> {
   return fetch(`${API}${path}`, { ...init, signal: init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
 }
 
-async function getJson<T>(path: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
-  const response = await request(path, { signal: AbortSignal.timeout(timeoutMs) });
+async function getJson<T>(path: string, timeoutMs = REQUEST_TIMEOUT_MS, signal?: AbortSignal): Promise<T> {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const response = await request(path, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
     throw new Error(body?.error?.message ?? `Local API returned ${response.status}`);
@@ -48,12 +49,13 @@ export async function fetchOnTrackTasks(): Promise<{ projects: OnTrackProjectVie
 }
 
 /** The full comment thread for one task, oldest first. */
-export async function fetchOnTrackComments(projectId: number, taskDefinitionId: number): Promise<{
+export async function fetchOnTrackComments(projectId: number, taskDefinitionId: number, signal?: AbortSignal): Promise<{
   comments: OnTrackCommentView[];
   viewerId: number | null;
 }> {
   return getJson<{ comments: OnTrackCommentView[]; viewerId: number | null }>(
     `/ontrack/comments?project=${projectId}&task=${taskDefinitionId}`,
+    REQUEST_TIMEOUT_MS, signal,
   );
 }
 

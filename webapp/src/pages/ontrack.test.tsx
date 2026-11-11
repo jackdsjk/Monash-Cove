@@ -42,7 +42,7 @@ describe('OnTrack definition-first display', () => {
     const html = showTasks([task, { ...task, taskDefinitionId: 11, name: 'Second definition task' }])
     expect(html).toContain('Unstarted definition task')
     expect(html).toContain('Second definition task')
-    expect(html.match(/尚未开始/g)).toHaveLength(2)
+    expect(html.replace(/<select[\s\S]*?<\/select>/g, '').match(/尚未开始/g)).toHaveLength(2)
     expect(html).not.toContain('Not instantiated')
     expect(html).not.toContain('适用性待确认')
   })
@@ -72,6 +72,16 @@ describe('OnTrack definition-first display', () => {
     expect(html).toContain('已提交文件')
     expect(html).not.toContain('此任务还没有个人实例')
     expect(html).not.toContain('disabled=""')
+  })
+
+  it('offers task filters and on-demand feedback without prefetching every thread', () => {
+    const html = showTasks([{ ...task, numNewComments: 2 }])
+    expect(html).toContain('OnTrack 任务筛选')
+    expect(html).toContain('任务状态')
+    expect(html).toContain('任务等级')
+    expect(html).toContain('查看反馈 (2 新)')
+    expect(html).toContain('aria-expanded="false"')
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it('describes the accessible OnTrack history scope in settings', () => {
