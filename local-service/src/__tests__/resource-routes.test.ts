@@ -285,6 +285,8 @@ describe("cached resource HTTP routes", () => {
     const body = partial.json();
     expect(body.courses.map((course: { courseId: string; items: { grade: number }[] }) => [course.courseId, course.items[0].grade])).toEqual([["1", 9], ["2", 8]]);
     expect(body.cache.error).toContain("课程 2");
+    expect(body.cache.error).toContain("HTTP 500");
+    expect(body.cache.error).not.toContain("保留上次");
     expect(body.cache.failedIds).toEqual(["2"]);
     expect(body.cache.coverage["2"]).toBe(first.json().cache.coverage["2"]);
     expect(body.cache.stale).toBe(true);

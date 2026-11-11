@@ -8,7 +8,14 @@ export function CacheStatus({ cache, loading, error }: { cache?: CacheMetadata; 
         <p>上次成功读取：{fetchedAt.toLocaleString('zh-CN')}{cache?.stale ? ' · 当前显示已保存的数据' : ''}</p>
       )}
       {(loading || cache?.refreshing) && <p>正在后台更新，已有数据仍可查看…</p>}
-      {error && <p className="text-amber-800">{error}{cache?.fetchedAt ? '；保留上次成功读取的数据，可重试刷新。' : ''}</p>}
+      {error && <>
+        <p className="text-amber-800">{error}</p>
+        {cache?.fetchedAt && <p className="text-amber-800">
+          {cache.failedIds?.length
+            ? '当前显示可用的课程数据；失败课程尚未更新，可重试刷新。'
+            : '当前显示已保存的数据，可重试刷新。'}
+        </p>}
+      </>}
     </div>
   );
 }

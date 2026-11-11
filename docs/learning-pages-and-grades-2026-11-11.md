@@ -40,6 +40,12 @@ Muster 参考的是用户目录 `/Users/Admin/Documents/Workspace/muster`，而�
 
 完成验证：后端 31 文件／295 测试、前端 18 文件／119 测试、两端 check 与浏览器 smoke 全通过。HTTP 回归覆盖同时读取共享请求、未出分 assignment 与零分 quiz、未评分练习排除、跨课程隔离、离线旧快照和换账号隔离；浏览器覆盖未确认条目排除及核验失败提示。仍为匿名 fixture，未读取真实账号成绩。
 
+### 部分刷新失败的诊断与提示
+
+后续现场核对只读取接口状态及失败元数据，确认一门学习支持入口的 Grades 返回 HTTP 404；未输出成绩或凭据。原实现仅保存失败课程 ID，丢失 HTTP／超时原因；前后端还各追加一次保留旧数据的提示。现在后端保存安全分类原因（HTTP 状态、超时、中断、网络失败），不回显任意 fetch 异常、URL 或正文。前端单独展示原因与回退说明，区分部分失败和首次失败。
+
+诊断补修的后端 298 项、前端 122 项测试及两端构建通过。学习支持入口是否应参与成绩抓取，继续对照 Muster 的门户分类规则处理。
+
 - `/api/pack?courseId=` 仍为只读本地端点，返回 `{ rubric:null, assignments, verificationWarning }`，每项带 Grades 的 `gradeItemId`，不再返回 `postsPerRole` 或 assignment `posts`。评分标准和附件没有源数据时明确显示缺失；不生成替代内容。课程筛选使用真实 courseId，避免同代码不同学期混合，作业 ID 不截断。
 - 周／板块与类型筛选影响可见资料和选择下载；Ed 的「下载整门课」仍明确导出完整课程，并按升序组织 Markdown，不因筛选悄悄改变其语义。
 - OnTrack `kind=task|resources|submission` 对应任务书、任务资料和已有提交文件。未实例化任务保留任务书／资料按钮，禁用提交下载；失败就地显示，切换连接取消旧请求。

@@ -1291,7 +1291,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
       ]);
       return {
         data: [...pulled.courses, ...(previous ?? []).filter((course) => failed.has(course.courseId))],
-        error: failed.size ? `部分课程成绩刷新失败，保留上次成功数据（课程 ${[...failed].join("、")}）。` : null,
+        error: failed.size ? `部分课程成绩刷新失败（${[...failed].map((id) => `课程 ${id}：${pulled.failureReasons[id]}`).join("；")}）。` : null,
         coverage, failedIds: [...failed],
       };
     });

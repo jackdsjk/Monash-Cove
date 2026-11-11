@@ -76,7 +76,7 @@ export class MoodleGradesClient {
     return (await this.pullDetailed()).courses;
   }
 
-  async pullDetailed(preferences?: CoursePreferences): Promise<{ courses: MoodleGradeCourse[]; failedCourseIds: string[] }> {
+  async pullDetailed(preferences?: CoursePreferences): Promise<{ courses: MoodleGradeCourse[]; failedCourseIds: string[]; failureReasons: Record<string, string> }> {
     const probe = await this.courses.probeSession().catch((error: unknown) => {
       if (error instanceof MoodleSessionExpiredError) return { ok: false, expired: true };
       throw new MoodleGradesError("grades_failed", "Moodle is unreachable; the saved session has been retained.");
@@ -108,7 +108,8 @@ export class MoodleGradesClient {
       // Surface the first real cause instead of pretending the gradebook is empty.
       throw new MoodleGradesError("grades_failed", failureMessage(failures[0]?.error));
     }
-    return { courses, failedCourseIds: failures.map((result) => result.courseId) };
+    return { courses, failedCourseIds: failures.map((result) => result.courseId),
+      failureReasons: Object.fromEntries(failures.map((result) => [result.courseId, gradeFailureReason(result.error)])) };
   }
 
   /** `null` means Moodle served the page but it holds no grade table. */
@@ -403,6 +404,17 @@ function itemId(courseId: string, name: string) {
 
 function failureMessage(error: unknown) {
   return error instanceof Error ? error.message : "Moodle grade report failed.";
+}
+
+/** Diagnostic categories only: never publish arbitrary fetch errors or URLs. */
+function gradeFailureReason(error: unknown): string {
+  if (!(error instanceof Error)) return "读取失败";
+  const status = /grade report returned HTTP (\d{3})\./.exec(error.message)?.[1];
+  if (status) return `Moodle 返回 HTTP ${status}`;
+  if (error.name === "TimeoutError" || /timed?\s*out|timeout/i.test(error.message)) return "读取超时";
+  if (error.name === "AbortError") return "读取已中断";
+  if (error instanceof TypeError) return "网络请求失败";
+  return "读取失败";
 }
 
 /** Runs `worker` over `items`, never more than `limit` requests at once. */

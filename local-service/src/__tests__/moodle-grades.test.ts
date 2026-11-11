@@ -251,6 +251,22 @@ describe("Muster assessment-to-Grade matching", () => {
 });
 
 describe("MoodleGradesClient", () => {
+  it.each([
+    [new DOMException("Read timed out", "TimeoutError"), "读取超时"],
+    [new TypeError("fetch failed: https://fixture.invalid/?token=must-not-leak"), "网络请求失败"],
+    [new Error("unexpected private page body"), "读取失败"],
+  ])("retains safe per-course failure reasons without discarding successful courses", async (error, reason) => {
+    const client = new MoodleGradesClient("https://learning.monash.edu", "MoodleSession=fixture", gradebookFetcher());
+    vi.spyOn(client, "scrapeCourse").mockImplementation(async (id) => {
+      if (id === 101) throw error;
+      return { items: [], total: { earned: null, max: null } };
+    });
+    const result = await client.pullDetailed();
+    expect(result.courses.map((course) => course.courseId)).toEqual(["102"]);
+    expect(result.failureReasons).toEqual({ "101": reason });
+    expect(JSON.stringify(result.failureReasons)).not.toContain("must-not-leak");
+  });
+
   it("fails instead of reporting an empty gradebook when the session died", async () => {
     // Moodle answers a dead session with a login page, sometimes with HTTP 200.
     const fetcher = vi.fn(async () => new Response("<html><form>Log in</form></html>", { status: 200 })) as unknown as typeof fetch;
