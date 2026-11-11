@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { parse, type HTMLElement } from "node-html-parser";
-import { MoodleClient } from "./moodle.js";
+import { MoodleClient, MoodleSessionExpiredError } from "./moodle.js";
 import { selectMoodleCourses, type CoursePreferences } from "../course-preferences.js";
 
 /** One row of Moodle's own user grade report, as far as HTML exposes it. */
@@ -75,10 +75,14 @@ export class MoodleGradesClient {
   }
 
   async pullDetailed(preferences?: CoursePreferences): Promise<{ courses: MoodleGradeCourse[]; failedCourseIds: string[] }> {
-    const alive = await this.courses.validateSession().catch(() => false);
-    if (!alive) {
+    const probe = await this.courses.probeSession().catch((error: unknown) => {
+      if (error instanceof MoodleSessionExpiredError) return { ok: false, expired: true };
+      throw new MoodleGradesError("grades_failed", "Moodle is unreachable; the saved session has been retained.");
+    });
+    if (!probe.ok && probe.expired) {
       throw new MoodleGradesError("session_expired", "Moodle session expired; reconnect Moodle to read the gradebook.");
     }
+    if (!probe.ok) throw new MoodleGradesError("grades_failed", "Moodle could not verify the gradebook session; retry later.");
     const enrolled = await this.courses.listCourses();
     const targets = preferences ? selectMoodleCourses(enrolled, preferences) : enrolled;
     const results = await mapLimited(targets, COURSE_CONCURRENCY, async (course) => {
@@ -111,15 +115,23 @@ export class MoodleGradesClient {
       headers: this.headers(),
       redirect: "follow",
       signal: AbortSignal.timeout(20_000),
+    }).catch((error: unknown) => {
+      if (error instanceof MoodleSessionExpiredError) throw new MoodleGradesError("session_expired", "Moodle sent the grade report to a login page; reconnect Moodle.");
+      throw error;
     });
-    const landed = response.url ?? "";
-    if (landed !== "" && (!landed.startsWith(this.baseUrl) || /\/login\//.test(landed) || /microsoftonline\.com|okta\.com/i.test(landed))) {
-      throw new MoodleGradesError("session_expired", "Moodle sent the grade report to a login page; reconnect Moodle.");
-    }
     if (!response.ok) {
+      if (response.status === 401) throw new MoodleGradesError("session_expired", "Moodle requires login to read the grade report.");
       throw new MoodleGradesError("grades_failed", `Moodle grade report returned HTTP ${response.status}.`);
     }
-    return parseGradeReport(await response.text(), String(courseId));
+    const landed = response.url || `${this.baseUrl}/grade/report/user/index.php`;
+    if (new URL(landed).origin !== new URL(this.baseUrl).origin || /\/(?:login|signin)(?:\/|\.php|$)/i.test(new URL(landed).pathname)) {
+      throw new MoodleGradesError("session_expired", "Moodle sent the grade report to a login page; reconnect Moodle.");
+    }
+    const html = await response.text();
+    if (parse(html).querySelector('form input[type="password"], form#login, form#loginform, body.notloggedin, body#page-login-index')) {
+      throw new MoodleGradesError("session_expired", "Moodle returned a login page instead of the grade report; reconnect Moodle.");
+    }
+    return parseGradeReport(html, String(courseId));
   }
 }
 
@@ -150,6 +162,78 @@ const HEADER_FIELDS: Array<[Field, RegExp]> = [
 
 const COURSE_TOTAL = /^(course\s*total|course\s*grade|^total$|课程总成绩|课程总分|课程总计|总成绩|总评|合计)$/i;
 
+// Moodle's class-based cells survive category rowspan/colspan indentation.
+// This follows Muster scraper.rs::parse_gradebook_from_html, retaining the
+// label-based fallback for older themes and translated report columns.
+const FIELD_CLASSES: Partial<Record<Field, string>> = {
+  name: "column-itemname", weight: "column-weight", grade: "column-grade",
+  range: "column-range", percentage: "column-percentage", feedback: "column-feedback",
+  contribution: "column-contributiontocoursetotal",
+};
+
+function fieldText(row: HTMLElement, cells: HTMLElement[], columns: Partial<Record<Field, number>>, field: Field): string {
+  const cell = FIELD_CLASSES[field] ? row.querySelector(`.${FIELD_CLASSES[field]}`) : null;
+  const fallback = columns[field] === undefined ? undefined : cells[columns[field]!];
+  const target = cell ?? fallback;
+  if (!target) return "";
+  // Muster reads the first score div, leaving Moodle's action-menu text out.
+  if (field === "grade") return cellText(target.querySelector("div > div") ?? target);
+  return cellText(target);
+}
+
+function mark(gradeText: string, percentage: number | null, range: { max: number | null } | null): { grade: number | null; gradeMax: number | null } {
+  const text = withoutPlaceholder(gradeText).trim();
+  const ratio = text.match(/^(-?\d+(?:\.\d+)?)\s*(?:\/|out of)\s*(\d+(?:\.\d+)?)/i);
+  if (ratio) return { grade: Number(ratio[1]), gradeMax: Number(ratio[2]) > 0 ? Number(ratio[2]) : null };
+  const percent = text.match(/^(-?\d+(?:\.\d+)?)\s*%/);
+  if (percent) return { grade: Number(percent[1]), gradeMax: 100 };
+  const grade = /^-?\d+(?:[,.]\d+)*$/.test(text) ? parseNumber(text) : null;
+  if (grade !== null) return { grade, gradeMax: range?.max ?? null };
+  // Some Moodle reports expose only the percentage column.
+  if (percentage !== null) return { grade: percentage, gradeMax: 100 };
+  return { grade: null, gradeMax: range?.max ?? null };
+}
+
+/** Moodle item weights are relative to their parent, not necessarily the course. */
+function courseWeights(table: HTMLElement, columns: Partial<Record<Field, number>>, items: Map<MoodleGradeItem, HTMLElement>): void {
+  const categories = new Map<string, { row: HTMLElement; weight: number | null }>();
+  let nested = false;
+  for (const row of table.querySelectorAll("tr")) {
+    if (!/categoryitem/.test(row.getAttribute("class") ?? "") && !row.querySelector(".categoryitem")) continue;
+    const cells = row.querySelectorAll("th, td").filter((cell) => !/(?:^|\s)leader(?:\s|$)/.test(cell.getAttribute("class") ?? ""));
+    const weight = parseNumber(fieldText(row, cells, columns, "weight"));
+    if (weight !== null && weight > 0 && weight < 99.5) nested = true;
+    for (const element of [row, ...row.querySelectorAll("[id]")]) {
+      const id = element.getAttribute("id");
+      if (id) categories.set(id, { row, weight });
+    }
+  }
+  const references = (row: HTMLElement): string[] => [row, ...row.querySelectorAll("[headers]")]
+    .flatMap((cell) => (cell.getAttribute("headers") ?? "").split(/\s+/)).filter((id) => categories.has(id));
+  for (const [item, row] of items) {
+    if (item.weight === null) continue;
+    const ancestors = new Set<HTMLElement>();
+    let factor = 1;
+    let readable = true;
+    const visit = (source: HTMLElement): void => {
+      for (const id of references(source)) {
+        const category = categories.get(id)!;
+        if (category.row === source || ancestors.has(category.row)) continue;
+        ancestors.add(category.row);
+        if (category.weight === null || category.weight < 0 || category.weight > 100) readable = false;
+        else factor *= category.weight / 100;
+        visit(category.row);
+      }
+    };
+    visit(row);
+    // Without a relationship we cannot claim that a nested 50% is a final 50%.
+    const nameCell = row.querySelector(".column-itemname");
+    const level = /(?:^|\s)level(\d+)(?:\s|$)/.exec(`${row.getAttribute("class") ?? ""} ${nameCell?.getAttribute("class") ?? ""}`);
+    if (!readable || ancestors.size === 0 && (nested || Number(level?.[1] ?? 0) > 2)) item.weight = null;
+    else item.weight *= factor;
+  }
+}
+
 /**
  * Reads Moodle's HTML user report into rows. Columns are located by their
  * header text; anything the table does not show is left as `null`/"".
@@ -162,10 +246,11 @@ export function parseGradeReport(html: string, courseId: string): ParsedGradeRep
     let headerCells: string[] = [];
     let total: ParsedGradeReport["total"] | null = null;
     const items: MoodleGradeItem[] = [];
+    const itemRows = new Map<MoodleGradeItem, HTMLElement>();
     const seen = new Set<string>();
 
     for (const row of table.querySelectorAll("tr")) {
-      const cells = row.querySelectorAll("th, td");
+      const cells = row.querySelectorAll("th, td").filter((cell) => !/(?:^|\s)leader(?:\s|$)/.test(cell.getAttribute("class") ?? ""));
       if (cells.length < 2) continue;
       const texts = cells.map(cellText);
 
@@ -182,27 +267,27 @@ export function parseGradeReport(html: string, courseId: string): ParsedGradeRep
       if (sameCells(texts, headerCells)) continue;
 
       const classes = (row.getAttribute("class") ?? "").toLowerCase();
-      // A category heading repeats the sum of its children's weights.
-      if (/categoryitem/.test(classes)) continue;
-
       const nameIndex = columns.name;
       if (nameIndex === undefined) continue;
-      const name = cleanName(texts[nameIndex] ?? "");
+      const name = cleanName(fieldText(row, cells, columns, "name"));
       if (!name) continue;
 
-      const gradeText = pick(texts, columns.grade);
-      const range = parseRange(pick(texts, columns.range));
-      const percentage = parseNumber(pick(texts, columns.percentage));
+      const gradeText = fieldText(row, cells, columns, "grade");
+      const range = parseRange(fieldText(row, cells, columns, "range"));
+      const percentage = parseNumber(fieldText(row, cells, columns, "percentage"));
 
       if (/courseitem/.test(classes) || COURSE_TOTAL.test(name)) {
         total ??= courseTotal(gradeText, percentage, range);
         continue;
       }
+      // Category subtotals repeat the child marks; the course total above is
+      // still retained even in themes that give it both class names.
+      if (/categoryitem/.test(classes) || row.querySelector(".categoryitem")) continue;
 
-      const feedback = withoutPlaceholder(pick(texts, columns.feedback));
-      const gradedAt = withoutPlaceholder(pick(texts, columns.lastModified)) || withoutPlaceholder(pick(texts, columns.gradedOn));
-      const grade = parseNumber(gradeText);
-      const weight = parseNumber(pick(texts, columns.weight));
+      const feedback = withoutPlaceholder(fieldText(row, cells, columns, "feedback"));
+      const gradedAt = withoutPlaceholder(fieldText(row, cells, columns, "lastModified")) || withoutPlaceholder(fieldText(row, cells, columns, "gradedOn"));
+      const score = mark(gradeText, percentage, range);
+      const weight = parseNumber(fieldText(row, cells, columns, "weight"));
       let id = itemId(courseId, name);
       // Two activities can share a display name; keep both rows addressable.
       if (seen.has(id)) id = itemId(courseId, `${name}:${items.length}`);
@@ -210,16 +295,17 @@ export function parseGradeReport(html: string, courseId: string): ParsedGradeRep
       items.push({
         id,
         name,
-        grade,
-        gradeMax: range?.max ?? null,
+        ...score,
         weight,
         feedback,
         gradedAt: gradedAt === "" ? null : gradedAt,
       });
+      itemRows.set(items[items.length - 1], row);
     }
 
-    if (items.length > 0) {
-      return { items, total: total ?? derivedTotal(items) };
+    if (items.length > 0 || total !== null) {
+      courseWeights(table, columns!, itemRows);
+      return { items, total: total ?? { earned: null, max: null } };
     }
   }
   return null;
@@ -230,30 +316,8 @@ export function parseGradeReport(html: string, courseId: string): ParsedGradeRep
  * the "Grade" column with the item's range; some themes only print a percent.
  */
 function courseTotal(gradeText: string, percentage: number | null, range: { min: number | null; max: number | null } | null): { earned: number | null; max: number | null } {
-  const grade = parseNumber(gradeText);
-  if (grade !== null && range !== null && range.max !== null) {
-    return { earned: grade, max: range.max };
-  }
-  if (percentage !== null) {
-    // The report only printed a percentage for the course total.
-    return { earned: percentage, max: 100 };
-  }
-  return { earned: null, max: null };
-}
-
-/** Only trustworthy when every item carries a released mark and a weight. */
-function derivedTotal(items: MoodleGradeItem[]): { earned: number | null; max: number | null } {
-  let earned = 0;
-  let max = 0;
-  for (const item of items) {
-    if (item.grade === null || item.gradeMax === null || item.weight === null || item.gradeMax === 0) {
-      return { earned: null, max: null };
-    }
-    earned += (item.grade / item.gradeMax) * item.weight;
-    max += item.weight;
-  }
-  if (max === 0) return { earned: null, max: null };
-  return { earned: round(earned), max: round(max) };
+  const score = mark(gradeText, percentage, range);
+  return { earned: score.grade, max: score.gradeMax };
 }
 
 function mapColumns(headers: string[]): Partial<Record<Field, number>> {
@@ -274,10 +338,6 @@ function mapColumns(headers: string[]): Partial<Record<Field, number>> {
 
 function hasMarkColumn(columns: Partial<Record<Field, number>>) {
   return columns.grade !== undefined || columns.weight !== undefined || columns.range !== undefined || columns.percentage !== undefined;
-}
-
-function pick(texts: string[], index: number | undefined) {
-  return index === undefined ? "" : texts[index] ?? "";
 }
 
 function sameCells(a: string[], b: string[]) {
@@ -319,7 +379,7 @@ function parseRange(value: string): { min: number | null; max: number | null } |
 /** `17`, `17.00`, `85 %`, `1,234.50`; `-` and empty cells stay `null`. */
 function parseNumber(value: string): number | null {
   const numbers = numbersIn(value);
-  return numbers.length > 0 ? numbers[0] : null;
+  return numbers.length > 0 ? (/^\s*-\d/.test(value) ? -numbers[0] : numbers[0]) : null;
 }
 
 function numbersIn(value: string) {
@@ -329,10 +389,6 @@ function numbersIn(value: string) {
 
 function itemId(courseId: string, name: string) {
   return createHash("sha1").update(`moodle:grade:${courseId}:${name}`).digest("hex");
-}
-
-function round(value: number) {
-  return Number(value.toFixed(2));
 }
 
 function failureMessage(error: unknown) {

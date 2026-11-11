@@ -5,9 +5,7 @@ import { moodleGradesQuery } from '../data/repository'
 import { useResourceQuery } from '../lib/use-resource-query'
 import { CacheStatus } from '../components/CacheStatus'
 import type { MoodleGradeCourse, MoodleGradeItem } from '../types'
-import { BAND_LABEL, band, courseSummary, parseMoodleDate, percentage, splitCourseName, type CourseSummary, type GradeBand } from '../lib/grades'
-import { buildCourseGrade } from '../lib/muster/gradeBreakdown'
-import type { Assignment } from '../lib/muster/types'
+import { BAND_LABEL, band, courseSummary, gradeBreakdown, parseMoodleDate, percentage, splitCourseName, type CourseSummary, type GradeBand } from '../lib/grades'
 import { useTime } from '../lib/time'
 
 const BAND_TONE: Record<GradeBand, string> = {
@@ -50,9 +48,9 @@ function Legend({ hasWeights }: { hasWeights: boolean }) {
     ? [
         ['bg-brand-500', '已得分'],
         ['bg-slate-300', '已扣分'],
-        ['bg-amber-300', '未评分'],
+        ['bg-amber-300', '未评分或分数未公开'],
       ]
-    : [['bg-brand-500', '已评分平均']]
+    : [['bg-slate-100', '权重未知，暂不推算']]
   return (
     <div className="flex flex-wrap items-center gap-4 text-[13px] text-slate-600">
       {items.map(([color, label]) => (
@@ -91,25 +89,6 @@ function courseLabel(course: MoodleGradeCourse) {
 function scoreLabel(item: MoodleGradeItem) {
   if (item.grade === null) return null
   return item.gradeMax === null ? String(item.grade) : `${item.grade} / ${item.gradeMax}`
-}
-
-/**
- * Moodle 成绩册的行 → Muster 的 Assignment。成绩册是平铺的（没有分类行），每行自带权重，
- * 所以 buildCourseGrade 走「按行权重汇总」的分支。满分缺失时把 gradeMax 留空：
- * 读不出百分比的已评分项会被记为 hidden，而不是当成 0 分或未完成。
- */
-function toAssignments(course: MoodleGradeCourse): Assignment[] {
-  return course.items.map((item, index) => ({
-    id: index,
-    name: item.name,
-    courseId: 0,
-    // 哨兵 URL：避免名字以 "1. " 开头时被 buildCourseGrade 当成 Assessments 分类行。
-    url: 'moodle:gradebook',
-    status: item.grade === null ? 'pending' : 'graded',
-    grade: item.grade === null ? undefined : String(item.grade),
-    gradeMax: item.gradeMax ?? undefined,
-    weight: item.weight ?? undefined,
-  }))
 }
 
 export function GradesPage() {
@@ -201,11 +180,11 @@ export function GradesPage() {
   }
 
   const { code, name } = splitCourseName(course.courseName)
-  const breakdown = buildCourseGrade(toAssignments(course))
+  const breakdown = gradeBreakdown(course)
   // 及格线按整门课的 100% 算。Moodle 没给全权重时算不出差距，按设计稿的空态显示「—」。
-  const weightsKnown = summary.hasWeights && breakdown.totalWeight > 0 && breakdown.weightsComplete
+  const weightsKnown = summary.weightsComplete && breakdown.hiddenWeight === 0
   // 「已得多少」只需要已评分项的权重，是事实；「还差多少及格」才需要完整权重，是推断。两者分开。
-  const earnedKnown = breakdown.totalWeight > 0
+  const earnedKnown = summary.hasWeights
 
   return (
     <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
@@ -248,11 +227,10 @@ export function GradesPage() {
       {showMethod && (
         <div className="mt-2 rounded-xl border border-line bg-slate-50 px-5 py-3.5 text-[13px] leading-relaxed text-slate-700">
           <p>WAM 和 GPA 需要历史学期的成绩与学分。Moodle 成绩册接口不提供这两项，所以这里不做估算，只显示「—」。</p>
-          <p>当前平均：只算已评分的项目；Moodle 给了权重就按权重加权，没有权重就取各项目百分比的平均值。未评分的项目不计入，也不当 0 分。</p>
+          <p>当前平均：沿用 Muster 的权重折算，只算已发布且可读取的分数。缺少权重或满分时显示「—」，不假设每个项目等权；未评分不当 0 分。</p>
           <p>当前等级：把当前平均对应到 Monash 等级区间（HD ≥ 80、D ≥ 70、C ≥ 60、P ≥ 50），只代表已评分部分，不是最终成绩。</p>
           <p>
-            进度条：已得分 / 已扣分 / 未评分三段之和等于课程权重合计
-            {hasWeights ? '。' : '；Moodle 没给权重时只显示已评分占比。'}
+            进度条按整门课 100% 展示已得分、已扣分和待评分权重；未公开的权重留空，不拉伸成完整总评。只有权重完整且已评分分数可读时才推算距 50 分还差多少；课程 hurdle 仍需查阅原要求。
           </p>
         </div>
       )}
@@ -301,7 +279,7 @@ export function GradesPage() {
                   <ProgressBar s={s} />
                 </div>
                 <p className="mt-3 truncate text-[13px] text-slate-600">
-                  已得 {s.earned.toFixed(1)}%
+                  已得 {s.hasWeights ? `${s.earned.toFixed(1)} 个总评分` : '—（权重不全）'}
                   {s.hasWeights && ` / 已评 ${Math.round(s.gradedWeight)}%`}
                   {s.ungradedCount > 0 && (
                     <>
@@ -310,6 +288,7 @@ export function GradesPage() {
                     </>
                   )}
                 </p>
+                {s.reported !== null && <p className="mt-1 text-xs text-slate-500">Moodle 公布总评：{s.reported.toFixed(1)}%（以原成绩册为准）</p>}
               </button>
             )
           })}
@@ -364,7 +343,8 @@ export function GradesPage() {
             )}
             <div className="flex items-center justify-between border-t border-line bg-slate-50/50 px-5 py-3 text-[13px] text-slate-600">
               <span>
-                本课程已得 <strong className="font-semibold text-slate-900">{earnedKnown ? `${breakdown.earned.toFixed(1)}%` : '—'}</strong>（满分 {earnedKnown ? `${Math.round(breakdown.totalWeight)}%` : '—'}）
+                本课程已得 <strong className="font-semibold text-slate-900">{earnedKnown ? `${breakdown.earned.toFixed(1)} / 100` : '—'}</strong>
+                {earnedKnown && !summary.weightsComplete && <span>（已知权重 {breakdown.totalWeight.toFixed(1)}%）</span>}
               </span>
               <span>
                 距及格线还差 <strong className="font-semibold text-slate-900">{weightsKnown ? `${breakdown.needed.toFixed(1)}%` : '—'}</strong>

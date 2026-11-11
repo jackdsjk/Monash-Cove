@@ -1,4 +1,6 @@
 import type { MoodleGradeCourse, MoodleGradeItem } from '../types'
+import { buildCourseGrade, parseScorePercent, type CourseGrade } from './muster/gradeBreakdown'
+import type { Assignment } from './muster/types'
 
 export type GradeBand = 'HD' | 'D' | 'C' | 'P' | 'N'
 
@@ -21,8 +23,20 @@ export function band(mark: number): GradeBand {
 
 /** 一个评分项占满分的百分比。Moodle 没给满分时算不出来，返回 null。 */
 export function percentage(item: MoodleGradeItem): number | null {
-  if (item.grade === null || item.gradeMax === null || item.gradeMax <= 0) return null
-  return (item.grade / item.gradeMax) * 100
+  if (item.grade === null || !Number.isFinite(item.grade) || item.gradeMax === null || !Number.isFinite(item.gradeMax)) return null
+  return parseScorePercent(String(item.grade), item.gradeMax)
+}
+
+/** Adapt the gradebook to the copied Muster calculator once for every view. */
+export function gradeBreakdown(course: MoodleGradeCourse): CourseGrade {
+  const assignments: Assignment[] = course.items.map((item, index) => ({
+    id: index, name: item.name, courseId: 0, isCategory: false,
+    url: 'moodle:gradebook', status: item.grade === null ? 'pending' : 'graded',
+    grade: item.grade === null || !Number.isFinite(item.grade) ? undefined : String(item.grade),
+    gradeMax: item.gradeMax !== null && Number.isFinite(item.gradeMax) ? item.gradeMax : undefined,
+    weight: item.weight !== null && Number.isFinite(item.weight) && item.weight >= 0 ? item.weight : undefined,
+  }))
+  return buildCourseGrade(assignments)
 }
 
 export interface CourseSummary {
@@ -32,11 +46,11 @@ export interface CourseSummary {
   lost: number
   /** 尚未评分的权重 */
   ungraded: number
-  /** 课程权重合计；Moodle 没给权重时按 100 计 */
+  /** Final-mark scale; partial published weights are never stretched to 100%. */
   total: number
   /** 已评分部分的权重 */
   gradedWeight: number
-  /** 当前平均：只按已评分项，权重齐时按权重加权 */
+  /** Weighted released average; unknown weights/scores do not imply equal weighting. */
   current: number | null
   band: GradeBand | null
   gradedCount: number
@@ -44,49 +58,40 @@ export interface CourseSummary {
   count: number
   /** 权重是否完整到可以按权重拆段 */
   hasWeights: boolean
+  weightsComplete: boolean
+  /** Moodle's own published course total, independent of the earned-weight estimate. */
+  reported: number | null
 }
 
 /**
- * 和 Moodle 一样只看已评分项：权重齐全时按权重折算，
- * 缺权重时退回已评分项的算术平均，两种情况都不把未评分当 0 分。
+ * Reuse Muster's earned/graded/pending/hidden split. No arithmetic-average
+ * fallback: Moodle may use categories, unequal weights or unpublished scores.
  */
 export function courseSummary(course: MoodleGradeCourse): CourseSummary {
   const items = course.items
-  const hasWeights = items.length > 0 && items.every((item) => item.weight !== null && item.weight > 0)
-  const marks: number[] = []
-  let gradedWeight = 0
-  let earnedWeight = 0
-  let gradedCount = 0
-
-  for (const item of items) {
-    const pct = percentage(item)
-    if (item.grade !== null) gradedCount += 1
-    if (pct !== null) marks.push(pct)
-    if (!hasWeights) continue
-    const weight = item.weight as number
-    if (pct === null) continue
-    gradedWeight += weight
-    earnedWeight += (pct / 100) * weight
-  }
-
-  const total = hasWeights ? items.reduce((sum, item) => sum + (item.weight as number), 0) : 100
-  const current =
-    marks.length === 0 ? null : hasWeights && gradedWeight > 0 ? (earnedWeight / gradedWeight) * 100 : marks.reduce((a, b) => a + b, 0) / marks.length
-  const earned = hasWeights ? earnedWeight : current ?? 0
+  const breakdown = gradeBreakdown(course)
+  const hasWeights = items.length > 0 && breakdown.totalWeight > 0 && breakdown.totalWeight <= 100.5 &&
+    items.every((item) => item.weight !== null && Number.isFinite(item.weight) && item.weight >= 0)
+  const gradedCount = items.filter((item) => item.grade !== null && Number.isFinite(item.grade)).length
+  const current = hasWeights && breakdown.gradedWeight > 0 && breakdown.hiddenWeight === 0
+    ? breakdown.earned / breakdown.gradedWeight * 100 : null
 
   return {
-    earned,
-    lost: hasWeights ? gradedWeight - earnedWeight : 0,
-    // 没有权重就算不出「还剩多少权重」；不拿条目数冒充权重。
-    ungraded: hasWeights ? total - gradedWeight : 0,
-    total,
-    gradedWeight: hasWeights ? gradedWeight : 0,
+    earned: hasWeights ? breakdown.earned : 0,
+    lost: hasWeights ? Math.max(0, breakdown.gradedWeight - breakdown.earned) : 0,
+    ungraded: hasWeights ? breakdown.pendingWeight + breakdown.hiddenWeight : 0,
+    total: 100,
+    gradedWeight: hasWeights ? breakdown.gradedWeight : 0,
     current,
     band: current === null ? null : band(current),
     gradedCount,
     ungradedCount: items.length - gradedCount,
     count: items.length,
     hasWeights,
+    weightsComplete: hasWeights && breakdown.weightsComplete,
+    reported: course.total.earned !== null && Number.isFinite(course.total.earned) &&
+      course.total.max !== null && Number.isFinite(course.total.max)
+      ? parseScorePercent(String(course.total.earned), course.total.max) : null,
   }
 }
 

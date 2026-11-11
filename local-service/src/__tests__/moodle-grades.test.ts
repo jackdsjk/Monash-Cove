@@ -142,6 +142,60 @@ describe("Moodle grade report parsing", () => {
   it("returns null when the page has no grade table", () => {
     expect(parseGradeReport(noGradesPage, "303")).toBeNull();
   });
+
+  it("reads Moodle column classes despite category leader cells and excludes action-menu text", () => {
+    const report = parseGradeReport(`<table><tr><th>Grade item</th><th>Weight</th><th>Grade</th><th>Range</th></tr>
+      <tr><td class="leader" rowspan="2"></td><th class="column-itemname">Quiz</th><td class="column-weight">20%</td>
+        <td class="column-grade"><div><div>8</div><div>Actions 99 Grade analysis</div></div></td><td class="column-range">0–10</td></tr>
+      <tr><th class="column-itemname">Essay</th><td class="column-weight">80%</td><td class="column-grade">-</td><td class="column-range">0–100</td></tr></table>`, "1");
+    expect(report?.items.map(({ name, grade, gradeMax, weight }) => ({ name, grade, gradeMax, weight }))).toEqual([
+      { name: "Quiz", grade: 8, gradeMax: 10, weight: 20 }, { name: "Essay", grade: null, gradeMax: 100, weight: 80 },
+    ]);
+  });
+
+  it.each([
+    ["85%", "0–20", "-", 85, 100],
+    ["17 / 20", "-", "-", 17, 20],
+    ["11 out of 13", "-", "-", 11, 13],
+    ["-", "-", "75%", 75, 100],
+    ["0", "0 - 20", "0%", 0, 20],
+  ])("keeps the score scale for %s", (grade, range, percent, expectedGrade, expectedMax) => {
+    const report = parseGradeReport(`<table><tr><th>Grade item</th><th>Grade</th><th>Range</th><th>Percentage</th></tr>
+      <tr><td>Quiz</td><td>${grade}</td><td>${range}</td><td>${percent}</td></tr></table>`, "1");
+    expect(report?.items[0]).toMatchObject({ grade: expectedGrade, gradeMax: expectedMax });
+  });
+
+  it("scales relative child weights by explicit category ancestry without counting subtotal rows", () => {
+    const report = parseGradeReport(`<table><tr><th>Grade item</th><th>Weight</th><th>Grade</th><th>Range</th></tr>
+      <tr class="categoryitem"><th id="cat_quiz" class="column-itemname">Quiz total</th><td>40%</td><td>8</td><td>0–10</td></tr>
+      <tr><th class="column-itemname" headers="cat_quiz">Quiz A</th><td>50%</td><td>8</td><td>0–10</td></tr>
+      <tr><th class="column-itemname" headers="cat_quiz">Quiz B</th><td>50%</td><td>-</td><td>0–10</td></tr>
+      <tr class="categoryitem"><th id="cat_exam">Exam total</th><td>60%</td><td>-</td><td>0–100</td></tr>
+      <tr><th headers="cat_exam">Exam</th><td>100%</td><td>-</td><td>0–100</td></tr></table>`, "1");
+    expect(report?.items.map((item) => item.weight)).toEqual([20, 20, 60]);
+    expect(report?.items).toHaveLength(3);
+    expect(report?.total).toEqual({ earned: null, max: null });
+  });
+
+  it("leaves relative weights unknown when category ownership is absent", () => {
+    const report = parseGradeReport(`<table><tr><th>Grade item</th><th>Weight</th><th>Grade</th><th>Range</th></tr>
+      <tr class="categoryitem"><td>Category</td><td>40%</td><td>8</td><td>0–10</td></tr>
+      <tr><td>Quiz</td><td>100%</td><td>8</td><td>0–10</td></tr></table>`, "1");
+    expect(report?.items[0].weight).toBeNull();
+  });
+
+  it("keeps total percentage on a 100-point scale even when range is a raw maximum", () => {
+    const report = parseGradeReport(`<table><tr><th>Grade item</th><th>Weight</th><th>Grade</th><th>Range</th></tr>
+      <tr><td>Quiz</td><td>100%</td><td>17</td><td>0–20</td></tr>
+      <tr class="courseitem"><td>Course total</td><td>-</td><td>85%</td><td>0–20</td></tr></table>`, "1");
+    expect(report?.total).toEqual({ earned: 85, max: 100 });
+  });
+
+  it("retains a published total even when item details are hidden", () => {
+    const report = parseGradeReport(`<table><tr><th>Grade item</th><th>Grade</th><th>Range</th></tr>
+      <tr class="courseitem categoryitem"><td>Course total</td><td>75</td><td>0–100</td></tr></table>`, "1");
+    expect(report).toEqual({ items: [], total: { earned: 75, max: 100 } });
+  });
 });
 
 describe("MoodleGradesClient", () => {
@@ -151,6 +205,11 @@ describe("MoodleGradesClient", () => {
     const client = new MoodleGradesClient("https://learning.monash.edu", "MoodleSession=stale", fetcher);
     const outcome = await client.pull().catch((error: unknown) => error);
     expect(outcome).toBeInstanceOf(Error);
+  });
+
+  it("does not classify a Moodle outage as an expired session", async () => {
+    const client = new MoodleGradesClient("https://moodle.example.invalid", "MoodleSession=fixture", async () => new Response("Unavailable", { status: 503 }));
+    await expect(client.pull()).rejects.toMatchObject({ code: "grades_failed" });
   });
 });
 
@@ -205,7 +264,9 @@ describe("GET /api/moodle/grades", () => {
   it("409s when Moodle bounces the session to a login page", async () => {
     const secretStore = new MemorySecretStore();
     await secretStore.set("moodle-credentials", JSON.stringify({ baseUrl: "https://learning.monash.edu", session: "abc" }));
-    const fetcher = vi.fn(async () => new Response("", { status: 303, headers: { location: "/login/index.php" } })) as unknown as typeof fetch;
+    const fetcher: typeof fetch = async (input) => String(input).includes("/login/")
+      ? new Response('<form id="login"><input type="password"></form>')
+      : new Response("", { status: 303, headers: { location: "/login/index.php" } });
     app = buildApp({ dbPath: ":memory:", seed: true, secretStore, fetcher });
     const response = await app.inject({ method: "GET", url: "/api/moodle/grades" });
     expect(response.statusCode).toBe(409);

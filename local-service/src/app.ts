@@ -1333,7 +1333,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
       // A range change selects a different snapshot without discarding the course
       // directory or allowing a refresh for the previous range to overwrite it.
       const range = createHash("sha256").update(JSON.stringify(preferences)).digest("hex").slice(0, 16);
-      const result = await resourceCache.read({ source: "moodle", identity, resource: `grades:v2:${range}`, ttlMs: RESOURCE_TTL.grades,
+      const result = await resourceCache.read({ source: "moodle", identity, resource: `grades:v3:${range}`, ttlMs: RESOURCE_TTL.grades,
         currentIdentity: () => credentialIdentity("moodle"), force: forcedRefresh(request.url) }, async (previous: Awaited<ReturnType<MoodleGradesClient["pull"]>> | undefined, snapshot) => {
         const pulled = await new MoodleGradesClient(credentials.baseUrl, moodleCookieHeader(credentials), moodleTransport.forCredentials(raw)).pullDetailed(preferences);
         const failed = new Set(pulled.failedCourseIds);
