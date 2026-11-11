@@ -251,6 +251,36 @@ describe("Muster assessment-to-Grade matching", () => {
 });
 
 describe("MoodleGradesClient", () => {
+  it("joins Assessment category metadata to Grades by activity ID without inventing other scores", async () => {
+    const fetcher: typeof fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/my/") return new Response('<script>{"sesskey":"fixture"}</script>');
+      if (url.pathname === "/lib/ajax/service.php") return Response.json([{ error: false, data: { courses: [{ id: 101, shortname: "UNIT101", fullname: "Fixture unit" }] } }]);
+      if (url.pathname === "/grade/report/user/index.php") return new Response(moodleGradeTable);
+      if (url.pathname === "/course/view.php" && !url.searchParams.has("section")) return new Response('<a title="ASSESSMENTS" href="/course/view.php?id=101&amp;section=9">Assessments</a>');
+      if (url.searchParams.get("section") === "9") return new Response(`<div class="assessment-item summary-view-dropdown-header"><span class="dropdown-name-text" data-section="57">1. Written</span><span class="weight-content">100%</span></div>
+        <div id="assessment-section-activity-list-57"><div class="assessment-item"><a class="name-content-text" href="/mod/assign/view.php?id=1">Renamed Assignment</a></div>
+        <div class="assessment-item"><a class="name-content-text" href="/mod/assign/view.php?id=999">Not in Grades</a></div></div>`);
+      throw new Error("Unexpected fixture URL");
+    };
+    const result = await new MoodleGradesClient("https://moodle.example.invalid", "MoodleSession=fixture", fetcher).pull();
+    expect(result[0].items).toHaveLength(3);
+    const children = result[0].assessmentStructure?.filter((row) => !row.isCategory);
+    expect(children?.map((row) => row.gradeItemId)).toEqual([result[0].items[0].id, null]);
+    expect(children?.map((row) => row.categoryWeight)).toEqual([100, 100]);
+    expect(result[0].assessmentWarning).toBeNull();
+  });
+
+  it("keeps readable Grades when the separate assessment structure is unavailable", async () => {
+    const original = gradebookFetcher();
+    const fetcher: typeof fetch = async (input, init) => String(input).includes('/course/view.php')
+      ? new Response("Fixture unavailable", { status: 503 }) : original(input, init);
+    const result = await new MoodleGradesClient("https://learning.monash.edu", "MoodleSession=fixture", fetcher).pull();
+    expect(result[0].items).toHaveLength(3);
+    expect(result[0].assessmentStructure).toEqual([]);
+    expect(result[0].assessmentWarning).toContain("仍显示 Grades 原始成绩");
+  });
+
   it("skips Muster support hubs before fetching Grades, retaining academic and thesis courses", async () => {
     const names = ["IT Student Portal", "MUM Academic Success", "MUM Graduate Success", "MUM School of IT - General Student Hub",
       "FIT5201 Machine learning - S2 2026", "Master and Honours Thesis - S1 2026 - S2 2026"];

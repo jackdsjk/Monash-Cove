@@ -16,6 +16,13 @@ portal, student hub, academic success, graduate success and school of IT names
 identify support hubs. Grade reads skip these; the course directory and materials
 remain available. The upstream revision also contains this classification's tests.
 
+`assessment-structure.ts` ports `parse_assessments_from_html`, assessment-section
+discovery and `parse_weight_percent` from the same revision. Widget categories
+retain IDs, category weights, linked children and empty exam categories. The
+older activity-list template retains explicit item weights. Grades remains the
+only source of released scores; unmatched assessment links stay pending metadata.
+The frontend uses the unchanged upstream calculator to split category weights.
+
 Preserve [LICENSE](LICENSE) and [NOTICE](NOTICE), Copyright 2026 Poetrynan,
 PolyForm Noncommercial 1.0.0. This port does not change the upstream license.
 Run the backend gradebook and resource-route tests plus `npm run check` after edits.

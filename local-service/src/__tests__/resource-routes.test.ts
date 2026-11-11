@@ -29,6 +29,7 @@ describe("single source sync HTTP results", () => {
         { id: 101, shortname: "TEST101_S2_2026", fullname: "Fixture 101" },
         { id: 102, shortname: "TEST101_S1_2026", fullname: "Fixture 102" },
       ] } }]);
+      if (url.pathname === "/course/view.php") return new Response("<html></html>");
       if (url.pathname === "/grade/report/user/index.php") return new Response(`<table class="user-grade">
         <tr><th>Grade item</th><th>Grade</th><th>Range</th></tr>
         ${url.searchParams.get("id") === "101" ? `<tr><td><a class="gradeitemheader" href="${assignmentUrl}">Renamed assessment</a></td><td>-</td><td>0–100</td></tr>
@@ -269,6 +270,7 @@ describe("cached resource HTTP routes", () => {
       if (url.pathname === "/lib/ajax/service.php") return Response.json([{ error: false, data: { courses: [
         { id: 1, shortname: "UNIT1", fullname: "Fixture course 1" }, { id: 2, shortname: "UNIT2", fullname: "Fixture course 2" },
       ] } }]);
+      if (url.pathname === "/course/view.php") return new Response("<html></html>");
       if (failCourse && url.searchParams.get("id") === "2") return new Response("fixture error", { status: 500 });
       if (url.pathname === "/grade/report/user/index.php") return new Response(`<table class="user-grade"><tbody>
         <tr><th>Grade item</th><th>Grade</th><th>Range</th></tr><tr class="item"><td><span class="gradeitemheader">Fixture</span></td><td>${grade}</td><td>0–10</td></tr></tbody></table>`);
@@ -277,9 +279,9 @@ describe("cached resource HTTP routes", () => {
     app = buildApp({ dbPath: ":memory:", seed: false, secretStore: secrets, fetcher });
     const [first, concurrent] = await Promise.all([app.inject("/api/moodle/grades"), app.inject("/api/moodle/grades")]);
     expect(first.statusCode).toBe(200); expect(concurrent.statusCode).toBe(200);
-    expect(calls).toHaveLength(5);
+    expect(calls).toHaveLength(9);
     const again = await app.inject("/api/moodle/grades");
-    expect(again.json().cache.stale).toBe(false); expect(calls).toHaveLength(5);
+    expect(again.json().cache.stale).toBe(false); expect(calls).toHaveLength(9);
     grade = "9"; failCourse = true;
     const partial = await app.inject("/api/moodle/grades?refresh=1");
     const body = partial.json();
@@ -298,7 +300,7 @@ describe("cached resource HTTP routes", () => {
     // Range changes must not serve the still-fresh snapshot for the old range.
     const scoped = await app.inject("/api/moodle/grades");
     expect(scoped.json().courses.map((course: { courseId: string }) => course.courseId)).toEqual(["1"]);
-    expect(calls.length - beforeScopedRead).toBe(4);
+    expect(calls.length - beforeScopedRead).toBe(6);
     await secrets.set("moodle-credentials", JSON.stringify({ baseUrl: "https://moodle.example.invalid", session: "fixture-new-account" }));
     expect((await app.inject("/api/moodle/course-preferences")).json()).toEqual({ activeSemester: null, hiddenCourseIds: [], pinnedCourseIds: [] });
     const disconnected = await app.inject({ method: "POST", url: "/api/sources/moodle/disconnect" });
