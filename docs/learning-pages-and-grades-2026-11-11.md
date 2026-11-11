@@ -106,3 +106,24 @@ Muster 参考的是用户目录 `/Users/Admin/Documents/Workspace/muster`，而�
 仍有两项入口异常，重试后结果相同，属于发现而非已完成修复：一项工具资源入口返回 HTML，当前下载器以“未提供可下载文件”拒绝；一项幻灯片资源的已存 URL 指向课程板块页而非文件入口，下载校验返回 `invalid_url`。后者可能涉及无可用活动链接时的课程页回退，尚未核验该活动的实时可见性及源 HTML，不能直接断言远端文件丢失或解析器已修复。这两项均无标题中的显式 PDF 标记，实际文件类型未确认，不能将它们计作已验证 PDF，也不能据此宣称全部资源可下载。
 
 其余课程／支持入口没有当前可测的已同步文件资源，因此未验证其 PDF；本次覆盖不包含未同步材料、页面内嵌附件、文件夹内部文件或关闭／隐藏的历史内容。本轮只更新验证记录，无运行时代码变更；文档空白及链接校验通过。
+
+
+## Ed 学习 PDF 排查：已定位，尚未修改运行逻辑
+
+本次按用户要求对照 unicorn，区分 Worker 的记忆同步和配套实时读取。下载目录的 unicorn `src/plugins/campus/ed-plugin.ts` 只读取课程与论坛，不实现 lesson PDF 抓取；该归档无 Git，文件 SHA-256 为 `d44ccfedaf02d6e74fcf0f1ec43a18a66e63d0831ea70720e504aa2f9e8a5862`，Apache-2.0。项目 `stack/unicorn` 在 `a8f1564f6f025ec573da35117466b07b7e280aae` 的 `docs/setup/ed.md`、`docs/ARCHITECTURE.md` 明确将完整实时读取交给 edstem-cli／Ed MCP。本次没有修改该嵌套仓库。
+
+实际可复用实现是本机 `edstem-cli@0.5.0`，MIT，Copyright (c) 2026 bunizao；分发包 `dist/edstem.js` SHA-256 为 `dbaa73bb791cb959e3947ff8db38670565ef0d15f0d6e9dd4a267849d716fccd`。其 `parseLessonSlide` 保留 `file_url`，正文依次读取 content／passage／data.content／data.passage；`listLessonFiles` 汇合 lesson.outline 中的 file、slide.fileUrl 和 slide.content 中的 file，再按 slide／URL 去重；原生 PDF 按 type 添加扩展名和 MIME。与当前仅扫描正文 `<file>` 的方式相比，这些函数可直接移植，复制时须保留 MIT LICENSE 和来源声明。目前只阅读、比较，尚未复制代码。
+
+真实只读交叉核验覆盖本地 API 可见的 3 门课程、101 个 lesson 和 410 个 slide；Ed MCP 逐 lesson 的文件清单均成功读取。本地返回 74 个 PDF 附件，参考返回 75 个；74 个来自正文 file 标签，漏掉的 1 个来自 slide.file_url，课件 type 为 pdf、正文为空。本地相应记录 type 为 quiz、files 为空、text 为空。将同一文件地址交给现有本地下载接口，返回 HTTP 200、application/pdf、49,633,245 字节及 PDF 文件头；另抽查一个已识别 PDF 同样成功（2,007,360 字节）。因此已证明这两个文件的下载通道可用，尚未证明全部 75 个文件的下载结果，也未做 PDF 全文解析。文件仅在内存检查，没有把原始课件、URL、标题、课件 ID 或凭据写入版本化记录。
+
+确认的问题与来源：
+
+| 状态 | 问题 | 证据与位置 |
+|---|---|---|
+| 已确认，待修复 | 原生 PDF 完全漏识别，并被误归为 Quiz | `local-service/src/sources/ed.ts::getLesson`／`mapLessonSlide` 忽略 file_url、outline、passage 和嵌套 data；空正文走 `!text` 分支 |
+| 已确认，待修复 | 已识别附件在 UI 被视频类型掩盖 | 真实 74 个已识别 PDF 全部附在视频条目上；mapLessonSlide 优先将它们归为 video。`webapp/src/pages/EdPage.tsx` 按单一 type 进行文件筛选，metaOf 优先显示视频数，附件区域仅对 slides／file 渲染。因此文件筛选看不到这些 PDF，虽然当前条目顶部仍保留单附件下载按钮 |
+| 静态确认，待修复；本轮未制造真实文件下载失败 | ZIP 可能只含 Markdown，却报告完整打包成功 | `local-service/src/app.ts` 的 Ed download-batch 将 lesson.md 计入 added，并静默跳过非成功响应／超限／异常；`EdPage.tsx` 的成功文案使用请求附件数而非实际成功数 |
+
+最小复用方案：移植配套 CLI 的 parseLessonSlide 和 listLessonFiles 所需纯函数，保留现有鉴权、白名单、重定向及资源边界；为解析后的 lesson 快照升版本，避免继续使用 `lesson:v1` 的缺字段结果；附件列表及文件筛选独立于视频主类型；批量下载返回实际成功／跳过数量及安全失败原因。正文中的其他外部链接、视频下载和学校端写操作不在本次建议范围。该方案尚未实施，本轮交付为有真实证据的诊断记录，不能当成已修复功能。
+
+本轮验证为上述真实只读接口交叉检查、源码对照、文档链接及空白检查；未修改运行时代码，无新增包测试结果。
