@@ -131,8 +131,8 @@ export function SettingsPage() {
       if (current.job?.status === 'error') throw new Error('全量同步失败，请在来源页查看失败的来源')
       if (!current.job) throw new Error('无法读取全量同步任务状态，请稍后重试')
       if (mounted.current) setSyncNotice(current.job.status === 'skipped'
-        ? current.job.message || '没有可执行全量同步的来源，请先连接 Gmail、Ed 或 Moodle。'
-        : `已完成 ${Object.values(current.job.sources).filter((source) => source.status === 'done').length} 个来源的全量同步；未配置或不支持全量的来源已跳过。`)
+        ? current.job.message || '没有可执行全量同步的来源，请先连接 Gmail、Ed、Moodle 或 OnTrack。'
+        : `已完成 ${Object.values(current.job.sources).filter((source) => source.status === 'done').length} 个来源的全量同步；未配置的来源已跳过。`)
       await refresh()
     } catch (cause) {
       if (mounted.current) setSyncError(cause instanceof Error ? cause.message : '全量同步失败')
@@ -180,11 +180,11 @@ export function SettingsPage() {
           </label>
         </Section>
 
-        <Section title="同步" description="平时只做增量同步。全量同步会重新读取已配置的 Gmail、Ed、Moodle，耗时较长。">
+        <Section title="同步" description="平时只做增量同步。全量同步会重新读取已配置的 Gmail、Ed、Moodle 和 OnTrack，耗时较长。">
           <div className="divide-y divide-line rounded-md border border-line">
             <Line
               label="全量同步"
-              detail="重新读取已连接的 Gmail、Ed、Moodle 历史内容；OnTrack 请在来源页增量同步"
+              detail="重新读取已连接来源的历史内容；OnTrack 包括当前账号可访问项目的任务和全部反馈，无法恢复服务器已隐藏或删除的内容"
               action={
                 <Button onClick={() => void runFullSync()} disabled={syncing}>
                   <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />

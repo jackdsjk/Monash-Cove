@@ -292,7 +292,10 @@ export interface OnTrackAccount {
 
 /** OnTrack 任务，来自只读 overview 接口。 */
 export interface OnTrackTaskRow {
-  id: number;
+  /** No task instance exists until OnTrack creates one for this definition. */
+  id: number | null;
+  isInstantiated?: boolean;
+  visibility?: "within_target" | "unknown";
   taskDefinitionId: number;
   abbreviation: string;
   name: string;
@@ -322,7 +325,10 @@ export interface OnTrackOverview {
 
 /** 一个 OnTrack 任务，来自实时只读接口（不是简报条目）。 */
 export interface OnTrackTaskView {
-  id: number;
+  /** No task instance exists until OnTrack creates one for this definition. */
+  id: number | null;
+  isInstantiated?: boolean;
+  visibility?: "within_target" | "unknown";
   taskDefinitionId: number;
   abbreviation: string;
   name: string;

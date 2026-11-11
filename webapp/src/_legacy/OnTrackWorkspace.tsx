@@ -6,6 +6,7 @@ import { fetchBrief, fetchOnTrackAccount, fetchOnTrackComments, fetchOnTrackTask
 import type { BriefItem, OnTrackAccount, OnTrackCommentView, OnTrackProjectView, OnTrackTaskView } from "../types";
 
 const STATUS_LABELS: Record<string, string> = {
+  not_instantiated: "尚未开始",
   complete: "已完成",
   discuss: "待讨论",
   assess_in_portfolio: "待评估",
@@ -180,6 +181,7 @@ export default function OnTrackWorkspace() {
   };
 
   const handleDownload = (task: OnTrackTaskView, kind: "resources" | "submission") => {
+    if (kind === "submission" && (task.id === null || task.isInstantiated === false)) return;
     message.info(kind === "resources" ? "正在准备任务资源…" : "正在准备提交 PDF…");
     window.open(`/api/ontrack/artifact?project=${task.projectId}&task=${task.taskDefinitionId}&kind=${kind}`, "_blank");
   };
@@ -306,7 +308,7 @@ export default function OnTrackWorkspace() {
             {visibleTasks.map((task) => (
               <div
                 className="ot-trow ot-trow--task"
-                key={task.id}
+                key={`${task.projectId}:${task.taskDefinitionId}`}
                 role="button"
                 tabIndex={0}
                 onClick={() => void openThread(task)}
@@ -333,7 +335,7 @@ export default function OnTrackWorkspace() {
                   <Button type="link" size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(task, "resources")}>
                     资源
                   </Button>
-                  <Button type="link" size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(task, "submission")}>
+                  <Button type="link" size="small" disabled={task.id === null || task.isInstantiated === false} icon={<DownloadOutlined />} onClick={() => handleDownload(task, "submission")}>
                     提交
                   </Button>
                   <Button

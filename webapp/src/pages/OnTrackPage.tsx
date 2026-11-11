@@ -7,6 +7,7 @@ import { fmtCountdown } from '../lib/time'
 import { Button, PageTitle, Panel, Tag } from '../components/ui'
 
 type OnTrackStatus =
+  | '尚未开始'
   | 'Not Started'
   | 'Working On It'
   | 'Ready for Feedback'
@@ -18,6 +19,7 @@ type OnTrackStatus =
   | 'Assess in Portfolio'
 
 const TONE: Record<OnTrackStatus, 'slate' | 'brand' | 'green' | 'amber' | 'red'> = {
+  '尚未开始': 'slate',
   'Not Started': 'slate',
   'Working On It': 'brand',
   'Ready for Feedback': 'brand',
@@ -31,6 +33,7 @@ const TONE: Record<OnTrackStatus, 'slate' | 'brand' | 'green' | 'amber' | 'red'>
 
 /** Doubtfire 的状态码 → 界面文案；未知状态按原始状态码显示，不伪造状态。 */
 const STATUS: Record<string, OnTrackStatus> = {
+  not_instantiated: '尚未开始',
   not_started: 'Not Started',
   working_on_it: 'Working On It',
   need_help: 'Need Help',
@@ -117,9 +120,12 @@ export function OnTrackPage() {
                   const due = dueAt(t.dueDate)
                   const status = STATUS[t.status]
                   return (
-                    <li key={t.id} className={`grid ${COLS} items-center gap-3 px-5 py-3 text-sm`}>
+                    <li key={`${t.projectId}:${t.taskDefinitionId}`} className={`grid ${COLS} items-center gap-3 px-5 py-3 text-sm`}>
                       <span className="font-medium text-slate-800">{t.abbreviation || '—'}</span>
-                      <span className="truncate text-slate-800">{t.name || '未命名任务'}</span>
+                      <span className="min-w-0 text-slate-800">
+                        <span className="block truncate">{t.name || '未命名任务'}</span>
+                        {t.visibility === 'unknown' && <span className="block text-[11px] text-amber-700">适用性待确认，请在 OnTrack 核对</span>}
+                      </span>
                       <span className="text-slate-600">{gradeOf(t)}</span>
                       <span>
                         <Tag tone={status ? TONE[status] : 'slate'}>{status ?? humanize(t.status)}</Tag>

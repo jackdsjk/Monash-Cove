@@ -54,8 +54,8 @@ export default function FullSyncCard() {
           </Typography.Title>
           <Typography.Paragraph type="secondary">
             {syncStatus?.fullSyncCompleted
-              ? "Gmail、Ed、Moodle 已全量入库；日常打开 App 会自动做增量同步。"
-              : "新用户建议先跑一次全量：Gmail 全部邮件、Ed 全部课程帖子、Moodle 全部课程与资料。之后日常使用增量同步。"}
+              ? "已配置来源的全量同步已完成；日常打开 App 会自动做增量同步。"
+              : "新用户建议先跑一次全量：Gmail 邮件、Ed 课程帖子、Moodle 课程与资料，以及 OnTrack 当前可访问项目的任务和全部反馈。服务器已隐藏或删除的内容无法恢复。"}
           </Typography.Paragraph>
         </div>
         <Button type="primary" loading={starting || syncStatus?.job?.status === "running"} onClick={() => void start()}>

@@ -221,7 +221,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const syncFull = () => {
     if (fullSyncFlight.current) return;
-    const connected = sources.filter((source) => source.connected && source.id !== 'ontrack');
+    const connected = sources.filter((source) => source.connected);
     const tokens = new Map(connected.map((source) => [source.id, Symbol(source.id)]));
     for (const source of connected) {
       syncFailures.current.delete(source.id);
