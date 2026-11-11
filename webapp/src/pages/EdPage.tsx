@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, CircleAlert, CircleHelp, Download, FileText, Paperclip, PlayCircle } from 'lucide-react'
 import { edCoursesQuery } from '../data/repository'
 import type { EdLessonDetail, EdMaterialFile, EdMaterialSlide } from '../types'
@@ -6,7 +6,7 @@ import { Button, EmptyLine, PageTitle, Panel, Select } from '../components/ui'
 import { CacheStatus } from '../components/CacheStatus'
 import { useResourceQuery } from '../lib/use-resource-query'
 import { useEdLessons } from '../lib/use-ed-lessons'
-import { compareLearningTitles, learningWeek, matchesLearningSearch } from '../lib/learning-filters'
+import { compareLearningTitles, learningWeek, matchesEdFileKind, matchesEdMaterialKind, matchesLearningSearch } from '../lib/learning-filters'
 
 const KIND_LABEL: Record<EdMaterialSlide['type'], string> = { video: '视频', text: '文字', slides: 'PPT', file: '文件', quiz: 'Quiz' }
 const KIND_ICON: Record<EdMaterialSlide['type'], typeof FileText> = { video: PlayCircle, text: FileText, slides: Paperclip, file: Paperclip, quiz: CircleHelp }
@@ -14,8 +14,10 @@ const KIND_ICON: Record<EdMaterialSlide['type'], typeof FileText> = { video: Pla
 type Slide = EdMaterialSlide & { lesson: EdLessonDetail }
 type Job =
   | { state: 'idle' }
-  | { state: 'busy' | 'done'; label: string; count: number; mode: 'bundle' | 'file' }
+  | { state: 'busy' | 'done'; label: string; count: number; skipped?: number; mode: 'bundle' | 'file' }
   | { state: 'error'; label: string; message: string }
+
+type DownloadResult = { name: string; blob: Blob; count?: number; skipped?: number }
 
 const safeName = (value: string) => value.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'ed-material'
 
@@ -36,20 +38,23 @@ async function readError(response: Response, fallback: string) {
 }
 
 function filesOf(lessons: EdLessonDetail[]): { name: string; url: string }[] {
-  return lessons.flatMap((lesson) => lesson.slides.flatMap((slide) => slide.files.map((file) => ({ name: file.name, url: file.url }))))
+  const files = lessons.flatMap((lesson) => [...(lesson.files ?? []), ...lesson.slides.flatMap((slide) => slide.files)])
+  return [...new Map(files.map((file) => [file.url, { name: file.name, url: file.url }])).values()]
 }
 
-const lessonMarkdown = (lesson: EdLessonDetail) => `# ${lesson.title}\n\n${lesson.slides.map((s) => s.markdown).join('\n\n---\n\n')}`.trim()
+const lessonMarkdown = (lesson: EdLessonDetail) => `# ${lesson.title}\n\n${(lesson.files ?? []).map((file) => `[${file.name}](${file.url})`).join('\n')}\n\n${lesson.slides.map((s) => s.markdown).join('\n\n---\n\n')}`.trim()
 const courseMarkdown = (lessons: EdLessonDetail[]) => lessons.map(lessonMarkdown).join('\n\n---\n\n')
 
-async function fetchBundle(title: string, markdown: string, files: { name: string; url: string }[]): Promise<Blob> {
+async function fetchBundle(title: string, markdown: string, files: { name: string; url: string }[]): Promise<{ blob: Blob; count: number; skipped: number }> {
   const response = await fetch('/api/ed/download-batch', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ lessonTitle: title, markdown, files }),
   })
   if (!response.ok) throw new Error(await readError(response, `打包下载失败：HTTP ${response.status}`))
-  return response.blob()
+  const count = Number(response.headers.get('x-cove-batch-count') ?? files.length)
+  const skipped = Number(response.headers.get('x-cove-batch-skipped') ?? 0)
+  return { blob: await response.blob(), count, skipped }
 }
 
 async function fetchAttachment(file: EdMaterialFile): Promise<Blob> {
@@ -59,8 +64,8 @@ async function fetchAttachment(file: EdMaterialFile): Promise<Blob> {
 }
 
 function metaOf(slide: Slide) {
-  if (slide.videoUrls.length > 0) return `${slide.videoUrls.length} 个视频`
-  if (slide.files.length > 0) return slide.files.map((file) => file.name).join('、')
+  const parts = [slide.videoUrls.length > 0 ? `${slide.videoUrls.length} 个视频` : '', slide.files.length > 0 ? `${slide.files.length} 个附件` : ''].filter(Boolean)
+  if (parts.length > 0) return parts.join(' · ')
   const chars = slide.text.replace(/\s+/g, '').length
   return chars > 0 ? `${chars} 字` : '无正文'
 }
@@ -72,7 +77,7 @@ function primaryName(slide: Slide) {
 }
 
 function lessonFileCount(lesson: EdLessonDetail) {
-  return lesson.slides.reduce((n, slide) => n + slide.files.length, 0)
+  return filesOf([lesson]).length
 }
 
 function jobInfo(job: Job, course: string): { tone: 'busy' | 'done' | 'error'; text: string } | null {
@@ -82,7 +87,7 @@ function jobInfo(job: Job, course: string): { tone: 'busy' | 'done' | 'error'; t
   if (job.state === 'done') {
     return {
       tone: 'done',
-      text: job.mode === 'bundle' ? `已打包 ${head}：${job.count} 个附件和 lesson.md，保存在浏览器下载目录` : `已下载 ${head}，保存在浏览器下载目录`,
+      text: job.mode === 'bundle' ? `已打包 ${head}：${job.count} 个附件和 lesson.md${job.skipped ? `；${job.skipped} 个附件未能下载，原因见 ZIP 中的下载说明.txt` : ''}，保存在浏览器下载目录` : `已下载 ${head}，保存在浏览器下载目录`,
     }
   }
   return { tone: 'busy', text: job.mode === 'bundle' ? `正在打包 ${head}：${job.count} 个附件…` : `正在下载 ${head}…` }
@@ -102,6 +107,18 @@ export function EdPage() {
   const [weekFilter, setWeekFilter] = useState('all')
   const [kindFilter, setKindFilter] = useState('all')
   const [search, setSearch] = useState('')
+  const mounted = useRef(true)
+  const jobEpoch = useRef(0)
+  const scope = useRef({ courseId, generation: edCoursesQuery.getGeneration() })
+  const generation = edCoursesQuery.getGeneration()
+  if (scope.current.courseId !== courseId || scope.current.generation !== generation) {
+    scope.current = { courseId, generation }
+    jobEpoch.current += 1
+  }
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false; jobEpoch.current += 1 }
+  }, [])
 
   useEffect(() => {
     setSlideId(null)
@@ -122,62 +139,71 @@ export function EdPage() {
     const lesson = lessons.find((detail) => detail.id === summary.id)
     const matchesTitle = matchesLearningSearch(search, summary.title)
     const visibleSlides = lesson?.slides.filter((slide) =>
-      (kindFilter === 'all' || slide.type === kindFilter) &&
-      (matchesTitle || matchesLearningSearch(search, slide.title, slide.text)),
+      matchesEdMaterialKind(slide, kindFilter) &&
+      (matchesTitle || matchesLearningSearch(search, slide.title, slide.text, ...slide.files.map((file) => file.name))),
     ) ?? []
+    const visibleFiles = (lesson?.files ?? []).filter((file) => matchesEdFileKind(file, kindFilter) && (matchesTitle || matchesLearningSearch(search, file.name)))
     // Retain unloaded lessons as placeholders, rather than treating their content as empty.
     if (!lesson && !matchesTitle) return []
-    if (lesson && visibleSlides.length === 0 && (lesson.slides.length > 0 || kindFilter !== 'all' || !matchesTitle)) return []
-    return [{ summary, lesson, slides: visibleSlides, index }]
+    if (lesson && visibleSlides.length === 0 && visibleFiles.length === 0 && (lesson.slides.length > 0 || (lesson.files?.length ?? 0) > 0 || kindFilter !== 'all' || !matchesTitle)) return []
+    return [{ summary, lesson, slides: visibleSlides, files: visibleFiles, index }]
   })
   const slides = visibleLessons.flatMap(({ lesson, slides }) => lesson ? slides.map((slide) => ({ ...slide, lesson })) : [])
   const current = slides.find((slide) => slide.id === slideId) ?? slides[0]
-  const fileCount = lessons.reduce((n, lesson) => n + lessonFileCount(lesson), 0)
+  const fileCount = filesOf(lessons).length
+  const currentLesson = current?.lesson ?? visibleLessons.find((entry) => entry.lesson)?.lesson
   const banner = jobInfo(job, course?.code ?? 'Ed')
 
-  const runJob = async (label: string, count: number, mode: 'bundle' | 'file', task: () => Promise<void>) => {
+  const runJob = async (label: string, count: number, mode: 'bundle' | 'file', task: () => Promise<DownloadResult>) => {
+    const epoch = ++jobEpoch.current
+    const isCurrent = () => mounted.current && jobEpoch.current === epoch && edCoursesQuery.getGeneration() === generation
     setJob({ state: 'busy', label, count, mode })
     try {
-      await task()
-      setJob({ state: 'done', label, count, mode })
+      const result = await task()
+      if (!isCurrent()) return
+      downloadBlob(result.name, result.blob)
+      setJob({ state: 'done', label, count: result.count ?? count, skipped: result.skipped, mode })
     } catch (cause) {
-      setJob({ state: 'error', label, message: cause instanceof Error ? cause.message : '下载失败' })
+      if (isCurrent()) setJob({ state: 'error', label, message: cause instanceof Error ? cause.message : '下载失败' })
     }
   }
 
+  const downloadFile = (file: EdMaterialFile) => runJob(file.name, 1, 'file', async () => ({ name: file.name, blob: await fetchAttachment(file) }))
+
   const downloadLesson = (lesson: EdLessonDetail) => {
     const files = filesOf([lesson])
-    return runJob(lesson.title, files.length, 'bundle', async () => {
-      downloadBlob(`${safeName(lesson.title)}.zip`, await fetchBundle(lesson.title, lessonMarkdown(lesson), files))
-    })
+    return runJob(lesson.title, files.length, 'bundle', async () => ({
+      name: `${safeName(lesson.title)}.zip`, ...await fetchBundle(lesson.title, lessonMarkdown(lesson), files),
+    }))
   }
 
   const downloadCourse = () => {
     if (!lessonQuery.complete) return
     const files = filesOf(orderedLessons)
     const title = course?.code ?? 'Ed course'
-    return runJob(title, files.length, 'bundle', async () => {
-      downloadBlob(`${safeName(title)}.zip`, await fetchBundle(title, courseMarkdown(orderedLessons), files))
-    })
+    return runJob(title, files.length, 'bundle', async () => ({
+      name: `${safeName(title)}.zip`, ...await fetchBundle(title, courseMarkdown(orderedLessons), files),
+    }))
   }
 
   const downloadSlide = (slide: Slide) => {
     const mode = slide.files.length > 1 ? 'bundle' : 'file'
     return runJob(slide.title, slide.files.length, mode, async () => {
-      if (slide.files.length === 0) {
-        downloadBlob(`${safeName(slide.title)}.md`, new Blob([slide.markdown], { type: 'text/markdown;charset=utf-8' }))
-        return
-      }
-      if (slide.files.length === 1) {
-        downloadBlob(slide.files[0].name, await fetchAttachment(slide.files[0]))
-        return
-      }
-      downloadBlob(
-        `${safeName(slide.title)}.zip`,
-        await fetchBundle(slide.title, slide.markdown, slide.files.map((file) => ({ name: file.name, url: file.url }))),
-      )
+      if (slide.files.length === 0) return { name: `${safeName(slide.title)}.md`, blob: new Blob([slide.markdown], { type: 'text/markdown;charset=utf-8' }) }
+      if (slide.files.length === 1) return { name: slide.files[0].name, blob: await fetchAttachment(slide.files[0]) }
+      return { name: `${safeName(slide.title)}.zip`, ...await fetchBundle(slide.title, slide.markdown, slide.files) }
     })
   }
+
+  const attachmentList = (files: EdMaterialFile[], label: string) => (
+    <ul aria-label={label} className="divide-y divide-line">
+      {files.map((file) => <li key={file.url} className="flex min-w-0 items-center gap-2 px-4 py-3 text-[13px]">
+        <Paperclip className="h-4 w-4 shrink-0 text-slate-400" />
+        <span className="min-w-0 flex-1 break-all text-slate-800">{file.name}</span>
+        <Button size="sm" disabled={job.state === 'busy'} aria-label={`下载 ${file.name}`} onClick={() => void downloadFile(file)}><Download className="h-3.5 w-3.5" />下载</Button>
+      </li>)}
+    </ul>
+  )
 
   return (
     <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
@@ -217,11 +243,11 @@ export function EdPage() {
               ...(hasOtherLessons ? [{ value: 'other', label: '其他内容（未标周）' }] : []),
             ]} />
             <Select label="类型" value={kindFilter} onChange={setKindFilter} options={[
-              { value: 'all', label: '全部类型' }, ...Object.entries(KIND_LABEL).map(([value, label]) => ({ value, label })),
+              { value: 'all', label: '全部类型' }, { value: 'pdf', label: 'PDF' }, ...Object.entries(KIND_LABEL).map(([value, label]) => ({ value, label })),
             ]} />
             <label className="flex min-w-0 flex-1 basis-full items-center gap-2 text-[13px] text-slate-600 sm:basis-48">
               <span className="shrink-0">搜索</span>
-              <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="lesson、内容标题或正文"
+              <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="lesson、标题、正文或附件名"
                 className="h-9 min-w-0 w-full rounded-lg border border-line bg-white px-3 text-slate-800 outline-none focus:border-brand-500" />
             </label>
             <p className="text-xs text-slate-500">按周从早到晚 · 显示 {visibleLessons.length} 个 lesson</p>
@@ -231,9 +257,9 @@ export function EdPage() {
               {loading ? '正在读取 lesson…' : `${lessons.length} / ${summaries.length} 个 lesson 已读取 · ${slides.length} 个内容 · ${fileCount} 个附件${lessonQuery.detailsLoading ? ' · 其余内容正在加载' : ''}`}
             </p>
             <div className="flex max-w-full flex-wrap items-center gap-2">
-              <Button disabled={!current || job.state === 'busy'} onClick={() => current && void downloadLesson(current.lesson)}>
+              <Button disabled={!currentLesson || job.state === 'busy'} onClick={() => currentLesson && void downloadLesson(currentLesson)}>
                 <Download className="h-4 w-4" />
-                下载本课{current ? `（${lessonFileCount(current.lesson)} 个附件）` : ''}
+                下载本课{currentLesson ? `（${lessonFileCount(currentLesson)} 个附件）` : ''}
               </Button>
               <Button variant="primary" disabled={lessons.length === 0 || !lessonQuery.complete || job.state === 'busy'} onClick={() => void downloadCourse()}>
                 <Download className="h-4 w-4" />
@@ -267,7 +293,7 @@ export function EdPage() {
               ) : visibleLessons.length === 0 ? (
                 <EmptyLine>没有匹配的内容。请调整周、类型或搜索条件。</EmptyLine>
               ) : (
-                visibleLessons.map(({ summary, lesson, slides: lessonSlides, index }) => {
+                visibleLessons.map(({ summary, lesson, slides: lessonSlides, files: lessonFiles, index }) => {
                   if (!lesson) return <div key={summary.id} className="border-b border-line px-5 py-4 text-sm text-slate-600">{summary.title}<p className="mt-1 text-xs text-slate-500">{lessonQuery.detailsLoading ? '正在读取内容…' : '内容读取失败，刷新可重试。'}</p></div>
                   return (
                   <div key={lesson.id} className="border-b border-line last:border-b-0">
@@ -288,6 +314,7 @@ export function EdPage() {
                         <Download className="h-4 w-4" />
                       </button>
                     </div>
+                    {lessonFiles.length > 0 && attachmentList(lessonFiles, `${lesson.title} 附件`)}
                     <ul>
                       {lessonSlides.map((s) => {
                         const Icon = KIND_ICON[s.type]
@@ -344,10 +371,9 @@ export function EdPage() {
                     </div>
                   </a>
                 )}
-                {(current.type === 'slides' || current.type === 'file') && (
-                  <div className="mt-6 flex items-center gap-2.5 rounded-xl border border-line px-4 py-3 text-[13px] text-slate-800">
-                    <Paperclip className="h-4 w-4 text-slate-400" />
-                    {metaOf(current)}
+                {current.files.length > 0 && (
+                  <div className="mt-6 rounded-xl border border-line">
+                    {attachmentList(current.files, `${current.title} 附件`)}
                   </div>
                 )}
                 {current.text && <p className="mt-6 max-w-[68ch] text-[15px] leading-relaxed text-slate-700">{current.text}</p>}

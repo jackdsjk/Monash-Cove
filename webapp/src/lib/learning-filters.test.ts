@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compareLearningTitles, learningWeek, matchesLearningSearch } from './learning-filters'
+import { compareLearningTitles, learningWeek, matchesEdFileKind, matchesEdMaterialKind, matchesLearningSearch } from './learning-filters'
 
 describe('learning material filters', () => {
   it('orders weeks from earliest to latest without mutating the source list', () => {
@@ -18,6 +18,18 @@ describe('learning material filters', () => {
     expect(learningWeek('Weekend 2')).toBeNull()
     expect([{ title: 'Guide 10' }, { title: 'Week 2' }, { title: 'Guide 2' }].sort(compareLearningTitles))
       .toEqual([{ title: 'Week 2' }, { title: 'Guide 2' }, { title: 'Guide 10' }])
+  })
+
+  it('finds attachments on video entries without losing video classification', () => {
+    const pdf = { name: 'Lecture.pdf', url: 'https://ed.example.invalid/lecture.pdf', kind: 'pdf' as const }
+    const slide = { id: 1, title: 'Video', type: 'video' as const, url: '', text: '', markdown: '', videoUrls: ['https://ed.example.invalid/video'], files: [pdf] }
+    expect(matchesEdMaterialKind(slide, 'video')).toBe(true)
+    expect(matchesEdMaterialKind(slide, 'file')).toBe(true)
+    expect(matchesEdMaterialKind(slide, 'pdf')).toBe(true)
+    expect(matchesEdMaterialKind(slide, 'slides')).toBe(false)
+    expect(matchesEdMaterialKind({ ...slide, files: [{ ...pdf, kind: 'slides' }] }, 'slides')).toBe(true)
+    expect(matchesEdFileKind(pdf, 'file')).toBe(true)
+    expect(matchesEdFileKind(pdf, 'video')).toBe(false)
   })
 
   it('searches titles and section names case-insensitively without inventing a week', () => {

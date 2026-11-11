@@ -131,6 +131,18 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
   const details = summaries.map((summary) => ({ id: summary.id, title: summary.title, courseId: 201,
     slides: summary.slideCount === 0 ? [] : [{ id: summary.id * 10, title: `Content ${summary.id}`, type: "text", text: "Anonymous learning fixture", markdown: "Anonymous learning fixture", url: "https://ed.example.invalid/lesson", videoUrls: [], files: [] }],
   }));
+  const firstEdLesson = details.find((detail) => detail.id === 201);
+  firstEdLesson.files = [{ name: "Outline.pdf", kind: "pdf", url: "https://ed.example.invalid/outline.pdf" }];
+  Object.assign(firstEdLesson.slides[0], { type: "video", videoUrls: ["https://ed.example.invalid/video"], files: [
+    { name: "Lecture.pdf", kind: "pdf", url: "https://ed.example.invalid/lecture.pdf" },
+    { name: "Lecture.pptx", kind: "slides", url: "https://ed.example.invalid/lecture.pptx" },
+  ] });
+  Object.assign(details.find((detail) => detail.id === 299).slides[0], { type: "file", files: [
+    { name: "Native.pdf", kind: "pdf", url: "https://ed.example.invalid/native.pdf" },
+  ] });
+  let edBatchMode = "ok";
+  const edBatchRequests = [];
+  let releaseEdDownload;
   const now = Date.now();
   const deadlineItems = [
     "TEST1001_S2_2026",
@@ -215,6 +227,18 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     if (pathname === "/api/ed/courses") return route.fulfill({ json: { courses: [{ id: 201, code: "TEST1001", name: "Fixture Ed course" }] } });
     if (pathname === "/api/ed/lessons") return route.fulfill({ json: { lessons: summaries } });
     if (pathname === "/api/ed/lesson") return route.fulfill({ json: details.find((detail) => detail.id === Number(url.searchParams.get("lessonId"))) });
+    if (pathname === "/api/ed/download") {
+      if (releaseEdDownload === "pending") return new Promise((resolve) => { releaseEdDownload = () => resolve(route.fulfill({ contentType: "application/pdf", body: Buffer.from("%PDF-1.7\nAnonymous Ed fixture") })); });
+      return route.fulfill({ contentType: "application/pdf", body: Buffer.from("%PDF-1.7\nAnonymous Ed fixture") });
+    }
+    if (pathname === "/api/ed/download-batch") {
+      const request = route.request().postDataJSON();
+      edBatchRequests.push(request);
+      if (edBatchMode === "error") return route.fulfill({ status: 422, json: { error: { message: "所有附件均未能下载，请重试。" } } });
+      return route.fulfill({ contentType: "application/zip", body: Buffer.from("PK anonymous Ed fixture"), headers: {
+        "x-cove-batch-count": String(request.files.length - (edBatchMode === "partial" ? 1 : 0)), "x-cove-batch-skipped": edBatchMode === "partial" ? "1" : "0",
+      } });
+    }
     if (pathname === "/api/pack" && packVerificationUnavailable) return route.fulfill({ json: { rubric: null, assignments: [], verificationWarning: "暂时无法读取 Grades 确认评分作业，未确认的内容暂不列出。" } });
     if (pathname === "/api/pack") return route.fulfill({ json: { rubric: null, verificationWarning: null, assignments: [...assignments,
       { ...assignments[0], id: "ontrack:sentinel", title: "Excluded OnTrack task", url: "https://ontrack.example.invalid/tasks/1" },
@@ -324,7 +348,7 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     assert.deepEqual(lessonTitles, ["Week 1 — First lesson", "Week 2 — Middle lesson", "Week 4 — Empty lesson", "Week 10 — Last lesson"], "Ed weeks must be chronological despite reversed API order");
     await page.getByRole("combobox", { name: "周", exact: true }).selectOption("2");
     await page.getByRole("button", { name: "Content 202 文字", exact: true }).waitFor();
-    assert.equal(await page.getByRole("button", { name: "Content 201 文字", exact: true }).count(), 0);
+    assert.equal(await page.getByRole("button", { name: "Content 201 视频", exact: true }).count(), 0);
     await page.getByRole("combobox", { name: "周", exact: true }).selectOption("all");
     await page.getByRole("searchbox", { name: "搜索", exact: true }).fill("Content 210");
     await page.getByRole("button", { name: "Content 210 文字", exact: true }).waitFor();
@@ -337,6 +361,56 @@ async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
     await page.getByRole("combobox", { name: "周", exact: true }).selectOption("other");
     await page.getByText("Reference guide", { exact: true }).first().waitFor();
     await capture(page, "ed-filtered-fixture.png");
+    await page.getByRole("button", { name: "Content 299 文件", exact: true }).click();
+    const nativeDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "下载 Native.pdf", exact: true }).click();
+    assert.ok((await readDownload(await nativeDownload)).startsWith("%PDF-"), "native Ed PDF should download");
+    await page.getByRole("combobox", { name: "周", exact: true }).selectOption("all");
+    for (const kind of ["file", "pdf", "slides"]) {
+      await page.getByRole("combobox", { name: "类型", exact: true }).selectOption(kind);
+      await page.getByRole("button", { name: "Content 201 视频", exact: true }).waitFor();
+    }
+    await page.getByRole("combobox", { name: "类型", exact: true }).selectOption("pdf");
+    await page.getByRole("searchbox", { name: "搜索", exact: true }).fill("Lecture.pdf");
+    await page.getByRole("button", { name: "Content 201 视频", exact: true }).click();
+    await page.getByRole("link", { name: /在 Ed 中播放/ }).waitFor();
+    const videoPdfDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "下载 Lecture.pdf", exact: true }).click();
+    assert.ok((await readDownload(await videoPdfDownload)).startsWith("%PDF-"), "video-attached PDF should download");
+    await page.getByRole("searchbox", { name: "搜索", exact: true }).fill("Outline.pdf");
+    const outlineList = page.getByRole("list", { name: "Week 1 — First lesson 附件", exact: true });
+    const outlineDownload = page.waitForEvent("download");
+    await outlineList.getByRole("button", { name: "下载 Outline.pdf", exact: true }).click();
+    assert.ok((await readDownload(await outlineDownload)).startsWith("%PDF-"));
+    edBatchMode = "partial";
+    const lessonDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "下载 Week 1 — First lesson", exact: true }).click();
+    await readDownload(await lessonDownload);
+    await page.getByRole("status").filter({ hasText: "2 个附件和 lesson.md；1 个附件未能下载" }).waitFor();
+    assert.equal(edBatchRequests.at(-1).files.length, 3, "lesson bundle must include outline and slide files");
+    assert.equal(new Set(edBatchRequests.at(-1).files.map((file) => file.url)).size, 3);
+    edBatchMode = "error";
+    await page.getByRole("button", { name: "下载 Week 1 — First lesson", exact: true }).click();
+    await page.getByRole("status").filter({ hasText: "所有附件均未能下载" }).waitFor();
+    assert.equal(await page.getByRole("status").filter({ hasText: "已打包" }).count(), 0);
+    edBatchMode = "ok";
+    let lateDownloads = 0;
+    const recordLateDownload = () => { lateDownloads += 1; };
+    releaseEdDownload = "pending";
+    page.on("download", recordLateDownload);
+    const pendingRequest = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/ed/download");
+    await outlineList.getByRole("button", { name: "下载 Outline.pdf", exact: true }).click();
+    await pendingRequest;
+    await page.getByRole("link", { name: "每周资料", exact: true }).click();
+    const lateResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/ed/download");
+    assert.equal(typeof releaseEdDownload, "function");
+    releaseEdDownload();
+    await lateResponse;
+    await page.getByRole("heading", { name: "每周资料", exact: true }).waitFor();
+    assert.equal(lateDownloads, 0, "leaving Ed must discard a late attachment response");
+    page.off("download", recordLateDownload);
+    releaseEdDownload = undefined;
+
 
     await page.goto(`${base}/#/pack`, { waitUntil: "domcontentloaded" });
     const packList = page.getByRole("list", { name: "Moodle 作业列表", exact: true });

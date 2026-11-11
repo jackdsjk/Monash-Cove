@@ -1,3 +1,5 @@
+import type { EdMaterialFile, EdMaterialSlide } from '../types'
+
 /** Natural ordering uses the platform's numeric collation, including Week 2 before Week 10. */
 const titleOrder = new Intl.Collator('en', { numeric: true, sensitivity: 'base' })
 
@@ -21,4 +23,13 @@ export function compareLearningTitles(a: { title: string }, b: { title: string }
 export function matchesLearningSearch(query: string, ...text: string[]): boolean {
   const needle = query.trim().normalize('NFKC').toLocaleLowerCase()
   return !needle || text.some((value) => value.normalize('NFKC').toLocaleLowerCase().includes(needle))
+}
+
+/** A lesson entry can contain both a video and downloadable files. */
+export function matchesEdFileKind(file: EdMaterialFile, kind: string): boolean {
+  return kind === 'all' || kind === 'file' || kind === file.kind
+}
+
+export function matchesEdMaterialKind(slide: EdMaterialSlide, kind: string): boolean {
+  return kind === 'all' || slide.type === kind || slide.files.some((file) => matchesEdFileKind(file, kind))
 }

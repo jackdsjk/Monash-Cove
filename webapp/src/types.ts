@@ -97,6 +97,7 @@ export interface EdLessonDetail {
   courseId: number;
   title: string;
   slides: EdMaterialSlide[];
+  files?: EdMaterialFile[];
 }
 
 export interface AttendanceCode {

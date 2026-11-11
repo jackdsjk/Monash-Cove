@@ -37,7 +37,43 @@ describe('learning material pages', () => {
     expect(content.indexOf('Content Week 2')).toBeLessThan(content.indexOf('Content Week 10'))
     expect(html).toContain('全部周')
     expect(html).toContain('全部类型')
-    expect(html).toContain('lesson、内容标题或正文')
+    expect(html).toContain('lesson、标题、正文或附件名')
+  })
+
+  it('shows video attachments and lesson outline files as independently downloadable files', () => {
+    const entry = lesson(1, 'Week 1')
+    entry.files = [{ name: 'Outline.pdf', kind: 'pdf', url: 'https://ed.example.invalid/outline.pdf' }]
+    entry.slides[0] = { ...entry.slides[0], type: 'video', videoUrls: ['https://ed.example.invalid/video'], files: [
+      { name: 'Lecture.pdf', kind: 'pdf', url: 'https://ed.example.invalid/lecture.pdf' },
+      { name: 'Lecture.pptx', kind: 'slides', url: 'https://ed.example.invalid/lecture.pptx' },
+      entry.files[0],
+    ] }
+    vi.mocked(useResourceQuery).mockReturnValue(loaded([{ id: 1, code: 'TEST1001', name: 'Fixture course' }]) as ReturnType<typeof useResourceQuery>)
+    vi.mocked(useEdLessons).mockReturnValue({
+      ...loaded([]), summaries: [{ id: 1, title: entry.title, slideCount: 1 }], lessons: [entry], complete: true, detailsLoading: false,
+    } as ReturnType<typeof useEdLessons>)
+    const html = renderToStaticMarkup(<EdPage />)
+    expect(html).toContain('aria-label="Week 1 附件"')
+    expect(html).toContain('aria-label="下载 Outline.pdf"')
+    expect(html).toContain('aria-label="下载 Lecture.pdf"')
+    expect(html).toContain('aria-label="下载 Lecture.pptx"')
+    expect(html).toContain('在 Ed 中播放')
+    expect(html).toContain('1 个视频 · 3 个附件')
+    expect(html).toContain('下载整门课（3 个附件）')
+    expect(html).toContain('value="pdf"')
+  })
+
+  it('keeps an outline-only lesson downloadable without inventing a content entry', () => {
+    vi.mocked(useResourceQuery).mockReturnValue(loaded([{ id: 1, code: 'TEST1001', name: 'Fixture course' }]) as ReturnType<typeof useResourceQuery>)
+    vi.mocked(useEdLessons).mockReturnValue({
+      ...loaded([]), summaries: [{ id: 1, title: 'Week 1 Outline only', slideCount: 0 }],
+      lessons: [{ id: 1, courseId: 1, title: 'Week 1 Outline only', slides: [], files: [{ name: 'Guide.pdf', kind: 'pdf', url: 'https://ed.example.invalid/guide.pdf' }] }],
+      complete: true, detailsLoading: false,
+    } as ReturnType<typeof useEdLessons>)
+    const html = renderToStaticMarkup(<EdPage />)
+    expect(html).toContain('aria-label="下载 Guide.pdf"')
+    expect(html).toContain('下载本课（1 个附件）')
+    expect(html).not.toContain('没有匹配的内容')
   })
 
   it('retains empty Ed lessons rather than presenting them as failed or filtered out', () => {
