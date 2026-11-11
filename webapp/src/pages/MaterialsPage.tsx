@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, Download, RefreshCw } from 'lucide-react'
-import { Button, EmptyLine, PageTitle, Panel, Segmented, Tag } from '../components/ui'
+import { Button, EmptyLine, PageTitle, Panel, Select, Tag } from '../components/ui'
 import { getMoodleContentQuery, moodleCoursesQuery, syncMoodleContent } from '../data/repository'
 import type { MoodleContentItem, MoodleCourse } from '../types'
 import { useResourceQuery } from '../lib/use-resource-query'
@@ -8,6 +8,7 @@ import { CacheStatus } from '../components/CacheStatus'
 import { CourseSyncScope } from '../components/CourseSyncScope'
 import { courseMatchesRegion, defaultRegionForCourses, loadRegion, type CampusRegion } from '../lib/region'
 import { navigate } from '../lib/router'
+import { matchesLearningSearch } from '../lib/learning-filters'
 
 type MaterialKind = '资料' | '作业' | '公告'
 
@@ -90,6 +91,23 @@ export function MaterialsPage() {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [status, setStatus] = useState<DownloadStatus>({ state: 'idle', count: 0 })
+  const [sectionFilter, setSectionFilter] = useState('all')
+  const [kindFilter, setKindFilter] = useState('all')
+  const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    setSectionFilter('all')
+    setKindFilter('all')
+    setSearch('')
+    setSelected(new Set())
+    setStatus({ state: 'idle', count: 0 })
+    setError(null)
+  }, [courseId])
+
+  useEffect(() => {
+    setSelected(new Set())
+    setStatus({ state: 'idle', count: 0 })
+  }, [sectionFilter, kindFilter, search])
 
   useEffect(() => {
     if (!courseQuery.data) return
@@ -109,9 +127,18 @@ export function MaterialsPage() {
    * chosen course stay visible: Moodle stores most of them as "shared", and hiding
    * real announcements on a campus guess would lose content with no way to undo it.
    */
+  // Reuse the legacy page's section/type/title filtering over cached local content.
+  const sectionOptions = useMemo(() => [...new Map(items.map((item) =>
+    [item.sectionNumber, item.sectionTitle.trim() || '未命名板块'] as const,
+  )).entries()].sort(([a], [b]) => a - b), [items])
+  const filteredItems = useMemo(() => items.filter((item) =>
+    (sectionFilter === 'all' || String(item.sectionNumber) === sectionFilter) &&
+    (kindFilter === 'all' || kindOf(item.module) === kindFilter) &&
+    matchesLearningSearch(search, item.title, item.sectionTitle),
+  ), [items, sectionFilter, kindFilter, search])
   const weeks = useMemo<MaterialWeek[]>(() => {
     const map = new Map<number, MaterialWeek>()
-    for (const item of items) {
+    for (const item of filteredItems) {
       let week = map.get(item.sectionNumber)
       if (!week) {
         const heading = weekHeading(item)
@@ -127,7 +154,7 @@ export function MaterialsPage() {
       })
     }
     return [...map.values()].sort((a, b) => a.number - b.number)
-  }, [items])
+  }, [filteredItems])
 
   const course = courses.find((entry) => entry.id === courseId)
 
@@ -155,7 +182,7 @@ export function MaterialsPage() {
   }
 
   const download = async () => {
-    const chosen = items.filter((item) => isDownloadable(item) && selected.has(item.id))
+    const chosen = filteredItems.filter((item) => isDownloadable(item) && selected.has(item.id))
     if (chosen.length === 0) return
     const count = chosen.length
     const archiveName = `${course?.shortname || 'Moodle'}-Materials.zip`
@@ -202,19 +229,6 @@ export function MaterialsPage() {
         description="按 Moodle 板块列出资料、作业和公告。资料文件可以批量下载到本机。"
         actions={
           <>
-            {visibleCourses.length > 0 && (
-              <Segmented
-                label="课程"
-                value={courseId === null ? '' : String(courseId)}
-                onChange={(v) => {
-                  setCourseId(Number(v))
-                  setSelected(new Set())
-                  setStatus({ state: 'idle', count: 0 })
-                  setError(null)
-                }}
-                options={visibleCourses.map((c) => ({ value: String(c.id), label: c.shortname || c.fullname }))}
-              />
-            )}
             <Button variant="secondary" size="sm" disabled={courseId === null || syncing} onClick={() => void sync()}>
               <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} /> {syncing ? '正在同步' : '同步资料'}
             </Button>
@@ -222,14 +236,34 @@ export function MaterialsPage() {
           </>
         }
       />
+      {visibleCourses.length > 0 && (
+        <div className="mb-5 max-w-full sm:max-w-xl">
+          <Select label="课程" value={courseId === null ? '' : String(courseId)}
+            onChange={(value) => setCourseId(Number(value))}
+            options={visibleCourses.map((c) => ({ value: String(c.id), label: c.shortname || c.fullname }))} />
+        </div>
+      )}
       <CacheStatus cache={courseQuery.cache} loading={courseQuery.loading || contentQuery.loading} error={courseQuery.error ?? contentQuery.error} />
       <CourseSyncScope courses={courses} />
+
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-line bg-white px-4 py-3">
+        <Select label="周 / 板块" value={sectionFilter} onChange={setSectionFilter}
+          options={[{ value: 'all', label: '全部周与板块' }, ...sectionOptions.map(([number, title]) => ({ value: String(number), label: title }))]} />
+        <Select label="类型" value={kindFilter} onChange={setKindFilter}
+          options={['all', '资料', '作业', '公告'].map((value) => ({ value, label: value === 'all' ? '全部类型' : value }))} />
+        <label className="flex min-w-0 flex-1 basis-full items-center gap-2 text-[13px] text-slate-600 sm:basis-48">
+          <span className="shrink-0">搜索</span>
+          <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="资料名称或板块"
+            className="h-9 min-w-0 w-full rounded-lg border border-line bg-white px-3 text-slate-800 outline-none focus:border-brand-500" />
+        </label>
+        <p className="text-xs text-slate-500">显示 {filteredItems.length} / {items.length} 条</p>
+      </div>
 
       {error && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-[13px] text-red-700">{error}</div>
       )}
 
-      <div className="mb-4 flex h-10 items-center justify-between rounded-md border border-line bg-white px-4 text-[13px]">
+      <div className="mb-4 flex min-h-10 flex-wrap items-center justify-between gap-3 rounded-md border border-line bg-white px-4 py-2 text-[13px]">
         <span className="text-slate-600">
           {status.state === 'done' ? (
             <span className="flex items-center gap-1.5 text-emerald-700">
@@ -258,7 +292,7 @@ export function MaterialsPage() {
           const all = ids.length > 0 && ids.every((id) => selected.has(id))
           return (
             <Panel key={w.number} className="overflow-x-auto">
-              <div className="flex items-center justify-between border-b border-line bg-slate-50/70 px-5 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-slate-50/70 px-5 py-3">
                 <h2 className="text-[15px] font-bold text-slate-900">
                   {w.label} {w.title && <span className="font-normal text-slate-500">· {w.title}</span>}
                 </h2>
@@ -270,7 +304,7 @@ export function MaterialsPage() {
                     onChange={(e) => toggle(ids, e.target.checked)}
                     className="accent-brand-600 disabled:opacity-30"
                   />
-                  选择本周全部资料
+                  选择本板块显示的资料
                 </label>
               </div>
               <ul className="divide-y divide-line">
@@ -301,7 +335,11 @@ export function MaterialsPage() {
         </Panel>
       )}
 
-      {!loading && weeks.length === 0 && (
+      {!loading && weeks.length === 0 && items.length > 0 && (
+        <Panel><EmptyLine>没有匹配的资料。请调整周 / 板块、类型或搜索条件。</EmptyLine></Panel>
+      )}
+
+      {!loading && items.length === 0 && (
         <Panel>
           <EmptyLine>
             <p className="font-semibold text-slate-700">
