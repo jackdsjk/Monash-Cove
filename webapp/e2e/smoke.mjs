@@ -88,6 +88,236 @@ async function capture(page, filename) {
   await page.screenshot({ path: path.join(artifactsDir, filename), fullPage: true });
 }
 
+async function readDownload(download) {
+  const stream = await download.createReadStream();
+  assert.ok(stream, "fixture download should have a readable body");
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+async function learningRegressions(browser, brief, fixtureSources, pageErrors) {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  const externalRequests = [];
+  await context.route("**/*", (route) => {
+    if (new URL(route.request().url()).origin === base) return route.continue();
+    externalRequests.push(route.request().url());
+    return route.abort();
+  });
+  await context.addInitScript(() => window.localStorage.setItem("cove_v3", JSON.stringify({
+    setupDone: true, lastViewedAt: 0, marks: {}, attendance: {},
+    settings: { name: "Fixture user", timezone: "Asia/Kuala_Lumpur", showLaunchSummary: false },
+  })));
+  const courses = Array.from({ length: 9 }, (_, index) => ({
+    id: 101 + index,
+    shortname: `TEST${index < 2 ? '1001' : 1000 + index}_S${index === 0 ? 1 : 2}_2026 — A very long fixture course name with many words ${index + 1}`,
+    fullname: `Fixture course ${index + 1}`,
+  }));
+  const materials = [
+    { id: "read-1", sectionNumber: 1, sectionTitle: "Week 1", title: "Reading One", module: "resource" },
+    { id: "read-2", sectionNumber: 2, sectionTitle: "Week 2", title: "Reading Two", module: "resource" },
+    { id: "quiz-2", sectionNumber: 2, sectionTitle: "Week 2", title: "Quiz Two", module: "quiz" },
+    { id: "read-10", sectionNumber: 10, sectionTitle: "Week 10", title: "Reading Ten", module: "resource" },
+  ].map((item) => ({ ...item, courseId: "101", courseName: courses[0].shortname, text: "Anonymous fixture", updatedAt: "2026-11-01T00:00:00Z", campus: "shared", url: `https://moodle.example.invalid/mod/resource/view.php?id=${item.id}` }));
+  const summaries = [
+    { id: 210, title: "Week 10 — Last lesson", slideCount: 1 },
+    { id: 202, title: "Week 2 — Middle lesson", slideCount: 1 },
+    { id: 201, title: "Week 1 — First lesson", slideCount: 1 },
+    { id: 204, title: "Week 4 — Empty lesson", slideCount: 0 },
+    { id: 299, title: "Reference guide", slideCount: 1 },
+  ];
+  const details = summaries.map((summary) => ({ id: summary.id, title: summary.title, courseId: 201,
+    slides: summary.slideCount === 0 ? [] : [{ id: summary.id * 10, title: `Content ${summary.id}`, type: "text", text: "Anonymous learning fixture", markdown: "Anonymous learning fixture", url: "https://ed.example.invalid/lesson", videoUrls: [], files: [] }],
+  }));
+  const now = Date.now();
+  const assignments = Array.from({ length: 12 }, (_, index) => ({
+    id: `moodle:fixture-assignment-${index + 1}`, courseId: index < 6 ? "101" : "102", course: "TEST1001",
+    courseName: courses[index < 6 ? 0 : 1].shortname, title: `Fixture Assignment ${String(index + 1).padStart(2, "0")}`,
+    url: `https://moodle.example.invalid/mod/assign/view.php?id=${index + 1}`, text: `Moodle-only content ${index + 1}`,
+    dueAt: index % 4 === 0 ? null : new Date(now + (index % 3 === 0 ? -1 : 1) * 86400_000).toISOString(),
+    completedAt: index === 1 ? new Date(now - 3600_000).toISOString() : null, changes: [],
+  }));
+  const task = { id: null, isInstantiated: false, visibility: "within_target", projectId: 301, taskDefinitionId: 401,
+    unitCode: "TEST1001", unitName: "Fixture unit", abbreviation: "1.1P", name: "Unstarted fixture worksheet", description: "",
+    status: "not_instantiated", dueDate: null, targetDueDate: null, submissionDate: null, completionDate: null,
+    weighting: null, timesAssessed: 0, numNewComments: 0 };
+  const tasks = [task, { ...task, id: 502, isInstantiated: true, taskDefinitionId: 402, abbreviation: "2.1P", name: "Submitted fixture worksheet", status: "complete" }];
+  let preferences = { activeSemester: null, hiddenCourseIds: [], pinnedCourseIds: [] };
+  let oldPreferencesService = false;
+  const batchRequests = [];
+  const artifacts = [];
+  await page.route("**/api/**", (route) => {
+    const url = new URL(route.request().url());
+    const pathname = url.pathname;
+    if (pathname === "/api/sources") return route.fulfill({ json: { sources: fixtureSources.map((source) => ({ ...source, status: "connected", lastError: null })) } });
+    if (pathname === "/api/brief") return route.fulfill({ json: { ...brief, items: [] } });
+    if (pathname === "/api/changes") return route.fulfill({ json: { changes: [] } });
+    if (pathname === "/api/moodle/courses") return route.fulfill({ json: { courses } });
+    if (pathname === "/api/moodle/grades") return route.fulfill({ json: { courses: [
+      { courseId: "known", courseName: "TEST2001 Known weights", total: { earned: null, max: null }, items: [
+        { id: "known-graded", name: "Known weighted quiz", grade: 8, gradeMax: 10, weight: 20, feedback: "", gradedAt: null },
+        { id: "known-pending", name: "Pending final", grade: null, gradeMax: 100, weight: 80, feedback: "", gradedAt: null },
+      ] },
+      { courseId: "unknown", courseName: "TEST2002 Unknown weights", total: { earned: 80, max: 100 }, items: [
+        { id: "unknown-weight", name: "Unweighted published mark", grade: 8, gradeMax: 10, weight: null, feedback: "", gradedAt: null },
+      ] },
+    ] } });
+    if (pathname === "/api/moodle/content") return route.fulfill({ json: { items: url.searchParams.get("courseId") === "101" ? materials : [] } });
+    if (pathname === "/api/moodle/course-preferences") {
+      if (oldPreferencesService) return route.fulfill({ status: 404, json: { error: { message: "Not found" } } });
+      if (route.request().method() === "PATCH") preferences = route.request().postDataJSON();
+      return route.fulfill({ json: preferences });
+    }
+    if (pathname === "/api/moodle/download-batch") {
+      batchRequests.push(route.request().postDataJSON());
+      return route.fulfill({ contentType: "application/zip", body: Buffer.from("PK fixture archive"), headers: { "x-cove-batch-count": "1", "x-cove-batch-skipped": "0" } });
+    }
+    if (pathname === "/api/ed/courses") return route.fulfill({ json: { courses: [{ id: 201, code: "TEST1001", name: "Fixture Ed course" }] } });
+    if (pathname === "/api/ed/lessons") return route.fulfill({ json: { lessons: summaries } });
+    if (pathname === "/api/ed/lesson") return route.fulfill({ json: details.find((detail) => detail.id === Number(url.searchParams.get("lessonId"))) });
+    if (pathname === "/api/pack") return route.fulfill({ json: { rubric: null, assignments: [...assignments,
+      { ...assignments[0], id: "ontrack:sentinel", title: "Excluded OnTrack task", url: "https://ontrack.example.invalid/tasks/1" }],
+      posts: [{ title: "Excluded Ed sentinel", text: "This must not appear in Moodle exports" }],
+    } });
+    if (pathname === "/api/ontrack/overview") return route.fulfill({ json: { connected: true, account: null, projects: [] } });
+    if (pathname === "/api/ontrack/tasks") return route.fulfill({ json: { projects: [], tasks } });
+    if (pathname === "/api/ontrack/artifact") {
+      artifacts.push({ project: url.searchParams.get("project"), task: url.searchParams.get("task"), kind: url.searchParams.get("kind") });
+      if (url.searchParams.get("kind") === "resources") return route.fulfill({ status: 404, json: { error: { message: "Fixture task has no resource archive" } } });
+      return route.fulfill({ contentType: "application/pdf", body: Buffer.from("%PDF-1.7\nAnonymous fixture"), headers: { "content-disposition": 'attachment; filename="fixture-worksheet.pdf"' } });
+    }
+    return route.fallback();
+  });
+
+  try {
+    await page.goto(`${base}/#/materials`, { waitUntil: "domcontentloaded" });
+    await page.getByRole("checkbox", { name: "选择 Reading One", exact: true }).waitFor();
+    for (const width of [390, 768, 1280, 1920]) {
+      await page.setViewportSize({ width, height: 900 });
+      const heading = await page.getByRole("heading", { name: "每周资料", exact: true }).boundingBox();
+      const description = await page.getByText("按 Moodle 板块列出资料、作业和公告。资料文件可以批量下载到本机。", { exact: true }).boundingBox();
+      assert.ok(heading && heading.height < 45 && heading.width >= 110, `materials heading must remain horizontal at ${width}`);
+      assert.ok(description && description.width >= 170, `materials description must retain readable width at ${width}`);
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `long course selector must fit ${width}`);
+      await capture(page, `materials-fixture-${width}.png`);
+    }
+    await page.getByRole("checkbox", { name: "选择 Reading One", exact: true }).check();
+    await page.getByRole("combobox", { name: "周 / 板块", exact: true }).selectOption("2");
+    await page.getByRole("checkbox", { name: "选择 Reading One", exact: true }).waitFor({ state: "hidden" });
+    await page.getByText("已选 0 个文件", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "下载所选", exact: true }).isDisabled(), true, "changing week must discard hidden selections");
+    await page.getByRole("combobox", { name: "类型", exact: true }).selectOption("作业");
+    await page.getByRole("checkbox", { name: "选择 Quiz Two", exact: true }).waitFor();
+    assert.equal(await page.getByRole("checkbox", { name: "选择 Reading Two", exact: true }).count(), 0);
+    await page.getByRole("combobox", { name: "类型", exact: true }).selectOption("资料");
+    await page.getByRole("searchbox", { name: "搜索", exact: true }).fill("Reading Two");
+    await page.getByRole("checkbox", { name: "选择 Reading Two", exact: true }).check();
+    const materialDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "下载所选", exact: true }).click();
+    await (await materialDownload).path();
+    assert.deepEqual(batchRequests.at(-1).items.map((item) => item.name), ["Reading Two"], "download must contain only current visible selection");
+
+    await page.getByText("同步范围", { exact: true }).click();
+    await page.getByRole("combobox", { name: "学期", exact: true }).selectOption("2026-S2");
+    await page.getByRole("button", { name: "保存同步范围", exact: true }).click();
+    await page.getByText("同步范围已保存", { exact: true }).waitFor();
+    assert.equal(preferences.activeSemester, "2026-S2");
+    oldPreferencesService = true;
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.getByText("同步范围", { exact: true }).click();
+    await page.getByRole("alert").filter({ hasText: "本地服务版本较旧" }).waitFor();
+    assert.ok((await page.getByRole("alert").innerText()).includes("请重启本地服务"));
+    assert.ok((await page.getByRole("alert").innerText()).includes("无需重新连接 Moodle"));
+    oldPreferencesService = false;
+    await page.getByRole("button", { name: "重新读取", exact: true }).click();
+    await page.getByRole("button", { name: "保存同步范围", exact: true }).waitFor();
+
+    await page.goto(`${base}/#/ed`, { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Content 210 文字", exact: true }).waitFor();
+    const lessonTitles = await page.locator('p').filter({ hasText: /^Week \d+ — / }).allTextContents();
+    assert.deepEqual(lessonTitles, ["Week 1 — First lesson", "Week 2 — Middle lesson", "Week 4 — Empty lesson", "Week 10 — Last lesson"], "Ed weeks must be chronological despite reversed API order");
+    await page.getByRole("combobox", { name: "周", exact: true }).selectOption("2");
+    await page.getByRole("button", { name: "Content 202 文字", exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "Content 201 文字", exact: true }).count(), 0);
+    await page.getByRole("combobox", { name: "周", exact: true }).selectOption("all");
+    await page.getByRole("searchbox", { name: "搜索", exact: true }).fill("Content 210");
+    await page.getByRole("button", { name: "Content 210 文字", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Content 202 文字", exact: true }).waitFor({ state: "hidden" });
+    assert.equal(await page.getByRole("button", { name: "Content 202 文字", exact: true }).count(), 0);
+    await page.getByRole("searchbox", { name: "搜索", exact: true }).fill("");
+    await page.getByRole("combobox", { name: "周", exact: true }).selectOption("4");
+    await page.getByText("Week 4 — Empty lesson", { exact: true }).waitFor();
+    assert.equal(await page.getByText(/内容读取失败|没有匹配的内容/).count(), 0, "successful empty lesson must remain visible");
+    await page.getByRole("combobox", { name: "周", exact: true }).selectOption("other");
+    await page.getByText("Reference guide", { exact: true }).first().waitFor();
+    await capture(page, "ed-filtered-fixture.png");
+
+    await page.goto(`${base}/#/pack`, { waitUntil: "domcontentloaded" });
+    const packList = page.getByRole("list", { name: "Moodle 作业列表", exact: true });
+    await packList.getByRole("button").last().waitFor();
+    assert.equal(await packList.getByRole("button").count(), 12, "Moodle list must exclude OnTrack activities");
+    for (const width of [390, 768, 1280, 1920]) {
+      await page.setViewportSize({ width, height: 900 });
+      assert.ok((await packList.boundingBox()).height >= 420, `assignment selector needs at least 420px height at ${width}`);
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `assignment page must fit ${width}`);
+      await capture(page, `pack-fixture-${width}.png`);
+    }
+    await page.getByRole("combobox", { name: "课程", exact: true }).selectOption("102");
+    await packList.getByRole("button", { name: /Fixture Assignment 12/ }).click();
+    await page.getByRole("radio", { name: "TEST1001 筛选结果", exact: true }).click();
+    await page.getByRole("radio", { name: "JSON", exact: true }).click();
+    await page.waitForFunction(() => { try { return JSON.parse(document.querySelector("pre")?.textContent ?? "").assignments.length === 6; } catch { return false; } });
+    const exportJSON = JSON.parse(await page.locator("pre").innerText());
+    assert.equal(exportJSON.assignments.length, 6, "course scope must use courseId even when both semesters share the code");
+    assert.ok(exportJSON.assignments.every((entry) => entry.courseName === courses[1].shortname));
+    await page.getByRole("searchbox", { name: "搜索作业", exact: true }).fill("Assignment 12");
+    await packList.getByRole("button", { name: /Fixture Assignment 12/ }).waitFor();
+    assert.equal(await packList.getByRole("button").count(), 1);
+    await page.getByRole("radio", { name: "全部筛选结果", exact: true }).click();
+    const packDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "下载 .json", exact: true }).click();
+    const exported = await readDownload(await packDownload);
+    const exportResult = JSON.parse(exported);
+    assert.equal(exportResult.assignments.length, 1);
+    assert.equal(exportResult.assignments[0].title, "Fixture Assignment 12");
+    assert.ok(!exported.includes("Excluded Ed sentinel") && !exported.includes("Excluded OnTrack task"), "Moodle export must not mix other sources");
+
+    await page.goto(`${base}/#/ontrack`, { waitUntil: "domcontentloaded" });
+    const unstarted = page.getByRole("listitem").filter({ hasText: "Unstarted fixture worksheet" });
+    const submitted = page.getByRole("listitem").filter({ hasText: "Submitted fixture worksheet" });
+    await unstarted.getByRole("button", { name: "任务书 / Worksheet", exact: true }).waitFor();
+    assert.equal(await unstarted.getByRole("button", { name: "已提交文件", exact: true }).isDisabled(), true);
+    const worksheetDownload = page.waitForEvent("download");
+    await unstarted.getByRole("button", { name: "任务书 / Worksheet", exact: true }).click();
+    assert.equal((await worksheetDownload).suggestedFilename(), "fixture-worksheet.pdf");
+    await unstarted.getByRole("button", { name: "任务资料", exact: true }).click();
+    await unstarted.getByRole("alert").filter({ hasText: "Fixture task has no resource archive" }).waitFor();
+    const submissionDownload = page.waitForEvent("download");
+    await submitted.getByRole("button", { name: "已提交文件", exact: true }).click();
+    await (await submissionDownload).path();
+    assert.deepEqual(artifacts, [{ project: "301", task: "401", kind: "task" }, { project: "301", task: "401", kind: "resources" }, { project: "301", task: "402", kind: "submission" }]);
+    assert.equal(new URL(page.url()).origin, base, "artifact error must not navigate to the external source");
+    assert.deepEqual(externalRequests, [], "fixture interactions must never send an external request");
+    await capture(page, "ontrack-materials-fixture.png");
+
+    await page.goto(`${base}/#/grades`, { waitUntil: "domcontentloaded" });
+    await page.getByText("16.0 / 100", { exact: true }).waitFor();
+    await page.getByText(/剩余 80% 中需拿到 42\.5%/).waitFor();
+    await page.getByRole("button", { name: /TEST2002.*Unknown weights/ }).click();
+    await page.getByText(/本课程已得\s*—/).waitFor();
+    await page.getByText("Moodle 公布总评：80.0%（以原成绩册为准）", { exact: true }).waitFor();
+    assert.equal(await page.getByText("本课程已得 80.0 / 100", { exact: true }).count(), 0, "an unweighted Moodle total must not be reinterpreted as earned weighted marks");
+    await capture(page, "grades-fixture.png");
+  } catch (error) {
+    await capture(page, "learning-failure.png").catch(() => undefined);
+    throw error;
+  } finally {
+    await context.close();
+  }
+}
+
 try {
   await waitForServer();
   browser = await chromium.launch({ channel: "chrome", headless: true });
@@ -135,7 +365,7 @@ try {
   await page.getByRole("radio", { name: "全部", exact: true }).click();
   await page.getByText(brief.items[0].title, { exact: true }).first().waitFor();
 
-  for (const title of ["截止时间", "成绩", "每周资料", "Ed 学习内容", "作业资料包", "OnTrack 任务", "考勤", "来源", "设置"]) {
+  for (const title of ["截止时间", "成绩", "每周资料", "Ed 学习内容", "Moodle 作业资料", "OnTrack 任务", "考勤", "来源", "设置"]) {
     await nav.getByRole("link", { name: title, exact: true }).click();
     await page.getByRole("heading", { name: title, exact: true }).waitFor();
   }
@@ -211,7 +441,7 @@ try {
     assert.ok(suggestionsBounds && suggestionsBounds.height < 40, "section titles must not collapse into vertical text");
     await capture(regression, `brief-${width}.png`);
     const responsiveNav = regression.getByRole("navigation", { name: "主导航" });
-    for (const title of ["截止时间", "成绩", "每周资料", "Ed 学习内容", "作业资料包", "OnTrack 任务", "考勤", "来源", "设置"]) {
+    for (const title of ["截止时间", "成绩", "每周资料", "Ed 学习内容", "Moodle 作业资料", "OnTrack 任务", "考勤", "来源", "设置"]) {
       await responsiveNav.getByRole("link", { name: title, exact: true }).click();
       const heading = regression.getByRole("heading", { name: title, exact: true });
       await heading.waitFor();
@@ -242,6 +472,7 @@ try {
   assert.ok((await detail.innerText()).includes(melbourneTime), "changing timezone must update deadline rendering without a reload");
   await regression.keyboard.press("Escape");
   await regressionContext.close();
+  await learningRegressions(browser, brief, fixtureSources, pageErrors);
   assert.deepEqual(pageErrors, [], "browser must not throw uncaught JavaScript errors");
 
   console.log("webapp e2e smoke passed");
