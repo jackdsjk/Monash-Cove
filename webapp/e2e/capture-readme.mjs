@@ -34,27 +34,27 @@ const item = (id, source, course, title, hours, dueHours = null) => ({
   url: `https://${source}.example.invalid/${id}`, ageHours: -hours, read: false,
 });
 const items = [
-  item('demo-1', 'moodle', 'TEST1001', '数据建模作业将在明晚截止', -2, 36),
-  item('demo-2', 'moodle', 'TEST2002', '项目报告截止时间已调整', -4, 120),
-  item('demo-3', 'ed', 'TEST1001', 'Week 6：讲义与练习说明已发布', -1),
-  item('demo-4', 'ontrack', 'TEST2002', '2.1P 已收到新的任务反馈', -5),
-  item('demo-5', 'gmail', 'TEST1001', '本周实验课安排与准备事项', -7),
-  item('demo-6', 'ed', 'TEST2002', '项目答疑与常见问题汇总', -9),
+  item('demo-1', 'moodle', 'CS1001', '数据建模作业将在明晚截止', -2, 36),
+  item('demo-2', 'moodle', 'CS2002', '项目报告截止时间已调整', -4, 120),
+  item('demo-3', 'ed', 'CS1001', 'Week 6：讲义与练习说明已发布', -1),
+  item('demo-4', 'ontrack', 'CS2002', '2.1P 已收到新的任务反馈', -5),
+  item('demo-5', 'gmail', 'CS1001', '本周实验课安排与准备事项', -7),
+  item('demo-6', 'ed', 'CS2002', '项目答疑与常见问题汇总', -9),
 ];
-const changes = [{ id: 1, itemId: 'demo-2', field: 'due_at', before: at(72), after: at(120), changedAt: at(-4), source: 'moodle', course: 'TEST2002', title: items[1].title }];
+const changes = [{ id: 1, itemId: 'demo-2', field: 'due_at', before: at(72), after: at(120), changedAt: at(-4), source: 'moodle', course: 'CS2002', title: items[1].title }];
 const gradeItem = (id, name, grade, gradeMax, weight, feedback) => ({
   id, name, grade, gradeMax, weight, feedback, gradedAt: '10 November 2026, 13:00',
   gradeRange: `0–${gradeMax}`, gradingState: grade === null ? 'pending' : 'graded', gradeSource: 'gradebook',
 });
 const courses = [
-  { courseId: '101', courseName: 'TEST1001 Introduction to Computing', courseShortName: 'TEST1001_S2_2026',
+  { courseId: '101', courseName: 'CS1001 Introduction to Computing', courseShortName: 'CS1001_S2_2026',
     total: { earned: null, max: null }, items: [
       gradeItem('g1', '每周测验 1', 9, 10, 10, '基础概念掌握扎实，解答清晰。下一步可多练习边界情况的分析。'),
       gradeItem('g2', '编程实践', 17, 20, 20, '功能实现完整，测试说明清楚。'),
       gradeItem('g3', '数据建模报告', 25, 30, 30, '模型选择合理，论证充分。'),
       gradeItem('g4', '期末考核', null, 100, 40, ''),
     ] },
-  { courseId: '102', courseName: 'TEST2002 Software Design', courseShortName: 'TEST2002_S2_2026',
+  { courseId: '102', courseName: 'CS2002 Software Design', courseShortName: 'CS2002_S2_2026',
     total: { earned: null, max: null }, items: [
       gradeItem('g5', '设计工作坊', 16, 20, 20, '设计思路清晰，团队记录完整。'),
       gradeItem('g6', '项目里程碑', 26, 30, 30, '各模块职责明确。'),
@@ -79,8 +79,8 @@ const details = lessons.map((lesson) => ({
     { id: lesson.id * 10 + 2, title: '本周回顾与延伸阅读', type: 'text', text: '回顾本周的关键概念，并完成课后阅读。', markdown: '', videoUrls: [], files: [] },
   ], cache,
 }));
-const projects = [{ id: 301, unitId: 101, unitCode: 'TEST1001', unitName: 'Introduction to Computing' }];
-const task = { projectId: 301, unitCode: 'TEST1001', unitName: projects[0].unitName,
+const projects = [{ id: 301, unitId: 101, unitCode: 'CS1001', unitName: 'Introduction to Computing' }];
+const task = { projectId: 301, unitCode: 'CS1001', unitName: projects[0].unitName,
   isInstantiated: true, visibility: 'within_target', description: '', dueDate: '2026-11-15',
   targetDueDate: '2026-11-13', submissionDate: at(-48), completionDate: null,
   weighting: null, timesAssessed: 1, numNewComments: 0 };
@@ -94,7 +94,7 @@ const responses = new Map([
   ['/api/sources', { sources }], ['/api/changes', { changes }],
   ['/api/moodle/grades', { courses, cache }],
   ['/api/moodle/course-preferences', { activeSemester: null, hiddenCourseIds: [], pinnedCourseIds: [] }],
-  ['/api/ed/courses', { courses: [{ id: 201, code: 'TEST1001', name: 'Introduction to Computing' }], cache }],
+  ['/api/ed/courses', { courses: [{ id: 201, code: 'CS1001', name: 'Introduction to Computing' }], cache }],
   ['/api/ed/lessons', { lessons, cache }],
   ['/api/ontrack/overview', { connected: true, account: null, projects, cache }],
   ['/api/ontrack/tasks', { projects, tasks, cache }],
