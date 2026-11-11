@@ -6,13 +6,13 @@ import { moodleCookieHeader } from "../moodle-download.js";
 import { syncGmail } from "./gmail.js";
 import { syncEd, syncMoodle, syncMoodleForum } from "./sources.js";
 import { syncAllMoodleContent } from "./moodle-content.js";
-import { fetchOnTrackAccount } from "../sources/ontrack.js";
+import { fetchOnTrackAccount, onTrackCacheIdentity } from "../sources/ontrack.js";
 import { syncOnTrack } from "./ontrack.js";
 import { createHash } from "node:crypto";
 import { getMoodleCoursePreferences } from "../course-preferences.js";
 
 export class SyncOrchestrator {
-  private progress?: (source: "gmail" | "ed" | "moodle", processed: number, total: number | null) => void;
+  private progress?: (source: Source, processed: number, total: number | null) => void;
 
   constructor(
     private readonly db: CoveDatabase,
@@ -70,6 +70,13 @@ export class SyncOrchestrator {
     const content = await syncAllMoodleContent(this.db, moodleCreds.baseUrl, moodleCookieHeader(moodleCreds), this.fetcher, (processed, total) => this.progress?.("moodle", processed, total), preferences);
     starts.push(`moodle:${assessments.synced + forum.synced + content.items}`);
     this.db.setSetting("moodle_full_synced_at", new Date().toISOString());
+    if (await onTrackCacheIdentity()) {
+      const ontrack = await syncOnTrack(this.db, await fetchOnTrackAccount(), {
+        full: true,
+        onProgress: (processed, total) => this.progress?.("ontrack", processed, total),
+      });
+      starts.push(`ontrack:${ontrack.synced}`);
+    }
     this.db.setSetting("full_sync_completed_at", new Date().toISOString());
     return { ok: true, sources: starts };
   }

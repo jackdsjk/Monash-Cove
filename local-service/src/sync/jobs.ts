@@ -29,7 +29,7 @@ export class FullSyncJobs {
         gmail: { status: "pending", processed: 0, total: null },
         ed: { status: "pending", processed: 0, total: null },
         moodle: { status: "pending", processed: 0, total: null },
-        ontrack: { status: "skipped", processed: 0, total: null, message: "OnTrack 不支持全量历史同步，请使用来源同步更新任务。" },
+        ontrack: { status: "pending", processed: 0, total: null },
       },
     };
     return this.current;

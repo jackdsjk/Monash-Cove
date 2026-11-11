@@ -93,6 +93,55 @@ describe("full sync HTTP results", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
+  it("backfills old OnTrack feedback through the actual full sync route with other sources disconnected", async () => {
+    const secrets = new MemorySecretStore();
+    await secrets.set("ontrack-credentials", JSON.stringify({ baseUrl: "https://ontrack.example.invalid/api", username: "fixture", refreshToken: "fixture-only" }));
+    const requests: string[] = [];
+    let taskStatus = "working_on_it";
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input)); requests.push(url.pathname);
+      if (url.pathname.endsWith("/auth/access-token")) return Response.json({ auth_token: "fixture-token", auth_token_expiry: new Date(Date.now() + 600_000).toISOString(), user: { id: 1, username: "fixture" } });
+      if (url.pathname === "/api/projects") return Response.json([{ id: 1, unit: { id: 7, code: "UNIT", name: "Fixture" } }]);
+      if (url.pathname === "/api/projects/1") return Response.json({ unit_id: 7, tasks: [{ id: 10, task_definition_id: 20, status: taskStatus }] });
+      if (url.pathname === "/api/units/7") return Response.json({ task_definitions: [{ id: 20, abbreviation: "1.1P", name: "Fixture task" }] });
+      if (url.pathname.endsWith("/comments")) return Response.json([{ id: 99, type: "text", comment: "Old fixture feedback", created_at: "2020-01-01T00:00:00.000Z", author: { id: 2, first_name: "Fixture" } }]);
+      throw new Error(`Unexpected fixture URL: ${url.pathname}`);
+    }));
+    app = buildApp({ dbPath: ":memory:", secretStore: secrets });
+    const cachedTasks = await app.inject("/api/ontrack/tasks");
+    expect(cachedTasks.json().tasks[0].status).toBe("working_on_it");
+    taskStatus = "complete";
+    const result = await finishSync();
+    expect((await app.inject("/api/ontrack/tasks")).json().tasks[0].status).toBe("complete");
+    expect(result.fullSyncCompleted).toBe(true);
+    expect(Object.fromEntries(Object.entries(result.job.sources).map(([source, progress]) => [source, progress.status])))
+      .toEqual({ gmail: "skipped", ed: "skipped", moodle: "skipped", ontrack: "done" });
+    expect(result.job.sources.ontrack).toMatchObject({ processed: 1, total: 1 });
+    expect(result.job.sources.ontrack.message).toContain("1 条历史反馈");
+    const db = (app as FastifyInstance & { coveDb: CoveDatabase }).coveDb;
+    expect(db.getItem("ontrack:feedback:99")?.text).toBe("Old fixture feedback");
+    expect(requests.filter((path) => path.endsWith("/comments"))).toHaveLength(1);
+    await finishSync();
+    expect(requests.filter((path) => path.endsWith("/comments"))).toHaveLength(2);
+    expect(db.listItems()).toHaveLength(2);
+  });
+
+  it("reports configured OnTrack failures and preserves the last successful sync time", async () => {
+    const secrets = new MemorySecretStore();
+    await secrets.set("ontrack-credentials", JSON.stringify({ baseUrl: "https://ontrack.example.invalid/api", username: "fixture", refreshToken: "fixture-only" }));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("Fixture unavailable", { status: 503 })));
+    app = buildApp({ dbPath: ":memory:", secretStore: secrets });
+    const db = (app as FastifyInstance & { coveDb: CoveDatabase }).coveDb;
+    const previous = "2026-11-01T00:00:00.000Z";
+    db.setSourceStatus("ontrack", "connected", previous, null);
+    const result = await finishSync();
+    expect(result.job.status).toBe("error");
+    expect(result.job.sources.ontrack.status).toBe("error");
+    expect(result.fullSyncCompleted).toBe(false);
+    expect(db.getSetting("full_sync_completed_at")).toBeNull();
+    expect(db.listSources().find((source) => source.id === "ontrack")).toMatchObject({ status: "error", lastSyncAt: previous });
+  });
+
   it("retains failed source progress and last success while continuing other configured sources", async () => {
     const secrets = new MemorySecretStore();
     await secrets.set("gmail-oauth-tokens", JSON.stringify({ access_token: "expired-fixture", expires_at: 0 }));

@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { configureOnTrackCredentials } from "../sources/ontrack.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDatabase, type CoveDatabase } from "../db.js";
 import {
@@ -16,8 +20,12 @@ import * as sourceSync from "../sync/sources.js";
 import * as contentSync from "../sync/moodle-content.js";
 
 let db: CoveDatabase;
+let onTrackConfig: string;
 
 beforeEach(() => {
+  onTrackConfig = mkdtempSync(join(tmpdir(), "cove-course-preferences-"));
+  vi.stubEnv("ONTRACK_CONFIG_DIR", onTrackConfig);
+  configureOnTrackCredentials(new MemorySecretStore());
   db = createDatabase({ dbPath: ":memory:", seed: false });
   vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("Unexpected network call"); }));
 });
@@ -25,6 +33,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  rmSync(onTrackConfig, { recursive: true, force: true });
   db.close();
 });
 

@@ -3,6 +3,8 @@ import type { CoveDatabase } from "../db.js";
 import type { NewItem } from "../domain.js";
 import {
   fetchOnTrackComments,
+  fetchOnTrackAccount,
+  onTrackCacheIdentity,
   fetchOnTrackProjects,
   fetchOnTrackTasks,
   onTrackWebUrl,
@@ -22,7 +24,7 @@ export interface OnTrackSyncResult {
  *  end of that day in the campus timezone the student is enrolled in. */
 const CAMPUS_OFFSET = "+08:00";
 
-/** Older comments belong to last semester, not to this brief. */
+/** Incremental briefs keep recent feedback; explicit backfill includes all dates. */
 const FEEDBACK_RETENTION_DAYS = 90;
 
 function dueAtIso(date: string | null) {
@@ -33,9 +35,10 @@ function hash(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function taskItem(projectId: number, unitCode: string, task: OnTrackTask, baseUrl: string): NewItem {
+function taskItem(projectId: number, unitCode: string, task: OnTrackTask, baseUrl: string, sourceItemId: string): NewItem {
   const label = [task.abbreviation, task.name].filter(Boolean).join(" ");
-  const due = dueAtIso(task.dueDate);
+  const applicable = task.visibility === "within_target";
+  const due = applicable ? dueAtIso(task.dueDate) : null;
   const text = [
     `${label}：状态 ${task.status || "未知"}`,
     task.weighting ? `权重 ${task.weighting}%` : "",
@@ -46,9 +49,9 @@ function taskItem(projectId: number, unitCode: string, task: OnTrackTask, baseUr
     .join("。");
 
   return {
-    id: `ontrack:task:${task.id}`,
+    id: `ontrack:${sourceItemId}`,
     source: "ontrack",
-    sourceItemId: `task:${task.id}`,
+    sourceItemId,
     course: unitCode,
     title: label || "未命名任务",
     authorRole: "system",
@@ -60,8 +63,8 @@ function taskItem(projectId: number, unitCode: string, task: OnTrackTask, baseUr
     completedAt: task.completionDate ? `${task.completionDate}T00:00:00.000Z` : null,
     contentHash: hash(`${task.status}|${task.dueDate}|${task.submissionDate}|${task.timesAssessed}`),
     contentType: "assessment_fact",
-    importance: task.dueDate && !task.completionDate ? "important" : "reference",
-    actionRequired: task.dueDate && !task.completionDate ? "yes" : "no",
+    importance: applicable && task.dueDate && !task.completionDate ? "important" : "reference",
+    actionRequired: task.visibility === "unknown" ? "uncertain" : applicable && task.dueDate && !task.completionDate ? "yes" : "no",
     openOriginal: "optional",
     triageVersion: "ontrack-1",
     model: "ontrack",
@@ -100,53 +103,77 @@ function feedbackItem(projectId: number, unitCode: string, task: OnTrackTask, co
   };
 }
 
-export async function syncOnTrack(db: CoveDatabase, account: OnTrackAccount | null): Promise<OnTrackSyncResult> {
-  if (!account) throw new Error("OnTrack 还没有登录。在终端运行 ontrack login。");
+export interface OnTrackSyncOptions {
+  full?: boolean;
+  /** Counts projects whose tasks and feedback have finished. */
+  onProgress?: (processed: number, total: number) => void;
+}
 
+export async function syncOnTrack(db: CoveDatabase, account: OnTrackAccount | null, options: OnTrackSyncOptions = {}): Promise<OnTrackSyncResult> {
+  if (!account) throw new Error("OnTrack 还没有登录。在终端运行 ontrack login。");
+  if (!Number.isSafeInteger(account.userId) || account.userId <= 0) throw new Error("OnTrack 未提供有效的账户身份，请重新登录。");
+  const identity = await onTrackCacheIdentity();
+  const currentAccount = await fetchOnTrackAccount();
+  const assertIdentity = async (): Promise<void> => {
+    if (!identity || await onTrackCacheIdentity() !== identity) throw new Error("OnTrack 连接已更改，请重新同步。");
+  };
+  await assertIdentity();
+  if (!currentAccount || currentAccount.userId !== account.userId || currentAccount.baseUrl !== account.baseUrl) {
+    throw new Error("OnTrack 连接已更改，请重新同步。");
+  }
+
+  const baseUrl = account.baseUrl;
   const projects = await fetchOnTrackProjects();
-  // Comment fetches are one request per task. Scan each task once, then only
-  // re-scan when OnTrack reports unseen comments on it.
+  await assertIdentity();
   const cutoff = Date.now() - FEEDBACK_RETENTION_DAYS * 24 * 3_600_000;
-  const scanKey = "ontrack_comment_scan_v1";
+  const scanKey = `ontrack_comment_scan_v2:${hash(`${baseUrl}\0${account.userId}`)}`;
   const scanned = new Set<string>(JSON.parse(db.getSetting(scanKey) ?? "[]") as string[]);
   let synced = 0;
   let tasksSeen = 0;
   let feedbackSeen = 0;
+  let processed = 0;
+  options.onProgress?.(0, projects.length);
 
   for (const project of projects) {
-    const baseUrl = process.env.ONTRACK_BASE_URL ?? "https://ontrack.infotech.monash.edu/api";
-    const tasks = await fetchOnTrackTasks(project.id);
+    const tasks = await fetchOnTrackTasks(project.id, project, { includeNonApplicable: options.full });
+    await assertIdentity();
     tasksSeen += tasks.length;
 
     for (const task of tasks) {
-      db.upsertItem(taskItem(project.id, project.unitCode, task, baseUrl));
+      // Preserve existing instance IDs and keep newly discovered definitions stable
+      // if OnTrack later creates an instance, including local read/correction state.
+      const definitionKey = `task:project:${project.id}:definition:${task.taskDefinitionId}`;
+      const sourceItemId = task.id !== null && !db.getItem(`ontrack:${definitionKey}`)
+        ? `task:${task.id}` : definitionKey;
+      db.upsertItem(taskItem(project.id, project.unitCode, task, baseUrl, sourceItemId));
       synced += 1;
 
-      if (!task.taskDefinitionId) continue;
-      const scannedBefore = scanned.has(String(task.taskDefinitionId));
-      if (scannedBefore && task.numNewComments <= 0) continue;
+      if (!task.taskDefinitionId || !task.isInstantiated) continue;
+      const taskKey = `${project.id}:${task.taskDefinitionId}`;
+      if (!options.full && scanned.has(taskKey) && task.numNewComments <= 0) continue;
       const comments = await fetchOnTrackComments(project.id, task.taskDefinitionId);
-      const fromStaff = comments.filter(
+      await assertIdentity();
+      const feedback = comments.filter(
         (comment) =>
+          Boolean(comment.id) &&
           comment.authorId !== null &&
           comment.authorId !== account.userId &&
           comment.comment.trim() &&
-          // Status transitions duplicate task.status; only real messages and
-          // assessment results are worth a brief entry.
           (comment.type === "text" || comment.type === "assessment") &&
-          (!comment.createdAt || Date.parse(comment.createdAt) > cutoff),
+          (options.full || !comment.createdAt || Date.parse(comment.createdAt) > cutoff),
       );
-      for (const comment of fromStaff) {
+      for (const comment of feedback) {
         db.upsertItem(feedbackItem(project.id, project.unitCode, task, comment, baseUrl));
         synced += 1;
         feedbackSeen += 1;
       }
-      scanned.add(String(task.taskDefinitionId));
+      scanned.add(taskKey);
     }
+    options.onProgress?.(++processed, projects.length);
   }
 
+  await assertIdentity();
   db.setSetting(scanKey, JSON.stringify([...scanned]));
-
   db.setSourceStatus("ontrack", "connected", new Date().toISOString(), null);
   db.setSetting("last_synced_at", new Date().toISOString());
   return { synced, projects: projects.length, tasks: tasksSeen, feedback: feedbackSeen };

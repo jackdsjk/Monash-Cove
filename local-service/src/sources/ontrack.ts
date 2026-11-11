@@ -4,6 +4,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { SecretStore } from "../secrets.js";
 import { withTimeout } from "../http.js";
+import { ONTRACK_MAX_ARTIFACT_BYTES, type OnTrackArtifact } from "./ontrack-artifacts.js";
+import { mapWithConcurrency } from "../vendor/always-ontrack/async-pool.js";
+import { buildStudentTaskViews, type StudentTaskVisibility } from "../vendor/always-ontrack/student-task-view.js";
+import type { ProjectSummary, UnitSummary } from "../vendor/always-ontrack/types.js";
 
 /**
  * Read-only OnTrack (Doubtfire) client.
@@ -13,6 +17,7 @@ import { withTimeout } from "../http.js";
  */
 
 export interface OnTrackAccount {
+  baseUrl: string;
   userId: number;
   username: string;
   firstName: string;
@@ -30,7 +35,10 @@ export interface OnTrackProject {
 }
 
 export interface OnTrackTask {
-  id: number;
+  /** Real task instance ID only; a definition can exist before an instance. */
+  id: number | null;
+  isInstantiated: boolean;
+  visibility: StudentTaskVisibility;
   taskDefinitionId: number;
   abbreviation: string;
   name: string;
@@ -306,6 +314,7 @@ export async function fetchOnTrackAccount(): Promise<OnTrackAccount | null> {
     await assertCurrent(current);
     const user = auth.user;
     return {
+      baseUrl: current.baseUrl,
       userId: user?.id ?? 0,
       username: user?.username ?? current.username,
       firstName: user?.first_name ?? "",
@@ -319,6 +328,7 @@ export async function fetchOnTrackAccount(): Promise<OnTrackAccount | null> {
   const session = current.session;
   if (!session?.user?.id) return null;
   return {
+    baseUrl: current.baseUrl,
     userId: session.user.id,
     username: session.user.username ?? session.username ?? "",
     firstName: session.user.first_name ?? "",
@@ -329,71 +339,80 @@ export async function fetchOnTrackAccount(): Promise<OnTrackAccount | null> {
   };
 }
 
-export async function fetchOnTrackProjects(): Promise<OnTrackProject[]> {
-  const auth = await credentials();
-  const raw = await getJson<Array<{ id?: number; unit?: { id?: number; code?: string; name?: string } }>>(auth, "/projects");
-  return raw
-    .filter((project) => typeof project.id === "number" && typeof project.unit?.id === "number")
-    .map((project) => ({
-      id: project.id as number,
-      unitId: project.unit?.id as number,
-      unitCode: project.unit?.code ?? "",
-      unitName: project.unit?.name ?? "",
-    }));
+/** Always-Ontrack project-catalogue fallback for snake/camel unit IDs. */
+function projectUnitId(project: ProjectSummary): number | null {
+  const id = project.unit?.id ?? project.unitId ?? project.unit_id;
+  return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
-export async function fetchOnTrackTasks(projectId: number): Promise<OnTrackTask[]> {
+export async function fetchOnTrackProjects(): Promise<OnTrackProject[]> {
   const auth = await credentials();
-  const detail = await getJson<{
-    unit_id?: number;
-    tasks?: Array<Record<string, unknown>>;
-  }>(auth, `/projects/${projectId}`);
-  const definitions = await fetchDefinitions(auth, Number(detail.unit_id ?? 0));
-
-  return (detail.tasks ?? []).map((task) => {
-    const taskDefinitionId = Number(task.task_definition_id ?? 0);
-    const definition = definitions.get(taskDefinitionId);
+  const raw = await getJson<ProjectSummary[]>(auth, "/projects");
+  if (!Array.isArray(raw)) throw new Error("OnTrack 项目列表格式无效。");
+  const units = new Map<number, Promise<UnitSummary>>();
+  return mapWithConcurrency(raw, 4, async (project) => {
+    const unitId = projectUnitId(project);
+    if (!Number.isSafeInteger(project.id) || project.id <= 0 || unitId === null) {
+      throw new Error("OnTrack 项目缺少有效的项目或课程 ID。");
+    }
+    // Some API versions expose only unit_id; hydrate those summaries once per unit.
+    let unit = project.unit;
+    if (!unit?.code) {
+      let pending = units.get(unitId);
+      if (!pending) {
+        pending = getJson<UnitSummary>(auth, `/units/${unitId}`);
+        units.set(unitId, pending);
+      }
+      unit = await pending;
+    }
     return {
-      id: Number(task.id ?? 0),
-      taskDefinitionId,
-      abbreviation: definition?.abbreviation ?? "",
-      name: definition?.name ?? "",
-      description: definition?.description ?? "",
-      status: String(task.status ?? ""),
-      dueDate: dateOnly(task.due_date),
-      targetDueDate: dateOnly(task.target_due_date),
-      submissionDate: dateOnly(task.submission_date),
-      completionDate: dateOnly(task.completion_date),
-      weighting: definition?.weighting ?? null,
-      timesAssessed: Number(task.times_assessed ?? 0),
-      numNewComments: Number(task.num_new_comments ?? 0),
+      id: project.id,
+      unitId,
+      unitCode: unit.code ?? `课程 ${unitId}`,
+      unitName: unit.name ?? "",
     };
   });
 }
 
-interface Definition {
-  abbreviation: string;
-  name: string;
-  description: string;
-  weighting: number | null;
-}
-
-async function fetchDefinitions(auth: Credentials, unitId: number): Promise<Map<number, Definition>> {
-  const map = new Map<number, Definition>();
-  if (!unitId) return map;
-
-  const unit = await getJson<{ task_definitions?: Array<Record<string, unknown>> }>(auth, `/units/${unitId}`);
-  for (const definition of unit.task_definitions ?? []) {
-    const id = Number(definition.id ?? 0);
-    if (!id) continue;
-    map.set(id, {
-      abbreviation: String(definition.abbreviation ?? ""),
-      name: String(definition.name ?? ""),
-      description: String(definition.description ?? ""),
-      weighting: typeof definition.weighting === "number" ? definition.weighting : null,
-    });
-  }
-  return map;
+export async function fetchOnTrackTasks(
+  projectId: number,
+  summary?: OnTrackProject,
+  options: { includeNonApplicable?: boolean } = {},
+): Promise<OnTrackTask[]> {
+  const auth = await credentials();
+  const detail = await getJson<ProjectSummary>(auth, `/projects/${projectId}`);
+  const unitId = projectUnitId(detail) ?? summary?.unitId;
+  if (!unitId) throw new Error("OnTrack 项目缺少课程 ID，无法读取完整任务目录。");
+  const unit = await getJson<UnitSummary>(auth, `/units/${unitId}`);
+  const definitions = unit.taskDefinitions ?? unit.task_definitions;
+  if (!Array.isArray(definitions)) throw new Error("OnTrack 课程未返回完整任务定义。");
+  const project: ProjectSummary = { ...detail, id: projectId, unit: { ...detail.unit, ...unit, id: unitId } };
+  // Keep unknown applicability visible, but never invent instance IDs or deadlines.
+  return buildStudentTaskViews([project], {
+    includeUnknown: true,
+    includeBeyondTarget: options.includeNonApplicable,
+    includeTutorialMismatches: options.includeNonApplicable,
+  }).map((view) => {
+    const task = view.instance;
+    const instanceId = view.taskInstanceId;
+    return {
+      id: instanceId !== undefined && instanceId > 0 ? instanceId : null,
+      isInstantiated: instanceId !== undefined && instanceId > 0,
+      visibility: view.visibility,
+      taskDefinitionId: view.reference.taskDefinitionId,
+      abbreviation: view.definition.abbreviation ?? "",
+      name: view.definition.name ?? "",
+      description: typeof view.definition.description === "string" ? view.definition.description : "",
+      status: view.status,
+      dueDate: dateOnly(view.dates.effectiveDue),
+      targetDueDate: dateOnly(task?.targetDueDate ?? task?.target_due_date ?? view.dates.target),
+      submissionDate: dateOnly(view.dates.submission),
+      completionDate: dateOnly(view.dates.completion),
+      weighting: typeof view.definition.weighting === "number" ? view.definition.weighting : null,
+      timesAssessed: Number(task?.timesAssessed ?? task?.times_assessed ?? 0),
+      numNewComments: Number(task?.numNewComments ?? task?.num_new_comments ?? 0),
+    };
+  });
 }
 
 export async function fetchOnTrackComments(projectId: number, taskDefinitionId: number): Promise<OnTrackComment[]> {
@@ -420,20 +439,49 @@ export async function fetchOnTrackComments(projectId: number, taskDefinitionId: 
 }
 
 /** Download one read-only artifact (task sheet, resources, or submission PDF). */
-export async function fetchOnTrackArtifact(path: string): Promise<{ body: Buffer; contentType: string }> {
+export async function fetchOnTrackArtifact(path: string): Promise<OnTrackArtifact> {
   const auth = await credentials();
   const response = await withTimeout(fetch)(`${auth.baseUrl}${path}`, {
     headers: { Accept: "*/*", "Auth-Token": auth.token, Username: auth.username },
   });
   if (response.status === 419 || response.status === 401) {
+    await response.body?.cancel();
     throw new Error("OnTrack 会话已过期，请在终端重新运行 ontrack login。");
   }
-  if (!response.ok) {
-    throw new Error(`OnTrack 下载失败：返回 ${response.status}`);
+  if (!response.ok || response.status === 206) {
+    await response.body?.cancel();
+    throw new Error(`OnTrack 下载失败：返回 ${response.status}，需要完整文件。`);
   }
-  const body = Buffer.from(await response.arrayBuffer());
+  if (Number(response.headers.get("content-length")) > ONTRACK_MAX_ARTIFACT_BYTES) {
+    await response.body?.cancel();
+    throw new Error("OnTrack 文件超过本地 25 MiB 下载上限。");
+  }
+  const reader = response.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  if (reader) {
+    try {
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        size += chunk.value.byteLength;
+        if (size > ONTRACK_MAX_ARTIFACT_BYTES) {
+          await reader.cancel();
+          throw new Error("OnTrack 文件超过本地 25 MiB 下载上限。");
+        }
+        chunks.push(chunk.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  const body = Buffer.concat(chunks, size);
   await assertCurrent(auth);
-  return { body, contentType: response.headers.get("content-type") ?? "application/octet-stream" };
+  return {
+    body,
+    contentType: response.headers.get("content-type") ?? "application/octet-stream",
+    contentDisposition: response.headers.get("content-disposition"),
+  };
 }
 
 export function onTrackWebUrl(baseUrl: string, projectId: number, taskDefinitionId: number) {

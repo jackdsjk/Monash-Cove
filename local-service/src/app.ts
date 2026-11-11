@@ -15,6 +15,7 @@ import { GoogleOAuth, OAuthError, type GoogleOAuthConfig } from "./oauth/google.
 import { defaultSecretStore, type SecretStore } from "./secrets.js";
 import { SyncOrchestrator } from "./sync/orchestrator.js";
 import { syncGmail } from "./sync/gmail.js";
+import { syncOnTrack } from "./sync/ontrack.js";
 import { syncEd, syncMoodle, syncMoodleForum } from "./sync/sources.js";
 import { syncAllMoodleContent } from "./sync/moodle-content.js";
 import { FullSyncJobs, type SyncSource } from "./sync/jobs.js";
@@ -34,6 +35,7 @@ import type { ApiError, ChangesResponse, ItemChange, Source, StoredItem } from "
 import { describeCredentials } from "./credentials.js";
 import { configureOnTrackCredentials, disconnectOnTrackCredentials, onTrackCacheIdentity, fetchOnTrackAccount, fetchOnTrackArtifact, fetchOnTrackComments, fetchOnTrackProjects, fetchOnTrackTasks } from "./sources/ontrack.js";
 import { getRuntimeStatus } from "./runtime.js";
+import { validateOnTrackArtifact } from "./sources/ontrack-artifacts.js";
 import { MoodleLoginAssistant } from "./setup/moodle-assistant.js";
 import { OnTrackLoginAssistant } from "./setup/ontrack-assistant.js";
 import { AttendanceLoginAssistant } from "./attendance/assistant.js";
@@ -675,7 +677,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
 
   const readOnTrack = async (identity: string, force: boolean) => resourceCache.read({
-    source: "ontrack", identity, resource: "overview:v1", ttlMs: RESOURCE_TTL.ontrack,
+    source: "ontrack", identity, resource: "overview:v2", ttlMs: RESOURCE_TTL.ontrack,
     currentIdentity: onTrackCacheIdentity, force,
   }, async () => {
     const account = await fetchOnTrackAccount();
@@ -685,7 +687,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     // Bounded project batches; all overview/list consumers share this one refresh.
     for (let index = 0; index < projects.length; index += 4) {
       const batch = await Promise.all(projects.slice(index, index + 4).map(async (project) => ({
-        ...project, tasks: await fetchOnTrackTasks(project.id),
+        ...project, tasks: await fetchOnTrackTasks(project.id, project),
       })));
       overview.push(...batch);
     }
@@ -709,8 +711,11 @@ export function buildApp(options: AppOptions): FastifyInstance {
     const projectId = Number(request.query.project);
     const taskDefinitionId = Number(request.query.task);
     const kind = request.query.kind ?? "task";
-    if (!Number.isInteger(projectId) || !Number.isInteger(taskDefinitionId)) {
-      return reply.code(400).send({ error: { code: "invalid_target", message: "project and task are required.", retryable: false } } satisfies ApiError);
+    if (!Number.isSafeInteger(projectId) || projectId <= 0 || !Number.isSafeInteger(taskDefinitionId) || taskDefinitionId <= 0) {
+      return reply.code(400).send({ error: { code: "invalid_target", message: "project and task must be positive integers.", retryable: false } } satisfies ApiError);
+    }
+    if (kind !== "task" && kind !== "submission" && kind !== "resources") {
+      return reply.code(400).send({ error: { code: "invalid_kind", message: "kind must be task, submission or resources.", retryable: false } } satisfies ApiError);
     }
 
     try {
@@ -723,9 +728,11 @@ export function buildApp(options: AppOptions): FastifyInstance {
             : `/units/${unitId}/task_definitions/${taskDefinitionId}/task_pdf.json?as_attachment=true`;
 
       const artifact = await fetchOnTrackArtifact(path);
-      const filename = `ontrack-${kind}-${taskDefinitionId}.${kind === "resources" ? "zip" : "pdf"}`;
+      const validated = validateOnTrackArtifact(artifact, kind);
+      const filename = `ontrack-${kind}-${taskDefinitionId}${validated.extension}`;
       return reply
-        .header("content-type", artifact.contentType)
+        .header("content-type", validated.contentType)
+        .header("x-content-type-options", "nosniff")
         .header("content-disposition", `attachment; filename="${filename}"`)
         .send(artifact.body);
     } catch (error) {
@@ -1474,6 +1481,16 @@ export function buildApp(options: AppOptions): FastifyInstance {
         }, getMoodleCoursePreferences(db, createHash("sha256").update(`moodle\0${raw}`).digest("hex")));
         fullSyncJobs.update("moodle", { status: "done", processed: content.courses, total: content.courses, message: `${assessments.synced + forum.synced} 条简报，${content.items} 条资料` });
         db.setSetting("moodle_full_synced_at", new Date().toISOString());
+      });
+
+      await run("ontrack", async () => Boolean(await onTrackCacheIdentity()), async () => {
+        const account = await fetchOnTrackAccount();
+        const result = await syncOnTrack(db, account, {
+          full: true,
+          onProgress: (processed, total) => fullSyncJobs.update("ontrack", { processed, total }),
+        });
+        resourceCache.invalidate("ontrack");
+        fullSyncJobs.update("ontrack", { message: `${result.tasks} 条任务，${result.feedback} 条历史反馈（当前可访问项目）` });
       });
 
       if (errors.length === 0) {
