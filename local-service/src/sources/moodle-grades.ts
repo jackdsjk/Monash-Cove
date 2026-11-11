@@ -69,10 +69,10 @@ const COURSE_CONCURRENCY = 4;
 export class MoodleGradesClient {
   private readonly baseUrl: string;
   private readonly courses: MoodleClient;
-  private readonly pages: MoodlePageReader;
+  private pages: MoodlePageReader;
 
   /** `cookie` is the full Cookie header for Moodle (see `moodleCookieHeader`). */
-  constructor(baseUrl: string, private readonly cookie: string, fetcher: typeof fetch = fetch) {
+  constructor(baseUrl: string, private readonly cookie: string, private readonly fetcher: typeof fetch = fetch) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.courses = new MoodleClient(this.baseUrl, cookie, fetcher);
     this.pages = createMoodlePageReader(fetcher);
@@ -97,6 +97,7 @@ export class MoodleGradesClient {
   }
 
   async pullDetailed(preferences?: CoursePreferences): Promise<{ courses: MoodleGradeCourse[]; failedCourseIds: string[]; failureReasons: Record<string, string> }> {
+    this.pages = createMoodlePageReader(this.fetcher);
     const probe = await this.courses.probeSession().catch((error: unknown) => {
       if (error instanceof MoodleSessionExpiredError) return { ok: false, expired: true };
       throw new MoodleGradesError("grades_failed", "Moodle is unreachable; the saved session has been retained.");
@@ -119,7 +120,8 @@ export class MoodleGradesClient {
     }
     const results = await mapLimited(targets, COURSE_CONCURRENCY, async (course): Promise<MoodleGradeCourse | { error: unknown; courseId: string } | null> => {
       try {
-        const report = await this.scrapeCourse(course.id);
+        const overviewGrade = overview.find((row) => row.courseId === String(course.id))?.gradeText ?? null;
+        const report = await this.scrapeCourse(course.id) ?? (overviewGrade ? { items: [], total: { earned: null, max: null } } : null);
         if (!report) return null;
         let assessmentStructure: AssessmentStructureRow[] = [];
         let assessmentWarning: string | null = null;
@@ -129,7 +131,8 @@ export class MoodleGradesClient {
             assessmentStructure = await this.readAssessmentStructure(course.id);
             const activities = assessmentStructure.filter((row) => !row.isCategory);
             for (const row of activities) row.gradeItemId = matchGradebookItem(row, report.items, activities, this.baseUrl)?.id ?? null;
-            assessmentFetchedAt = new Date().toISOString();
+            if (assessmentStructure.length) assessmentFetchedAt = new Date().toISOString();
+            else assessmentWarning = "尚未读到可用的 Assessments 权重结构；仍显示 Grades 原始成绩。";
           } catch (error) {
             // A missing weight source must not hide successfully read scores.
             if (error instanceof MoodleGradesError && error.code === "session_expired") throw error;
@@ -146,7 +149,7 @@ export class MoodleGradesClient {
           assessmentStructure,
           assessmentWarning,
           assessmentFetchedAt, assessmentStale: false,
-          overviewGrade: overview.find((row) => row.courseId === String(course.id))?.gradeText ?? null,
+          overviewGrade,
           overviewWarning: overviewFailed ? "Overview 总评暂时无法读取。" : null,
           detailWarning: [overviewFailed ? "Overview 总评暂时无法读取。" : "", detailFailed ? "部分活动详情暂时无法读取；仍显示 Grades 成绩。" : ""].filter(Boolean).join(" ") || null,
         } satisfies MoodleGradeCourse;
@@ -172,10 +175,17 @@ export class MoodleGradesClient {
 
   private async readAssessmentStructure(courseId: number): Promise<AssessmentStructureRow[]> {
     const main = await this.readPage(`/course/view.php?id=${courseId}`);
+    const mainRows = parseAssessmentStructure(main, this.baseUrl);
     const section = discoverAssessmentsSection(main, courseId, this.baseUrl) ?? 56;
-    const page = await this.readPage(`/course/view.php?id=${courseId}&section=${section}`);
-    const rows = parseAssessmentStructure(page, this.baseUrl);
-    return rows.length ? rows : parseAssessmentStructure(main, this.baseUrl);
+    try {
+      const page = await this.readPage(`/course/view.php?id=${courseId}&section=${section}`);
+      const rows = parseAssessmentStructure(page, this.baseUrl);
+      return rows.length ? rows : mainRows;
+    } catch (error) {
+      if (error instanceof MoodleGradesError && error.code === "session_expired") throw error;
+      if (mainRows.length) return mainRows;
+      throw error;
+    }
   }
 
   private async readPage(path: string): Promise<string> {

@@ -413,6 +413,28 @@ describe("GET /api/moodle/grades", () => {
 
 
 describe("Grades-confirmed activity enrichment", () => {
+  it("keeps overview-only courses, falls back to homepage structure and resets HTML between pulls", async () => {
+    let grade: number | null = null;
+    const fetcher = (async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/lib/ajax/service.php") return Response.json([{ error: false, data: { courses: [{ id: 1, shortname: "FIT1001", fullname: "Fixture" }] } }]);
+      if (url.pathname === "/grade/report/overview/index.php") return new Response('<table><tr><td><a href="/course/user.php?id=1&amp;mode=grade">Fixture</a></td><td>HD</td></tr></table>');
+      if (url.pathname === "/grade/report/user/index.php") return new Response(grade === null ? noGradesPage : `<table class="user-grade"><tr><th>Grade item</th><th>Grade</th><th>Range</th></tr><tr><td><span class="gradeitemheader">Essay</span></td><td>${grade}</td><td>0–10</td></tr></table>`);
+      if (url.pathname === "/course/view.php") return url.searchParams.has("section") ? new Response("No section", { status: 404 })
+        : new Response('<li class="activity modtype_assign"><a href="/mod/assign/view.php?id=7"><span class="instancename">Essay (40%)</span></a></li>');
+      return new Response('<script>{"sesskey":"fixture"}</script>');
+    }) as typeof fetch;
+    const client = new MoodleGradesClient("https://moodle.example.invalid", "fixture", fetcher);
+    expect((await client.pull())[0]).toMatchObject({ overviewGrade: "HD", items: [], total: { earned: null, max: null } });
+    grade = 8;
+    const [weighted] = await client.pull();
+    expect(weighted.assessmentWarning).toBeNull();
+    expect(weighted.assessmentStructure[0].weight).toBe(40);
+    expect(weighted.items[0].grade).toBe(8);
+    grade = 9;
+    expect((await client.pull())[0].items[0].grade).toBe(9);
+  });
+
   it("enriches old/no-due quizzes and hidden grades while keeping Grades authoritative", async () => {
     const calls: string[] = [];
     const fetcher = (async (input: string | URL | Request) => {
