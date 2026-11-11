@@ -91,16 +91,16 @@ Moodle 课程、成绩，Ed 课程/lesson，以及 OnTrack 概览/任务的 GET 
 
 每周资料页的“同步范围”按当前 Moodle 连接隔离保存：默认全部学期，支持显式学期、隐藏与置顶。未知学期保留，隐藏优先，置顶覆盖学期筛选。范围只影响批量资料同步和成绩抓取，不过滤已保存的资料浏览，也不改变简报 assessment/forum 拉取；单课手动同步可绕过范围。成绩快照包含范围版本，设置变更不会误用旧范围的缓存或删除课程目录。内部 Cookie 轮换保留范围；显式重连后需重新设置。
 
-成绩快照现为 `grades:v8:<range>`，避免沿用旧解析结果。成绩抓取先复用 Muster 的门户名称判断，跳过 Academic Success、Student Portal、Student Hub 等学习支持入口；课程目录和资料浏览仍保留这些入口。真实教学课程的 HTTP 失败继续报告具体安全原因，不将 404 一概当成空成绩。按 Muster 的 `.gradeitemheader` 条件识别实际评分项并去重，保留未出分和手工录入项目；普通数值行和分类小计不计入。成绩列优先按 Moodle 类名读取，忽略缩进和操作菜单；支持百分比及分数范围，分类相对权重仅在祖先归属可确认时折算。未公布课程总分时保留 null；网络/503 与明确登录失效分别报告。参考和测试边界见 [资料页与成绩修复记录](../docs/learning-pages-and-grades-2026-11-11.md)。
+成绩快照现为 `grades:v9:<range>`，避免沿用旧解析结果。成绩抓取先复用 Muster 的门户名称判断，跳过 Academic Success、Student Portal、Student Hub 等学习支持入口；课程目录和资料浏览仍保留这些入口。真实教学课程的 HTTP 失败继续报告具体安全原因，不将 404 一概当成空成绩。按 Muster 的 `.gradeitemheader` 条件识别实际评分项并去重，保留未出分和手工录入项目；普通数值行和分类小计不计入。成绩列优先按 Moodle 类名读取，忽略缩进和操作菜单；支持百分比及分数范围，分类相对权重仅在祖先归属可确认时折算。未公布课程总分时保留 null；网络/503 与明确登录失效分别报告。参考和测试边界见 [资料页与成绩修复记录](../docs/learning-pages-and-grades-2026-11-11.md)。
 
-作业资料与成绩页共用当前账号／同步范围的 `grades:v8` 快照和单次刷新；首次无缓存时读取 Grades，后续复用。按课程隔离后，优先匹配活动 ID，再对去权重文字后的唯一名称匹配；冲突 ID、外站和歧义名称不通过。Grades 读取失败时保留同账号旧快照已确认的资料并提示；无可用快照或未连接则不列出未确认作业。仅有提交入口不代表参与评分，未出分的 Grades 项仍可关联。
+作业资料与成绩页共用当前账号／同步范围的 `grades:v9` 快照和单次刷新；首次无缓存时读取 Grades，后续复用。按课程隔离后，优先匹配活动 ID，再对去权重文字后的唯一名称匹配；冲突 ID、外站和歧义名称不通过。Grades 读取失败时保留同账号旧快照已确认的资料并提示；无可用快照或未连接则不列出未确认作业。仅有提交入口不代表参与评分，未出分的 Grades 项仍可关联。
 
 
 ### 成绩补全与同步
 
 成绩结构补充读取同课程 Assessments 的分类、权重和活动链接；空权重栏按 Muster 回退分类标题，显式 0 优先。结构刷新失败时沿用同账号／范围旧结构并重新匹配当前 Grades，保留 `assessmentFetchedAt`，标记 `assessmentStale`；首次无旧结构仍显示原始分数并提示。分区失败而主页有结构时回退主页。详见 [Muster 规则核对](../docs/muster-grading-rules-2026-11-11.md)。
 
-仅对 Grades 已确认的同源 assign/quiz 补详情，Grades 分数优先；已公开且未变的详情复用现有快照 30 分钟（`RESOURCE_TTL.gradeDetails`），分数变化或过期后重读，待评分／隐藏分数每轮继续复核。item 的 `gradingState` 独立保留已评分但隐藏状态，`gradeSource` 标明 gradebook/activity。course 的 `overviewGrade` 保留 Overview 原文，不猜满分；`overviewWarning`／`detailWarning` 标明局部不可用。Overview 有值但明细为空的课程仍返回。普通／定时／全量 Moodle 同步均更新同一成绩快照，Grades 已确认的旧或无 due 测验也会复核；submitted/graded 写入既有本地完成事实，未知不擦除，用户显式决定优先。同步后的前端只非 force 重读本地快照；局部失败以 `gradeWarning`／快照错误提示，不伪装内容全失败。
+仅对 Grades 已确认的同源 assign/quiz 补详情，Grades 分数优先；已公开且未变的详情复用现有快照 30 分钟（`RESOURCE_TTL.gradeDetails`），分数变化或过期后重读，待评分／隐藏分数每轮继续复核。item 的 `gradeRange` 保留 Grades 的 Range 原文（含 Pass/Fail 量表），Pass/Fail 不换算为数值，显式 Ungraded 不当作已发布成绩。item 的 `gradingState` 独立保留已评分但隐藏状态，`gradeSource` 标明 gradebook/activity。course 的 `overviewGrade` 保留 Overview 原文，不猜满分；`overviewWarning`／`detailWarning` 标明局部不可用。Overview 有值但明细为空的课程仍返回。普通／定时／全量 Moodle 同步均更新同一成绩快照，Grades 已确认的旧或无 due 测验也会复核；submitted/graded 写入既有本地完成事实，未知不擦除，用户显式决定优先。同步后的前端只非 force 重读本地快照；局部失败以 `gradeWarning`／快照错误提示，不伪装内容全失败。
 
 `gradeChanges` 仅在同课程／同项目有基线后比较发布值；首次读取或新发现项目不提醒。事件 `{id,kind,itemName,detectedAt}` 不包含成绩值，最多保留 30 天／20 条。前端横幅关闭只保存内存中的事件 ID，浏览器重启后重置。没有原生系统通知或学习建议集成。
 

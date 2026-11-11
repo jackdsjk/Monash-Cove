@@ -132,3 +132,5 @@ Use short, imperative subjects and keep commits focused. Pull requests should ex
 ## Security & Configuration Tips
 
 Treat student records, emails, and schedules as sensitive. Never commit credentials, tokens, private certificates, real endpoints, or identifiable user data. Use environment variables, anonymized fixtures, and safe placeholders in `.env.example`.
+
+Grades scale ranges must survive as `gradeRange`; never convert Pass/Fail or explicit Ungraded to numeric percentages. Preserve pending Grade rows internally for matching and original category shares; display policy can hide them without redistributing their weight.

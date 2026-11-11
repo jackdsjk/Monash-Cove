@@ -20,6 +20,8 @@ export interface MoodleGradeItem {
   grade: number | null;
   /** Upper bound of the item's range; `null` when the report omits the range. */
   gradeMax: number | null;
+  /** Original Grades range, including nonnumeric scales such as `Fail–Pass`. */
+  gradeRange?: string | null;
   /** Weight as a share of the course total, e.g. 20 for `20.00 %`. */
   weight: number | null;
   feedback: string;
@@ -292,6 +294,8 @@ function fieldText(row: HTMLElement, cells: HTMLElement[], columns: Partial<Reco
 
 function mark(gradeText: string, percentage: number | null, range: { max: number | null } | null): { grade: number | null; gradeMax: number | null } {
   const text = withoutPlaceholder(gradeText).trim();
+  if (/^(?:pass|fail)$/i.test(text)) return { grade: null, gradeMax: null };
+  if (/^(?:ungraded|not graded)$/i.test(gradeText.trim())) return { grade: null, gradeMax: range?.max ?? null };
   const ratio = text.match(/^(-?\d+(?:\.\d+)?)\s*(?:\/|out of)\s*(\d+(?:\.\d+)?)/i);
   if (ratio) return { grade: Number(ratio[1]), gradeMax: Number(ratio[2]) > 0 ? Number(ratio[2]) : null };
   const percent = text.match(/^(-?\d+(?:\.\d+)?)\s*%/);
@@ -383,7 +387,8 @@ export function parseGradeReport(html: string, courseId: string): ParsedGradeRep
       if (!name) continue;
 
       const gradeText = fieldText(row, cells, columns, "grade");
-      const range = parseRange(fieldText(row, cells, columns, "range"));
+      const gradeRange = withoutPlaceholder(fieldText(row, cells, columns, "range")) || null;
+      const range = parseRange(gradeRange ?? "");
       const percentage = parseNumber(fieldText(row, cells, columns, "percentage"));
 
       if (/courseitem/.test(classes) || COURSE_TOTAL.test(name)) {
@@ -413,6 +418,7 @@ export function parseGradeReport(html: string, courseId: string): ParsedGradeRep
         name,
         url,
         gradeText: withoutPlaceholder(gradeText) || null,
+        gradeRange,
         ...score,
         weight,
         feedback,
@@ -478,7 +484,7 @@ function cellText(cell: HTMLElement) {
 
 /** Moodle prints "-" (and similar) where a value does not exist. */
 function withoutPlaceholder(value: string) {
-  return /^[-–—]+$|^n\/?a$/i.test(value.trim()) ? "" : value;
+  return /^[-–—]+$|^n\/?a$|^(?:ungraded|not graded)$/i.test(value.trim()) ? "" : value;
 }
 
 /** Moodle prefixes nested items with bidi marks; keep the visible name only. */

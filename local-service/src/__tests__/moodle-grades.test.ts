@@ -99,6 +99,19 @@ const chineseGradeTable = `
 const noGradesPage = `<html><body><p class="alert">No grades available yet.</p></body></html>`;
 
 describe("Moodle grade report parsing", () => {
+  it("preserves Grades scale ranges without converting Pass/Fail or Ungraded to percentages", () => {
+    const report = parseGradeReport(`<table class="user-grade"><tr><th>Grade item</th><th>Grade</th><th>Range</th><th>Percentage</th></tr>
+      <tr><td><span class="gradeitemheader">Requirement A</span></td><td>Pass</td><td>Fail–Pass</td><td>100%</td></tr>
+      <tr><td><span class="gradeitemheader">Requirement B</span></td><td>Fail</td><td>Fail, Pass</td><td>0%</td></tr>
+      <tr><td><span class="gradeitemheader">Unreleased</span></td><td>Ungraded</td><td>0–100</td><td>0%</td></tr>
+      <tr><td><span class="gradeitemheader">Numeric</span></td><td>80</td><td>0–100</td><td>80%</td></tr></table>`, "101");
+    expect(report?.items.map(({ gradeText, gradeRange, grade, gradeMax }) => ({ gradeText, gradeRange, grade, gradeMax }))).toEqual([
+      { gradeText: "Pass", gradeRange: "Fail–Pass", grade: null, gradeMax: null },
+      { gradeText: "Fail", gradeRange: "Fail, Pass", grade: null, gradeMax: null },
+      { gradeText: null, gradeRange: "0–100", grade: null, gradeMax: 100 },
+      { gradeText: "80", gradeRange: "0–100", grade: 80, gradeMax: 100 },
+    ]);
+  });
   it("accepts only Muster grade-item headers, retaining pending quizzes and manual grades", () => {
     const report = parseGradeReport(`<a class="gradeitemheader" href="/mod/assign/view.php?id=99">Outside table</a>
       <table class="user-grade"><tr><th>Grade item</th><th>Grade</th><th>Range</th></tr>
